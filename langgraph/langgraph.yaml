@@ -1,0 +1,13 @@
+services:
+  langgraph:
+    build: .
+    container_name: langgraph
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8002:8001"
+    networks:
+      - ai-stack-net
+
+networks:
+  ai-stack-net:
+    external: true
