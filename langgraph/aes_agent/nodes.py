@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from app.helpers import ollama_json, safe_list_of_str, safe_str
-from app.prompts import (
+from aes_agent.helpers import ollama_json, safe_list_of_str, safe_str
+from aes_agent.prompts import (
     check_problem_completeness_prompt,
     classify_problem_prompt,
     extract_mathematical_structure_prompt,
@@ -11,7 +11,7 @@ from app.prompts import (
     select_formulation_prompt,
     select_tools_prompt,
 )
-from app.state import AgentState
+from aes_agent.state import AgentState
 
 
 def ingest_problem(state: AgentState) -> Dict[str, Any]:

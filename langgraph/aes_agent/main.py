@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from app.graph import graph
+from aes_agent.graph import graph
 
 app = FastAPI(title="LangGraph Service")
 
@@ -16,7 +16,7 @@ def health():
 
 
 @app.post("/invoke")
-def invoke(query: Query):
+def invoke(query: Query) -> dict:
     initial_state = {
         "raw_user_input": query.text,
         "problem_class": "",
