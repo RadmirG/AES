@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+
 from app.graph import graph
 
 app = FastAPI(title="LangGraph Service")
