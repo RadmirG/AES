@@ -16,7 +16,7 @@ def health():
 
 
 @app.post("/invoke")
-def invoke(query: Query) -> dict:
+def invoke(query: Query):
     initial_state = {
         "raw_user_input": query.text,
         "problem_class": "",
@@ -28,6 +28,8 @@ def invoke(query: Query) -> dict:
         "selected_formulation": "",
         "selected_tools": [],
         "generated_artifact": "",
+        "agent_status": "",
+        "next_action": "",
     }
 
     result = graph.invoke(initial_state)

@@ -12,3 +12,5 @@ class AgentState(TypedDict):
     selected_formulation: str
     selected_tools: List[str]
     generated_artifact: str
+    agent_status: str
+    next_action: str

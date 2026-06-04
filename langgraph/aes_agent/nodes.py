@@ -114,7 +114,6 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
         "selected_tools": safe_list_of_str(result.get("selected_tools"))
     }
 
-
 def generate_artifact(state: AgentState) -> Dict[str, Any]:
     snapshot = {
         "raw_user_input": state.get("raw_user_input", ""),
@@ -131,6 +130,18 @@ def generate_artifact(state: AgentState) -> Dict[str, Any]:
     prompt = generate_artifact_prompt(snapshot)
     result = ollama_json(prompt)
 
+    missing_information = state.get("missing_information", [])
+    selected_formulation = state.get("selected_formulation", "")
+
+    if missing_information or selected_formulation == "clarification_required":
+        agent_status = "needs_clarification"
+        next_action = "request_clarification"
+    else:
+        agent_status = "ok"
+        next_action = "proceed_to_formulation"
+
     return {
-        "generated_artifact": safe_str(result.get("generated_artifact"), "")
+        "generated_artifact": safe_str(result.get("generated_artifact"), ""),
+        "agent_status": agent_status,
+        "next_action": next_action,
     }
