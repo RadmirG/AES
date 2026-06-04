@@ -1,24 +1,74 @@
-from fastapi import FastAPI
+from __future__ import annotations
+
+import time
+import uuid
+from typing import Any, Dict, List, Union
+
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from aes_agent.graph import graph
 
 app = FastAPI(title="LangGraph Service")
 
+AES_MODEL_ID = "aes-agent"
+
 
 class Query(BaseModel):
     text: str
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+class ChatMessage(BaseModel):
+    role: str
+    content: Union[str, List[Dict[str, Any]]]
 
 
-@app.post("/invoke")
-def invoke(query: Query):
+class ChatCompletionRequest(BaseModel):
+    model: str
+    messages: List[ChatMessage]
+    stream: bool = False
+    temperature: float | None = None
+
+
+def extract_text_from_content(content: Union[str, List[Dict[str, Any]]]) -> str:
+    """
+    Supports:
+    - plain string content
+    - OpenAI-style content blocks like [{"type":"text","text":"..."}]
+    """
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        parts: List[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "text" and isinstance(item.get("text"), str):
+                parts.append(item["text"])
+        return "\n".join(parts).strip()
+
+    return ""
+
+
+def extract_last_user_message(messages: List[ChatMessage]) -> str:
+    """
+    Take the last user message as the input to the AES agent.
+    """
+    for msg in reversed(messages):
+        if msg.role == "user":
+            text = extract_text_from_content(msg.content)
+            if text.strip():
+                return text.strip()
+    return ""
+
+
+def run_aes_agent(user_text: str) -> Dict[str, Any]:
+    """
+    Internal helper that runs the LangGraph graph.
+    """
     initial_state = {
-        "raw_user_input": query.text,
+        "raw_user_input": user_text,
         "problem_class": "",
         "domain_info": "",
         "pde_info": "",
@@ -32,5 +82,102 @@ def invoke(query: Query):
         "next_action": "",
     }
 
-    result = graph.invoke(initial_state)
-    return result
+    return graph.invoke(initial_state)
+
+
+def build_assistant_text(result: Dict[str, Any]) -> str:
+    """
+    Convert AES structured output into a user-facing assistant message.
+    """
+    generated_artifact = result.get("generated_artifact", "")
+    agent_status = result.get("agent_status", "")
+    next_action = result.get("next_action", "")
+    missing_information = result.get("missing_information", [])
+
+    lines: List[str] = []
+
+    if generated_artifact:
+        lines.append(generated_artifact)
+
+    if agent_status:
+        lines.append(f"\nAgent status: {agent_status}")
+
+    if next_action:
+        lines.append(f"Next action: {next_action}")
+
+    if missing_information:
+        lines.append("\nMissing information:")
+        for item in missing_information:
+            lines.append(f"- {item}")
+
+    return "\n".join(lines).strip()
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/invoke")
+def invoke(query: Query):
+    return run_aes_agent(query.text)
+
+
+@app.get("/v1/models")
+def list_models():
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": AES_MODEL_ID,
+                "object": "model",
+                "created": 0,
+                "owned_by": "aes",
+            }
+        ],
+    }
+
+
+@app.post("/v1/chat/completions")
+def chat_completions(request: ChatCompletionRequest):
+    if request.stream:
+        raise HTTPException(
+            status_code=400,
+            detail="Streaming is not supported yet. Please use stream=false."
+        )
+
+    user_text = extract_last_user_message(request.messages)
+    if not user_text:
+        raise HTTPException(
+            status_code=400,
+            detail="No user message found in request.messages."
+        )
+
+    result = run_aes_agent(user_text)
+    assistant_text = build_assistant_text(result)
+
+    now = int(time.time())
+    completion_id = f"chatcmpl-{uuid.uuid4().hex}"
+
+    return {
+        "id": completion_id,
+        "object": "chat.completion",
+        "created": now,
+        "model": AES_MODEL_ID,
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": assistant_text,
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        },
+        "aes_result": result,
+    }
