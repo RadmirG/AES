@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from typing import Any, Dict, List, Union
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from aes_agent.graph import graph
@@ -112,6 +114,28 @@ def build_assistant_text(result: Dict[str, Any]) -> str:
 
     return "\n".join(lines).strip()
 
+def build_streaming_chunk(
+    completion_id: str,
+    model: str,
+    content: str,
+) -> str:
+    chunk = {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "role": "assistant",
+                    "content": content,
+                },
+                "finish_reason": None,
+            }
+        ],
+    }
+    return f"data: {json.dumps(chunk)}\n\n"
 
 @app.get("/health")
 def health():
@@ -140,12 +164,6 @@ def list_models():
 
 @app.post("/v1/chat/completions")
 def chat_completions(request: ChatCompletionRequest):
-    if request.stream:
-        raise HTTPException(
-            status_code=400,
-            detail="Streaming is not supported yet. Please use stream=false."
-        )
-
     user_text = extract_last_user_message(request.messages)
     if not user_text:
         raise HTTPException(
@@ -158,6 +176,37 @@ def chat_completions(request: ChatCompletionRequest):
 
     now = int(time.time())
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"
+
+    if request.stream:
+        def event_stream():
+            # First and only content chunk
+            yield build_streaming_chunk(
+                completion_id=completion_id,
+                model=AES_MODEL_ID,
+                content=assistant_text,
+            )
+
+            # Final stop chunk
+            final_chunk = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": now,
+                "model": AES_MODEL_ID,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+            yield f"data: {json.dumps(final_chunk)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+        )
 
     return {
         "id": completion_id,
