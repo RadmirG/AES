@@ -9,8 +9,9 @@ import requests
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama-server:11434")
 OLLAMA_GENERATE_URL = f"{OLLAMA_BASE_URL}/api/generate"
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b")
-OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "180"))
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:e4b")
+#OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b")
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "300"))
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 
 
@@ -56,12 +57,16 @@ def ollama_json(prompt: str) -> Dict[str, Any]:
         }
     }
 
-    response = requests.post(
-        OLLAMA_GENERATE_URL,
-        json=payload,
-        timeout=OLLAMA_TIMEOUT,
-    )
-    response.raise_for_status()
+    try:
+        response = requests.post(
+            OLLAMA_GENERATE_URL,
+            json=payload,
+            timeout=OLLAMA_TIMEOUT,
+        )
+        response.raise_for_status()
+    except requests.exceptions.Timeout as exc:
+        raise RuntimeError("Ollama request timed out.") from exc
+
     data = response.json()
     model_text = data.get("response", "")
     return extract_json_object(model_text)
