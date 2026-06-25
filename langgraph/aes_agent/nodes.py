@@ -7,11 +7,18 @@ from aes_agent.prompts import (
     check_problem_completeness_prompt,
     classify_problem_prompt,
     extract_mathematical_structure_prompt,
+    generate_clarification_prompt,
     generate_artifact_prompt,
     select_formulation_prompt,
     select_tools_prompt,
+    validate_formulation_prompt,
 )
 from aes_agent.state import AgentState
+from aes_agent.tools import (
+    execute_tool,
+    list_available_tools,
+    tool_catalog,
+)
 
 
 def ingest_problem(state: AgentState) -> Dict[str, Any]:
@@ -75,6 +82,43 @@ def check_problem_completeness(state: AgentState) -> Dict[str, Any]:
     }
 
 
+def generate_clarification(state: AgentState) -> Dict[str, Any]:
+    snapshot = {
+        "raw_user_input": state.get("raw_user_input", ""),
+        "problem_class": state.get("problem_class", ""),
+        "domain_info": state.get("domain_info", ""),
+        "pde_info": state.get("pde_info", ""),
+        "coefficient_info": state.get("coefficient_info", ""),
+        "bc_info": state.get("bc_info", ""),
+        "missing_information": state.get("missing_information", []),
+        "selected_formulation": state.get("selected_formulation", ""),
+        "validation_errors": state.get("validation_errors", []),
+    }
+
+    result = ollama_json(generate_clarification_prompt(snapshot))
+    clarification_questions = safe_list_of_str(
+        result.get("clarification_questions")
+    )
+    unresolved_issues = (
+        state.get("missing_information", [])
+        or state.get("validation_errors", [])
+    )
+    if not clarification_questions:
+        clarification_questions = [
+            f"Please clarify: {issue}" for issue in unresolved_issues
+        ]
+
+    return {
+        "clarification_questions": clarification_questions,
+        "generated_artifact": safe_str(
+            result.get("generated_artifact"),
+            "Additional information is required before the workflow can continue.",
+        ),
+        "agent_status": "needs_clarification",
+        "next_action": "request_clarification",
+    }
+
+
 def select_formulation(state: AgentState) -> Dict[str, Any]:
     snapshot = {
         "problem_class": state.get("problem_class", ""),
@@ -96,6 +140,36 @@ def select_formulation(state: AgentState) -> Dict[str, Any]:
     }
 
 
+def validate_formulation(state: AgentState) -> Dict[str, Any]:
+    snapshot = {
+        "problem_class": state.get("problem_class", ""),
+        "domain_info": state.get("domain_info", ""),
+        "pde_info": state.get("pde_info", ""),
+        "coefficient_info": state.get("coefficient_info", ""),
+        "bc_info": state.get("bc_info", ""),
+        "selected_formulation": state.get("selected_formulation", ""),
+    }
+
+    result = ollama_json(validate_formulation_prompt(snapshot))
+    validation_status = safe_str(
+        result.get("validation_status"),
+        "invalid",
+    ).lower()
+    validation_errors = safe_list_of_str(result.get("validation_errors"))
+
+    if validation_status not in {"valid", "invalid"}:
+        validation_status = "invalid"
+    if validation_status == "invalid" and not validation_errors:
+        validation_errors = ["The selected formulation could not be validated."]
+    if validation_status == "valid":
+        validation_errors = []
+
+    return {
+        "validation_status": validation_status,
+        "validation_errors": validation_errors,
+    }
+
+
 def select_tools(state: AgentState) -> Dict[str, Any]:
     snapshot = {
         "problem_class": state.get("problem_class", ""),
@@ -107,12 +181,47 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
         "selected_formulation": state.get("selected_formulation", ""),
     }
 
-    prompt = select_tools_prompt(snapshot)
+    available_tools = list_available_tools()
+    prompt = select_tools_prompt(snapshot, tool_catalog())
     result = ollama_json(prompt)
+    requested_tools = safe_list_of_str(result.get("selected_tools"))
+    selected_tools = [
+        tool_name
+        for tool_name in dict.fromkeys(requested_tools)
+        if tool_name in available_tools
+    ]
+    if not selected_tools:
+        selected_tools = available_tools
 
     return {
-        "selected_tools": safe_list_of_str(result.get("selected_tools"))
+        "selected_tools": selected_tools
     }
+
+
+def execute_tools(state: AgentState) -> Dict[str, Any]:
+    tool_results = [
+        execute_tool(tool_name, state)
+        for tool_name in state.get("selected_tools", [])
+    ]
+    tool_errors = [
+        f"{result['tool_name']}: {result['error']}"
+        for result in tool_results
+        if result["status"] == "failed"
+    ]
+
+    if not tool_results:
+        tool_execution_status = "skipped"
+    elif tool_errors:
+        tool_execution_status = "failed"
+    else:
+        tool_execution_status = "completed"
+
+    return {
+        "tool_execution_status": tool_execution_status,
+        "tool_results": tool_results,
+        "tool_errors": tool_errors,
+    }
+
 
 def generate_artifact(state: AgentState) -> Dict[str, Any]:
     snapshot = {
@@ -124,21 +233,23 @@ def generate_artifact(state: AgentState) -> Dict[str, Any]:
         "bc_info": state.get("bc_info", ""),
         "missing_information": state.get("missing_information", []),
         "selected_formulation": state.get("selected_formulation", ""),
+        "validation_status": state.get("validation_status", ""),
+        "validation_errors": state.get("validation_errors", []),
         "selected_tools": state.get("selected_tools", []),
+        "tool_execution_status": state.get("tool_execution_status", ""),
+        "tool_results": state.get("tool_results", []),
+        "tool_errors": state.get("tool_errors", []),
     }
 
     prompt = generate_artifact_prompt(snapshot)
     result = ollama_json(prompt)
 
-    missing_information = state.get("missing_information", [])
-    selected_formulation = state.get("selected_formulation", "")
-
-    if missing_information or selected_formulation == "clarification_required":
-        agent_status = "needs_clarification"
-        next_action = "request_clarification"
+    if state.get("tool_execution_status") == "failed":
+        agent_status = "tool_error"
+        next_action = "review_tool_errors"
     else:
         agent_status = "ok"
-        next_action = "proceed_to_formulation"
+        next_action = "review_tool_results"
 
     return {
         "generated_artifact": safe_str(result.get("generated_artifact"), ""),

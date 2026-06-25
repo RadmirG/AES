@@ -77,8 +77,14 @@ def run_aes_agent(user_text: str) -> Dict[str, Any]:
         "coefficient_info": "",
         "bc_info": "",
         "missing_information": [],
+        "clarification_questions": [],
         "selected_formulation": "",
+        "validation_status": "",
+        "validation_errors": [],
         "selected_tools": [],
+        "tool_execution_status": "",
+        "tool_results": [],
+        "tool_errors": [],
         "generated_artifact": "",
         "agent_status": "",
         "next_action": "",
@@ -95,6 +101,9 @@ def build_assistant_text(result: Dict[str, Any]) -> str:
     agent_status = result.get("agent_status", "")
     next_action = result.get("next_action", "")
     missing_information = result.get("missing_information", [])
+    clarification_questions = result.get("clarification_questions", [])
+    validation_errors = result.get("validation_errors", [])
+    tool_errors = result.get("tool_errors", [])
 
     lines: List[str] = []
 
@@ -110,6 +119,21 @@ def build_assistant_text(result: Dict[str, Any]) -> str:
     if missing_information:
         lines.append("\nMissing information:")
         for item in missing_information:
+            lines.append(f"- {item}")
+
+    if validation_errors:
+        lines.append("\nValidation errors:")
+        for item in validation_errors:
+            lines.append(f"- {item}")
+
+    if clarification_questions:
+        lines.append("\nClarification questions:")
+        for item in clarification_questions:
+            lines.append(f"- {item}")
+
+    if tool_errors:
+        lines.append("\nTool errors:")
+        for item in tool_errors:
             lines.append(f"- {item}")
 
     return "\n".join(lines).strip()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 
 def classify_problem_prompt(user_text: str) -> str:
@@ -103,6 +103,31 @@ Problem:
 """
 
 
+def generate_clarification_prompt(snapshot: Dict[str, Any]) -> str:
+    return f"""
+You are an orchestration node in an agentic engineering system.
+
+Task:
+Generate concise questions that resolve the missing information or validation
+errors in the current PDE problem.
+
+Current state:
+{json.dumps(snapshot, indent=2)}
+
+Return ONLY a valid JSON object with exactly these keys:
+{{
+  "clarification_questions": ["...", "..."],
+  "generated_artifact": "..."
+}}
+
+Rules:
+- Ask one actionable question for each distinct unresolved issue.
+- Do not ask for information already present in the state.
+- "generated_artifact" must briefly explain why clarification is required and
+  list the questions in a user-facing form.
+"""
+
+
 def select_formulation_prompt(snapshot: Dict[str, Any]) -> str:
     return f"""
 You are an orchestration node in an agentic engineering system.
@@ -128,7 +153,38 @@ Rules:
 """
 
 
-def select_tools_prompt(snapshot: Dict[str, Any]) -> str:
+def validate_formulation_prompt(snapshot: Dict[str, Any]) -> str:
+    return f"""
+You are a mathematical validation node in an agentic engineering system.
+
+Task:
+Validate whether the selected formulation is compatible with the extracted PDE
+problem and sufficiently specified for tool selection.
+
+Current state:
+{json.dumps(snapshot, indent=2)}
+
+Return ONLY a valid JSON object with exactly these keys:
+{{
+  "validation_status": "valid",
+  "validation_errors": []
+}}
+
+Rules:
+- "validation_status" must be either "valid" or "invalid".
+- Return "invalid" when the formulation contradicts the PDE type, domain,
+  coefficients, or boundary conditions.
+- Return "invalid" when the selected formulation is unknown or still requires
+  clarification.
+- Describe each concrete problem in "validation_errors".
+- For a valid formulation, return an empty "validation_errors" list.
+"""
+
+
+def select_tools_prompt(
+    snapshot: Dict[str, Any],
+    available_tools: List[Dict[str, str]],
+) -> str:
     return f"""
 You are an orchestration node in an agentic engineering system.
 
@@ -138,6 +194,9 @@ Select the next tools to be used.
 Current extracted state:
 {json.dumps(snapshot, indent=2)}
 
+Available tools:
+{json.dumps(available_tools, indent=2)}
+
 Return ONLY a valid JSON object with exactly this key:
 {{
   "selected_tools": ["...", "..."]
@@ -145,15 +204,8 @@ Return ONLY a valid JSON object with exactly this key:
 
 Rules:
 - Return a JSON list of short tool labels.
-- If clarification is required, return ["clarification_tool"].
-- Otherwise possible labels include:
-  "pde_parser",
-  "formulation_selector",
-  "weak_form_builder",
-  "mesh_generator",
-  "fenics_codegen",
-  "solver_config_builder",
-  "validation_tool"
+- Select only tool names from the available-tools catalog.
+- Select the smallest useful set for the next engineering step.
 """
 
 
