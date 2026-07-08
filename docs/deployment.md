@@ -1,4 +1,4 @@
-# AES Deployment
+﻿# AES Deployment
 
 ## Required Docker Network
 
@@ -8,43 +8,169 @@ Create the shared network once:
 docker network create ai-stack-net
 ```
 
-## Existing Per-Service Compose Files
+## Component Compose Files
 
-The original service files remain valid:
+Each subproject owns its own service definition:
 
 ```bash
-docker compose -f ollama/ollama-server.yaml up -d
+docker compose -f ollama/ollama-server.dev.yaml up -d
+docker compose -f ollama/ollama-server.prod.yaml up -d
 docker compose -f open-webui/open-webui.yaml up -d
+docker compose -f mcp/compose.mcp.yaml --profile fenics up -d
 docker compose -f langgraph/langgraph.yaml up -d --build
 ```
 
+`mcp/compose.mcp.yaml` is itself a thin MCP entrypoint. It includes the
+provider-owned Compose files under `mcp/providers/`.
+
 ## New Deployment Layer
 
-The `deploy/` directory provides combined compose files.
+The `deploy/` directory provides two thin entrypoint files. They include the
+component-owned Compose files rather than duplicating the service definitions.
 
-Development LangGraph only:
+This requires a Docker Compose version that supports the top-level `include`
+field. If a target machine does not support `include`, upgrade Docker Compose
+before using the deployment entrypoints.
 
-```bash
-docker compose -f deploy/compose.dev.yaml up -d --build
-```
-
-Ollama GPU runtime:
-
-```bash
-docker compose -f deploy/compose.gpu.yaml up -d
-```
-
-Full stack without live FEniCS provider:
+Development stack with model pull automation:
 
 ```bash
-docker compose -f deploy/compose.full.yaml up -d --build
+AES_OLLAMA_MODEL=qwen3:4b docker compose -f deploy/compose.dev.yaml --profile models up -d --build
 ```
 
-Full stack with the FEniCS MCP provider:
+Production/server stack with model pull automation:
 
 ```bash
-docker compose -f deploy/compose.full.yaml --profile fenics up -d --build
+AES_OLLAMA_MODEL=gemma4:e4b docker compose -f deploy/compose.prod.yaml --profile models up -d --build
 ```
+
+The `models` profile starts a one-shot `ollama-model-puller` service. It waits
+for Ollama, pulls the configured manifest group, and also pulls the exact model
+named in `AES_OLLAMA_MODEL`.
+
+Development stack with the optional FEniCS MCP provider:
+
+```bash
+AES_OLLAMA_MODEL=qwen3:4b docker compose -f deploy/compose.dev.yaml --profile models --profile fenics up -d --build
+```
+
+Production stack with the optional FEniCS MCP provider:
+
+```bash
+AES_OLLAMA_MODEL=gemma4:e4b docker compose -f deploy/compose.prod.yaml --profile models --profile fenics up -d --build
+```
+
+Additional MCP providers can be activated through their profiles once their
+provider images exist:
+
+```bash
+docker compose -f deploy/compose.dev.yaml --profile retrieval up -d --build
+docker compose -f deploy/compose.dev.yaml --profile filesystem up -d --build
+```
+
+The first implementation treats MCP providers as optional long-running
+containers. Starting a provider only for one tool call and shutting it down
+again is possible later, but requires a lifecycle controller and readiness
+checks. Docker Compose profiles are the simpler first reliability layer.
+
+The only intentional component difference between development and production is
+the Ollama service file:
+
+```text
+dev:  ollama/ollama-server.dev.yaml
+prod: ollama/ollama-server.prod.yaml
+```
+
+The LangGraph service reads the backend model from `AES_OLLAMA_MODEL`. When the
+`models` profile is enabled, the same variable is also passed to the model
+puller, so the runtime model is installed as part of deployment. On a first pull, wait for the one-shot puller to finish before sending the first AES request.
+
+On Windows PowerShell, set the variable first:
+
+```powershell
+$env:AES_OLLAMA_MODEL = "qwen3:4b"
+docker compose -f deploy/compose.dev.yaml --profile models up -d --build
+```
+
+## Ollama Model Manifests and Pull Automation
+
+Model recommendations are tracked in:
+
+```text
+ollama/models.dev.yaml
+ollama/models.prod.yaml
+```
+
+These files are not interpreted by Ollama directly. They are AES deployment
+manifests. They define hardware assumptions, default model choices, and named
+pull groups such as `minimal`, `recommended`, `baseline`, or `high_capacity`.
+
+Runtime model selection is still controlled by the LangGraph service through:
+
+```text
+AES_OLLAMA_MODEL
+```
+
+Model installation is handled by the AES puller script:
+
+```bash
+python ollama/pull_models.py --profile dev --group recommended --include-default
+python ollama/pull_models.py --profile prod --group baseline --include-default
+```
+
+On Windows PowerShell:
+
+```powershell
+py -3 ollama\pull_models.py --profile dev --group recommended --include-default
+```
+
+The puller talks to the Ollama HTTP API. The default host URL is
+`http://127.0.0.1:11435`, matching the local port exposed by the Ollama Compose
+files. Override it when needed:
+
+```bash
+python ollama/pull_models.py --profile prod --group recommended --ollama-url http://127.0.0.1:11435
+```
+
+Dry-run the selected models without downloading them:
+
+```bash
+python ollama/pull_models.py --profile dev --group minimal --dry-run
+```
+
+The same pull step is also available through Docker Compose. For a full stack
+startup, enable the `models` profile:
+
+```bash
+AES_OLLAMA_MODEL=qwen3:4b docker compose -f deploy/compose.dev.yaml --profile models up -d --build
+AES_OLLAMA_MODEL=gemma4:e4b docker compose -f deploy/compose.prod.yaml --profile models up -d --build
+```
+
+For a pull-only run, target the one-shot service directly:
+
+```bash
+docker compose -f deploy/compose.dev.yaml --profile models up ollama-model-puller
+docker compose -f deploy/compose.prod.yaml --profile models up ollama-model-puller
+```
+
+The default Compose pull groups are:
+
+```text
+dev:  recommended
+prod: baseline
+```
+
+Override the group with `AES_OLLAMA_PULL_GROUP`:
+
+```powershell
+$env:AES_OLLAMA_MODEL = "qwen3:4b"
+$env:AES_OLLAMA_PULL_GROUP = "minimal"
+docker compose -f deploy/compose.dev.yaml --profile models up -d --build
+```
+
+The puller installs both the selected pull group and the exact
+`AES_OLLAMA_MODEL`. `AES_OLLAMA_MODEL` is still the runtime selector used by the
+LangGraph service.
 
 ## FEniCS Provider Prerequisite
 
@@ -72,4 +198,6 @@ DOLFINX_MCP_EXECUTE=false
 
 Change this to `true` only after the live provider schemas have been checked
 against `mcp/providers/fenics/tool_schemas.snapshot.json`.
+
+
 

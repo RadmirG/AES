@@ -1,0 +1,113 @@
+﻿# Ollama models for the AES production/server setup.
+#
+# Target runtime:
+# - GPU-backed Ollama service from ollama-server.prod.yaml
+# - Docker Compose reserves NVIDIA GPU device_ids: ["1"]
+# - Default production context in compose: OLLAMA_CONTEXT_LENGTH=8192
+#
+# This profile assumes materially stronger hardware than the laptop dev setup.
+# Keep the default model conservative enough to boot on a moderate GPU server,
+# then promote larger models through environment/config once latency, VRAM,
+# context length, and concurrent-user behavior are measured.
+production_profile:
+  name: gpu_server_prod
+  runtime: ollama
+  compose_file: ollama-server.prod.yaml
+  gpu_required: true
+  gpu_device_ids:
+    - "1"
+  runtime_notes:
+    - Use this manifest for production/server pulls, not for laptop iteration.
+    - Keep OLLAMA_CONTEXT_LENGTH=8192 until the target GPU memory is known.
+    - Prefer one default model plus one coding model before pulling high-capacity groups.
+    - Promote 26B/31B/32B models only after latency and memory are measured.
+    - Treat 70B+ models as frontier/large-server options, not baseline AES production.
+
+defaults:
+  aes_ollama_model: gemma4:e4b
+  production_reasoning_model: gemma4:12b
+  production_coding_model: qwen2.5-coder:14b
+  production_agent_model: qwen3:14b
+  deep_reasoning_model: deepseek-r1:14b
+  high_capacity_reasoning_model: gemma4:31b
+
+pull_groups:
+  baseline:
+    description: Conservative production set for a moderate GPU server.
+    models:
+      - gemma4:e4b
+      - qwen3:8b
+      - qwen2.5-coder:7b
+
+  recommended:
+    description: Stronger AES production set for reasoning, coding, and tool workflows.
+    models:
+      - gemma4:12b
+      - qwen3:14b
+      - qwen2.5-coder:14b
+      - deepseek-r1:14b
+
+  high_capacity:
+    description: Use when the production server has enough GPU memory and latency budget.
+    models:
+      - gemma4:26b
+      - gemma4:31b
+      - qwen3:30b
+      - qwen3:32b
+      - qwen2.5-coder:32b
+      - deepseek-r1:32b
+
+  frontier_optional:
+    description: Large-server or cloud-sized checks, not normal AES baseline deployment.
+    models:
+      - llama3.3:70b
+      - deepseek-r1:70b
+
+  not_for_prod_default:
+    description: Useful for smoke tests, but too small for the default production answer quality target.
+    models:
+      - gemma4:e2b
+      - qwen3:0.6b
+      - qwen3:1.7b
+      - qwen2.5-coder:0.5b
+      - qwen2.5-coder:1.5b
+      - llama3.2:1b
+      - smollm2:360m
+
+runtime:
+  recommended_ollama_num_ctx: 8192
+  max_planned_ollama_num_ctx: 32768
+  recommended_env:
+    AES_OLLAMA_MODEL: gemma4:e4b
+
+automation:
+  puller_script: pull_models.py
+  compose_profile: models
+  default_pull_group: baseline
+  pulls_runtime_model: true
+  runtime_selector_env: AES_OLLAMA_MODEL
+  runtime_selector_default: gemma4:e4b
+  pull_group_env: AES_OLLAMA_PULL_GROUP
+
+models:
+  default: gemma4:e4b
+  reasoning:
+    - gemma4:e4b
+    - gemma4:12b
+    - qwen3:14b
+    - deepseek-r1:14b
+  coding:
+    - qwen2.5-coder:7b
+    - qwen2.5-coder:14b
+  high_capacity:
+    - gemma4:26b
+    - gemma4:31b
+    - qwen3:30b
+    - qwen3:32b
+    - qwen2.5-coder:32b
+    - deepseek-r1:32b
+  frontier_optional:
+    - llama3.3:70b
+    - deepseek-r1:70b
+
+

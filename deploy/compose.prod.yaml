@@ -1,7 +1,7 @@
-name: aes-dev
+name: aes-prod
 
 include:
-  - ../ollama/ollama-server.dev.yaml
+  - ../ollama/ollama-server.prod.yaml
   - ../open-webui/open-webui.yaml
   - ../mcp/compose.mcp.yaml
   - ../langgraph/langgraph.yaml

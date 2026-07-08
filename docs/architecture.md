@@ -20,7 +20,7 @@ AES/
   mcp/           # MCP provider infrastructure
   ollama/        # model runtime compose file and data
   open-webui/    # user interface compose file and data
-  deploy/        # combined deployment compose files
+  deploy/        # dev/prod deployment entrypoints
   docs/          # architecture and operation docs
 ```
 
@@ -35,15 +35,56 @@ AES/
 
 ## MCP Provider Layer
 
-`mcp/` is not a monolithic tool server. It is a provider-management layer for
-multiple independent MCP servers.
+`mcp/` is a provider-management layer for multiple MCP servers. The central
+`mcp/compose.mcp.yaml` file follows the same pattern as the top-level deployment
+entrypoints: it includes provider-owned Compose files instead of defining every
+service directly.
+
+```text
+mcp/compose.mcp.yaml
+  -> mcp/providers/fenics/compose.yaml
+  -> mcp/providers/retrieval/compose.yaml
+  -> mcp/providers/filesystem/compose.yaml
+```
+
+The central `mcp/providers.yaml` file is also only an index. Provider-specific
+AES/governance metadata is stored locally:
+
+```text
+mcp/providers.yaml
+  -> mcp/providers/fenics/provider.yaml
+  -> mcp/providers/retrieval/provider.yaml
+  -> mcp/providers/filesystem/provider.yaml
+```
 
 Each provider should own:
 
 - compose configuration,
+- provider manifest,
 - allowlist,
 - schema snapshot,
 - workspace,
 - smoke tests,
 - README with operational notes.
 
+For now, providers are optional long-running services selected by Docker Compose
+profiles. On-demand provider startup can be added later with a controller or
+Kubernetes-style job lifecycle, but it is deliberately not part of the first
+Compose-based version.
+
+## Deployment Entry Points
+
+The deployment layer has only two top-level entrypoints:
+
+```text
+deploy/compose.dev.yaml
+deploy/compose.prod.yaml
+```
+
+Both files include the component-owned service definitions. The dev/prod
+difference is intentionally concentrated in the Ollama component:
+
+```text
+ollama/ollama-server.dev.yaml
+ollama/ollama-server.prod.yaml
+```

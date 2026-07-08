@@ -1,0 +1,16 @@
+id: retrieval
+name: Retrieval MCP Provider
+status: planned
+enabled_by_default: false
+profile: retrieval
+transport: streamable-http
+url: http://retrieval-mcp:8000/mcp
+public_url: http://127.0.0.1:8004/mcp
+compose_file: compose.yaml
+allowlist: allowlist.yaml
+schemas: schemas
+aes_wrapper_tools: []
+notes:
+  - Planned provider for embeddings, vector search, document retrieval, and AES knowledge-base queries.
+  - Keep retrieval indexes and long-term stores outside AgentState.
+
