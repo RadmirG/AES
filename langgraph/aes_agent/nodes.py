@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from aes_agent.helpers import ollama_json, safe_list_of_str, safe_str
+from aes_agent.fenics_mcp import build_fenics_recipe
 from aes_agent.prompts import (
     check_problem_completeness_prompt,
     classify_problem_prompt,
@@ -57,7 +58,13 @@ def extract_mathematical_structure(state: AgentState) -> Dict[str, Any]:
     return {
         "domain_info": safe_str(result.get("domain_info"), "unknown_domain"),
         "coefficient_info": safe_str(result.get("coefficient_info"), "unknown_coefficient"),
+        "source_info": safe_str(result.get("source_info"), "unknown_source"),
         "bc_info": safe_str(result.get("bc_info"), "unknown_boundary_condition"),
+        "initial_condition_info": safe_str(
+            result.get("initial_condition_info"),
+            "unknown_initial_condition",
+        ),
+        "time_info": safe_str(result.get("time_info"), "unknown_time"),
     }
 
 
@@ -68,7 +75,10 @@ def check_problem_completeness(state: AgentState) -> Dict[str, Any]:
         "domain_info": state.get("domain_info", ""),
         "pde_info": state.get("pde_info", ""),
         "coefficient_info": state.get("coefficient_info", ""),
+        "source_info": state.get("source_info", ""),
         "bc_info": state.get("bc_info", ""),
+        "initial_condition_info": state.get("initial_condition_info", ""),
+        "time_info": state.get("time_info", ""),
     }
 
     prompt = check_problem_completeness_prompt(
@@ -89,10 +99,14 @@ def generate_clarification(state: AgentState) -> Dict[str, Any]:
         "domain_info": state.get("domain_info", ""),
         "pde_info": state.get("pde_info", ""),
         "coefficient_info": state.get("coefficient_info", ""),
+        "source_info": state.get("source_info", ""),
         "bc_info": state.get("bc_info", ""),
+        "initial_condition_info": state.get("initial_condition_info", ""),
+        "time_info": state.get("time_info", ""),
         "missing_information": state.get("missing_information", []),
         "selected_formulation": state.get("selected_formulation", ""),
         "validation_errors": state.get("validation_errors", []),
+        "numerical_recipe_errors": state.get("numerical_recipe_errors", []),
     }
 
     result = ollama_json(generate_clarification_prompt(snapshot))
@@ -102,6 +116,7 @@ def generate_clarification(state: AgentState) -> Dict[str, Any]:
     unresolved_issues = (
         state.get("missing_information", [])
         or state.get("validation_errors", [])
+        or state.get("numerical_recipe_errors", [])
     )
     if not clarification_questions:
         clarification_questions = [
@@ -125,7 +140,10 @@ def select_formulation(state: AgentState) -> Dict[str, Any]:
         "domain_info": state.get("domain_info", ""),
         "pde_info": state.get("pde_info", ""),
         "coefficient_info": state.get("coefficient_info", ""),
+        "source_info": state.get("source_info", ""),
         "bc_info": state.get("bc_info", ""),
+        "initial_condition_info": state.get("initial_condition_info", ""),
+        "time_info": state.get("time_info", ""),
         "missing_information": state.get("missing_information", []),
     }
 
@@ -146,7 +164,10 @@ def validate_formulation(state: AgentState) -> Dict[str, Any]:
         "domain_info": state.get("domain_info", ""),
         "pde_info": state.get("pde_info", ""),
         "coefficient_info": state.get("coefficient_info", ""),
+        "source_info": state.get("source_info", ""),
         "bc_info": state.get("bc_info", ""),
+        "initial_condition_info": state.get("initial_condition_info", ""),
+        "time_info": state.get("time_info", ""),
         "selected_formulation": state.get("selected_formulation", ""),
     }
 
@@ -170,15 +191,30 @@ def validate_formulation(state: AgentState) -> Dict[str, Any]:
     }
 
 
+def prepare_numerical_recipe(state: AgentState) -> Dict[str, Any]:
+    recipe_result = build_fenics_recipe(state)
+
+    return {
+        "numerical_recipe_status": recipe_result["status"],
+        "numerical_recipe": recipe_result["recipe"],
+        "numerical_recipe_errors": recipe_result["errors"],
+    }
+
+
 def select_tools(state: AgentState) -> Dict[str, Any]:
     snapshot = {
         "problem_class": state.get("problem_class", ""),
         "domain_info": state.get("domain_info", ""),
         "pde_info": state.get("pde_info", ""),
         "coefficient_info": state.get("coefficient_info", ""),
+        "source_info": state.get("source_info", ""),
         "bc_info": state.get("bc_info", ""),
+        "initial_condition_info": state.get("initial_condition_info", ""),
+        "time_info": state.get("time_info", ""),
         "missing_information": state.get("missing_information", []),
         "selected_formulation": state.get("selected_formulation", ""),
+        "numerical_recipe_status": state.get("numerical_recipe_status", ""),
+        "numerical_recipe": state.get("numerical_recipe", {}),
     }
 
     available_tools = list_available_tools()
@@ -190,6 +226,12 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
         for tool_name in dict.fromkeys(requested_tools)
         if tool_name in available_tools
     ]
+    if (
+        state.get("numerical_recipe_status") == "ready"
+        and "fenics_forward_solve" in available_tools
+        and "fenics_forward_solve" not in selected_tools
+    ):
+        selected_tools.append("fenics_forward_solve")
     if not selected_tools:
         selected_tools = available_tools
 
@@ -230,11 +272,17 @@ def generate_artifact(state: AgentState) -> Dict[str, Any]:
         "domain_info": state.get("domain_info", ""),
         "pde_info": state.get("pde_info", ""),
         "coefficient_info": state.get("coefficient_info", ""),
+        "source_info": state.get("source_info", ""),
         "bc_info": state.get("bc_info", ""),
+        "initial_condition_info": state.get("initial_condition_info", ""),
+        "time_info": state.get("time_info", ""),
         "missing_information": state.get("missing_information", []),
         "selected_formulation": state.get("selected_formulation", ""),
         "validation_status": state.get("validation_status", ""),
         "validation_errors": state.get("validation_errors", []),
+        "numerical_recipe_status": state.get("numerical_recipe_status", ""),
+        "numerical_recipe": state.get("numerical_recipe", {}),
+        "numerical_recipe_errors": state.get("numerical_recipe_errors", []),
         "selected_tools": state.get("selected_tools", []),
         "tool_execution_status": state.get("tool_execution_status", ""),
         "tool_results": state.get("tool_results", []),

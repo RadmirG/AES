@@ -75,12 +75,18 @@ def run_aes_agent(user_text: str) -> Dict[str, Any]:
         "domain_info": "",
         "pde_info": "",
         "coefficient_info": "",
+        "source_info": "",
         "bc_info": "",
+        "initial_condition_info": "",
+        "time_info": "",
         "missing_information": [],
         "clarification_questions": [],
         "selected_formulation": "",
         "validation_status": "",
         "validation_errors": [],
+        "numerical_recipe_status": "",
+        "numerical_recipe": {},
+        "numerical_recipe_errors": [],
         "selected_tools": [],
         "tool_execution_status": "",
         "tool_results": [],
@@ -103,6 +109,7 @@ def build_assistant_text(result: Dict[str, Any]) -> str:
     missing_information = result.get("missing_information", [])
     clarification_questions = result.get("clarification_questions", [])
     validation_errors = result.get("validation_errors", [])
+    numerical_recipe_errors = result.get("numerical_recipe_errors", [])
     tool_errors = result.get("tool_errors", [])
 
     lines: List[str] = []
@@ -124,6 +131,11 @@ def build_assistant_text(result: Dict[str, Any]) -> str:
     if validation_errors:
         lines.append("\nValidation errors:")
         for item in validation_errors:
+            lines.append(f"- {item}")
+
+    if numerical_recipe_errors:
+        lines.append("\nNumerical recipe errors:")
+        for item in numerical_recipe_errors:
             lines.append(f"- {item}")
 
     if clarification_questions:

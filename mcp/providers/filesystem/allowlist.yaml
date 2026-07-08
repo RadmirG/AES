@@ -1,0 +1,14 @@
+provider: filesystem
+status: planned
+allowed_tools:
+  - read_file
+  - search_files
+  - list_directory
+blocked_tools:
+  - write_file
+  - delete_file
+  - run_command
+notes:
+  - Start read-only.
+  - Add write access only through a separate reviewed provider profile.
+

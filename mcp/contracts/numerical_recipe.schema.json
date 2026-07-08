@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aes.local/contracts/numerical_recipe.schema.json",
+  "title": "AES Numerical Recipe",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "provider",
+    "workflow",
+    "problem_type",
+    "domain",
+    "function_space",
+    "equation",
+    "boundary_conditions",
+    "solver",
+    "outputs"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "provider": {"type": "string"},
+    "workflow": {"type": "string"},
+    "problem_type": {
+      "type": "string",
+      "enum": ["poisson_equation", "heat_equation"]
+    },
+    "domain": {
+      "type": "object",
+      "required": ["name", "type"],
+      "properties": {
+        "name": {"type": "string"},
+        "type": {"type": "string", "enum": ["unit_square", "rectangle"]},
+        "nx": {"type": "integer", "minimum": 1},
+        "ny": {"type": "integer", "minimum": 1},
+        "cell_type": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "function_space": {
+      "type": "object",
+      "required": ["name", "family", "degree"],
+      "properties": {
+        "name": {"type": "string"},
+        "family": {"type": "string"},
+        "degree": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "equation": {
+      "type": "object",
+      "required": ["diffusion_coefficient", "source"],
+      "properties": {
+        "diffusion_coefficient": {"type": "string"},
+        "source": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "boundary_conditions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "where", "value"],
+        "properties": {
+          "name": {"type": "string"},
+          "type": {"type": "string", "enum": ["dirichlet"]},
+          "where": {"type": "string"},
+          "value": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "initial_condition": {"type": "string"},
+    "time": {
+      "type": "object",
+      "properties": {
+        "t0": {"type": "number"},
+        "t_end": {"type": "number"},
+        "dt": {"type": "number"},
+        "scheme": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "solver": {"type": "object", "additionalProperties": true},
+    "outputs": {"type": "array", "items": {"type": "string"}},
+    "assumptions": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}
+

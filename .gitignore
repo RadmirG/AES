@@ -18,6 +18,10 @@ venv/
 */data/
 *.log
 
+# Generated MCP provider workspaces
+mcp/providers/*/workspace/*
+!mcp/providers/*/workspace/.gitkeep
+
 # Editors
 .vscode/
 .idea/

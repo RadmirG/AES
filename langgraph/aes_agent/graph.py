@@ -8,11 +8,16 @@ from aes_agent.nodes import (
     generate_clarification,
     generate_artifact,
     ingest_problem,
+    prepare_numerical_recipe,
     select_formulation,
     select_tools,
     validate_formulation,
 )
-from aes_agent.routing import route_after_completeness, route_after_validation
+from aes_agent.routing import (
+    route_after_completeness,
+    route_after_numerical_recipe,
+    route_after_validation,
+)
 from aes_agent.state import AgentState
 
 
@@ -25,6 +30,7 @@ builder.add_node("check_problem_completeness", check_problem_completeness)
 builder.add_node("generate_clarification", generate_clarification)
 builder.add_node("select_formulation", select_formulation)
 builder.add_node("validate_formulation", validate_formulation)
+builder.add_node("prepare_numerical_recipe", prepare_numerical_recipe)
 builder.add_node("select_tools", select_tools)
 builder.add_node("execute_tools", execute_tools)
 builder.add_node("generate_artifact", generate_artifact)
@@ -46,6 +52,14 @@ builder.add_edge("select_formulation", "validate_formulation")
 builder.add_conditional_edges(
     "validate_formulation",
     route_after_validation,
+    {
+        "tools": "prepare_numerical_recipe",
+        "clarify": "generate_clarification",
+    },
+)
+builder.add_conditional_edges(
+    "prepare_numerical_recipe",
+    route_after_numerical_recipe,
     {
         "tools": "select_tools",
         "clarify": "generate_clarification",

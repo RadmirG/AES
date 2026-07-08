@@ -1,0 +1,23 @@
+services:
+  dolfinx-mcp:
+    image: dolfinx-mcp:latest
+    container_name: dolfinx-mcp
+    restart: unless-stopped
+    profiles:
+      - fenics
+    ports:
+      - "127.0.0.1:8003:8000"
+    volumes:
+      - ./workspace:/workspace
+    command:
+      - "--transport"
+      - "streamable-http"
+      - "--host"
+      - "0.0.0.0"
+    networks:
+      - ai-stack-net
+
+networks:
+  ai-stack-net:
+    external: true
+

@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "provider": "fenics",
+  "server": "dolfinx-mcp",
+  "source": "https://github.com/ekstanley/ccFenics-plugin README",
+  "validated_against_live_server": false,
+  "notes": [
+    "This snapshot records expected tool names from documentation.",
+    "Run the provider smoke tests against a live server before enabling live execution."
+  ],
+  "tools": [
+    {"name": "reset_session", "category": "session"},
+    {"name": "create_unit_square", "category": "mesh"},
+    {"name": "create_mesh", "category": "mesh"},
+    {"name": "get_mesh_info", "category": "mesh"},
+    {"name": "create_function_space", "category": "function_space"},
+    {"name": "set_material_properties", "category": "problem_definition"},
+    {"name": "define_variational_form", "category": "problem_definition"},
+    {"name": "apply_boundary_condition", "category": "problem_definition"},
+    {"name": "create_function", "category": "interpolation"},
+    {"name": "solve", "category": "solver"},
+    {"name": "solve_time_dependent", "category": "solver"},
+    {"name": "get_solver_diagnostics", "category": "solver"},
+    {"name": "export_solution", "category": "postprocessing"},
+    {"name": "plot_solution", "category": "postprocessing"},
+    {"name": "generate_report", "category": "postprocessing"},
+    {"name": "list_workspace_files", "category": "session"},
+    {"name": "bundle_workspace_files", "category": "session"}
+  ]
+}
+

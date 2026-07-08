@@ -1,0 +1,17 @@
+services:
+  filesystem-mcp:
+    image: aes-filesystem-mcp:latest
+    container_name: filesystem-mcp
+    restart: unless-stopped
+    profiles:
+      - filesystem
+    ports:
+      - "127.0.0.1:8005:8000"
+    volumes:
+      - ../../..:/workspace:ro
+    networks:
+      - ai-stack-net
+
+networks:
+  ai-stack-net:
+    external: true
