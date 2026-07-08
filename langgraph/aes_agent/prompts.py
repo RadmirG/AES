@@ -49,7 +49,10 @@ Return ONLY a valid JSON object with exactly these keys:
 {{
   "domain_info": "...",
   "coefficient_info": "...",
-  "bc_info": "..."
+  "source_info": "...",
+  "bc_info": "...",
+  "initial_condition_info": "...",
+  "time_info": "..."
 }}
 
 Guidelines:
@@ -59,11 +62,17 @@ Guidelines:
   "spatially_dependent_coefficient_given",
   "constant_coefficient_given",
   "unknown_coefficient"
+- "source_info" should contain the source/right-hand-side expression if it is
+  explicitly given, otherwise "unknown_source".
 - "bc_info" should be a short label such as:
   "dirichlet_boundary_condition",
   "neumann_boundary_condition",
   "robin_boundary_condition",
   "unknown_boundary_condition"
+- "initial_condition_info" should contain the initial-condition expression for
+  time-dependent problems if explicitly given, otherwise "unknown_initial_condition".
+- "time_info" should summarize time interval and time step if explicitly given,
+  otherwise "unknown_time".
 
 Problem:
 {user_text}
@@ -96,7 +105,8 @@ Rules:
   - stationary PDE but time-dependent source term,
   - unclear boundary conditions,
   - unclear domain geometry,
-  - unclear coefficient information.
+  - unclear coefficient information,
+  - for time-dependent problems, missing initial condition or time interval.
 
 Problem:
 {user_text}
@@ -183,7 +193,7 @@ Rules:
 
 def select_tools_prompt(
     snapshot: Dict[str, Any],
-    available_tools: List[Dict[str, str]],
+    available_tools: List[Dict[str, Any]],
 ) -> str:
     return f"""
 You are an orchestration node in an agentic engineering system.

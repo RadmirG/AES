@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aes.local/contracts/tool_result.schema.json",
+  "title": "AES Tool Result",
+  "type": "object",
+  "required": ["tool_name", "provider", "status", "output", "error"],
+  "properties": {
+    "tool_name": {"type": "string"},
+    "provider": {"type": "string"},
+    "status": {"type": "string", "enum": ["completed", "failed"]},
+    "output": {"type": "object"},
+    "error": {"type": "string"}
+  },
+  "additionalProperties": false
+}
+

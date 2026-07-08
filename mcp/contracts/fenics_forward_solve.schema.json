@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aes.local/contracts/fenics_forward_solve.schema.json",
+  "title": "fenics_forward_solve Tool Input",
+  "type": "object",
+  "description": "Input contract for the AES high-level FEniCS wrapper. The wrapper consumes a validated numerical recipe from AgentState.",
+  "required": ["numerical_recipe_status", "numerical_recipe"],
+  "properties": {
+    "numerical_recipe_status": {
+      "type": "string",
+      "enum": ["ready"]
+    },
+    "numerical_recipe": {
+      "$ref": "numerical_recipe.schema.json"
+    },
+    "execution_mode": {
+      "type": "string",
+      "enum": ["planned", "live"],
+      "default": "planned"
+    }
+  },
+  "additionalProperties": true
+}
+

@@ -1,0 +1,27 @@
+provider: fenics
+server: dolfinx-mcp
+mode: allowlist
+allowed_tools:
+  - reset_session
+  - create_unit_square
+  - create_mesh
+  - get_mesh_info
+  - create_function_space
+  - set_material_properties
+  - define_variational_form
+  - apply_boundary_condition
+  - create_function
+  - solve
+  - solve_time_dependent
+  - get_solver_diagnostics
+  - export_solution
+  - plot_solution
+  - generate_report
+  - list_workspace_files
+  - bundle_workspace_files
+blocked_tools:
+  - run_custom_code
+notes:
+  - Low-level tools are called only by AES wrapper logic, not directly by the LLM.
+  - Keep run_custom_code blocked until there is a separate sandbox and review policy.
+

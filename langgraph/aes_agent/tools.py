@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, TypedDict
 
+from aes_agent.fenics_mcp import execute_fenics_forward_solve
 from aes_agent.state import AgentState
 
 
@@ -23,6 +24,7 @@ class ToolDefinition:
     description: str
     provider: str
     handler: ToolHandler
+    input_schema: Dict[str, Any] = field(default_factory=dict)
 
 
 def export_problem_spec(state: AgentState) -> Dict[str, Any]:
@@ -33,10 +35,15 @@ def export_problem_spec(state: AgentState) -> Dict[str, Any]:
             "pde": state.get("pde_info", ""),
             "domain": state.get("domain_info", ""),
             "coefficients": state.get("coefficient_info", ""),
+            "source": state.get("source_info", ""),
             "boundary_conditions": state.get("bc_info", ""),
+            "initial_condition": state.get("initial_condition_info", ""),
+            "time": state.get("time_info", ""),
         },
         "formulation": state.get("selected_formulation", ""),
         "validation_status": state.get("validation_status", ""),
+        "numerical_recipe_status": state.get("numerical_recipe_status", ""),
+        "numerical_recipe": state.get("numerical_recipe", {}),
     }
 
 
@@ -45,6 +52,7 @@ def build_workflow_plan(state: AgentState) -> Dict[str, Any]:
     return {
         "plan_version": "1.0",
         "formulation": formulation,
+        "numerical_recipe": state.get("numerical_recipe", {}),
         "steps": [
             {
                 "id": "prepare_formulation",
@@ -70,6 +78,23 @@ def build_workflow_plan(state: AgentState) -> Dict[str, Any]:
     }
 
 
+def run_fenics_forward_solve(state: AgentState) -> Dict[str, Any]:
+    return execute_fenics_forward_solve(state)
+
+
+FENICS_FORWARD_SOLVE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "Uses state.numerical_recipe prepared by AES. The LLM should not "
+        "invent raw FEniCS code or call low-level DOLFINx tools directly."
+    ),
+    "required_state": [
+        "numerical_recipe_status",
+        "numerical_recipe",
+    ],
+}
+
+
 TOOL_REGISTRY: Dict[str, ToolDefinition] = {
     "problem_spec_exporter": ToolDefinition(
         name="problem_spec_exporter",
@@ -89,6 +114,17 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
         provider="local",
         handler=build_workflow_plan,
     ),
+    "fenics_forward_solve": ToolDefinition(
+        name="fenics_forward_solve",
+        description=(
+            "Prepare or execute a constrained forward finite-element solve "
+            "through a DOLFINx/FEniCS MCP server. First supported workflows: "
+            "Poisson/stationary diffusion and heat equation on simple 2D domains."
+        ),
+        provider="mcp:dolfinx",
+        handler=run_fenics_forward_solve,
+        input_schema=FENICS_FORWARD_SOLVE_SCHEMA,
+    ),
 }
 
 
@@ -106,12 +142,13 @@ def list_available_tools() -> List[str]:
     return list(TOOL_REGISTRY)
 
 
-def tool_catalog() -> List[Dict[str, str]]:
+def tool_catalog() -> List[Dict[str, Any]]:
     return [
         {
             "name": definition.name,
             "description": definition.description,
             "provider": definition.provider,
+            "input_schema": definition.input_schema,
         }
         for definition in TOOL_REGISTRY.values()
     ]

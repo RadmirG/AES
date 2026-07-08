@@ -1,0 +1,10 @@
+provider: retrieval
+status: planned
+allowed_tools:
+  - search_knowledge_base
+  - retrieve_pde_examples
+  - retrieve_formulation_references
+allowed_resources:
+  - aes://knowledge-base
+  - aes://pde-examples
+

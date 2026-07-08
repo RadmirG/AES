@@ -1,0 +1,35 @@
+providers:
+  fenics:
+    enabled_by_default: false
+    profile: fenics
+    transport: streamable-http
+    url: http://dolfinx-mcp:8000/mcp
+    public_url: http://127.0.0.1:8003/mcp
+    compose_file: providers/fenics/compose.yaml
+    allowlist: providers/fenics/allowlist.yaml
+    tool_schema_snapshot: providers/fenics/tool_schemas.snapshot.json
+    workspace: providers/fenics/workspace
+    aes_wrapper_tools:
+      - fenics_forward_solve
+    notes:
+      - FEniCS/DOLFINx is installed in the external dolfinx-mcp image, not in the AES LangGraph container.
+      - AES should keep live execution disabled until tool schemas have been validated against the running provider.
+
+  retrieval:
+    enabled_by_default: false
+    profile: retrieval
+    transport: streamable-http
+    url: http://retrieval-mcp:8000/mcp
+    compose_file: providers/retrieval/compose.yaml
+    allowlist: providers/retrieval/allowlist.yaml
+    status: planned
+
+  filesystem:
+    enabled_by_default: false
+    profile: filesystem
+    transport: streamable-http
+    url: http://filesystem-mcp:8000/mcp
+    compose_file: providers/filesystem/compose.yaml
+    allowlist: providers/filesystem/allowlist.yaml
+    status: planned
+

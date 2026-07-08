@@ -17,3 +17,11 @@ def route_after_validation(
     if state.get("validation_status") == "valid":
         return "tools"
     return "clarify"
+
+
+def route_after_numerical_recipe(
+    state: AgentState,
+) -> Literal["clarify", "tools"]:
+    if state.get("numerical_recipe_status") == "ready":
+        return "tools"
+    return "clarify"

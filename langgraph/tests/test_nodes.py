@@ -83,6 +83,20 @@ class ToolNodeTests(unittest.TestCase):
 
         self.assertEqual(result["selected_tools"], nodes.list_available_tools())
 
+    @patch.object(nodes, "ollama_json", return_value={"selected_tools": []})
+    def test_ready_recipe_adds_fenics_tool(
+        self,
+        _ollama_json,
+    ):
+        result = nodes.select_tools(
+            {
+                "selected_formulation": "weak_form",
+                "numerical_recipe_status": "ready",
+            }
+        )
+
+        self.assertIn("fenics_forward_solve", result["selected_tools"])
+
     def test_tool_execution_reports_completed_results(self):
         result = nodes.execute_tools(
             {
@@ -103,6 +117,56 @@ class ToolNodeTests(unittest.TestCase):
 
         self.assertEqual(result["tool_execution_status"], "failed")
         self.assertTrue(result["tool_errors"])
+
+
+class NumericalRecipeNodeTests(unittest.TestCase):
+    def test_heat_recipe_requires_initial_condition(self):
+        result = nodes.prepare_numerical_recipe(
+            {
+                "raw_user_input": (
+                    "Solve the heat equation on the unit square with zero "
+                    "Dirichlet boundary conditions."
+                ),
+                "problem_class": "forward_problem",
+                "pde_info": "time_dependent_heat_equation",
+                "domain_info": "unit_square",
+                "coefficient_info": "constant_coefficient_given",
+                "source_info": "0.0",
+                "bc_info": "dirichlet_boundary_condition",
+                "initial_condition_info": "unknown_initial_condition",
+                "time_info": "unknown_time",
+                "selected_formulation": "fem_problem_setup",
+            }
+        )
+
+        self.assertEqual(result["numerical_recipe_status"], "invalid")
+        self.assertTrue(result["numerical_recipe_errors"])
+
+    def test_heat_recipe_is_ready_for_supported_problem(self):
+        result = nodes.prepare_numerical_recipe(
+            {
+                "raw_user_input": (
+                    "Solve the heat equation on the unit square with zero "
+                    "Dirichlet boundary conditions. Initial condition is "
+                    "sin(pi*x[0])*sin(pi*x[1]), T=1, dt=0.01."
+                ),
+                "problem_class": "forward_problem",
+                "pde_info": "time_dependent_heat_equation",
+                "domain_info": "unit_square",
+                "coefficient_info": "1.0",
+                "source_info": "0.0",
+                "bc_info": "dirichlet_boundary_condition",
+                "initial_condition_info": "sin(pi*x[0])*sin(pi*x[1])",
+                "time_info": "T=1, dt=0.01",
+                "selected_formulation": "fem_problem_setup",
+            }
+        )
+
+        self.assertEqual(result["numerical_recipe_status"], "ready")
+        self.assertEqual(
+            result["numerical_recipe"]["problem_type"],
+            "heat_equation",
+        )
 
 
 if __name__ == "__main__":
