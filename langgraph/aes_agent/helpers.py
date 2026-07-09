@@ -12,8 +12,7 @@ logger = logging.getLogger("aes_agent.ollama")
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama-server:11434")
 OLLAMA_GENERATE_URL = f"{OLLAMA_BASE_URL}/api/generate"
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:e4b")
-#OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:26b")
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "300"))
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 

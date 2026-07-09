@@ -256,8 +256,9 @@ Check running services:
 docker compose -f deploy/compose.dev.yaml --profile models ps
 ```
 
-## 9. Dev Stack Logs
+## 9. Stack Logs
 
+### Dev System 
 Show all logs:
 
 ```bash
@@ -280,6 +281,32 @@ Show Open WebUI logs:
 
 ```bash
 docker compose -f deploy/compose.dev.yaml --profile models logs -f openwebui
+```
+
+FEniCS/Dolfin logs:
+
+```bash
+docker compose -f deploy/compose.dev.yaml --profile models logs -f dolfinx-mcp
+```
+
+
+### Prod System 
+Show all logs:
+
+```bash
+docker compose -f deploy/compose.prod.yaml --profile models logs -f
+```
+```bash
+docker compose -f deploy/compose.prod.yaml --profile models logs -f ollama
+```
+```bash
+docker compose -f deploy/compose.prod.yaml --profile models logs -f langgraph
+```
+```bash
+docker compose -f deploy/compose.prod.yaml --profile models logs -f openwebui
+```
+```bash
+docker compose -f deploy/compose.prod.yaml --profile models logs -f dolfinx-mcp
 ```
 
 ## 10. Dev Stack Smoke Tests
@@ -469,17 +496,17 @@ docker exec -it ollama-server ollama pull gemma4:31b
 docker exec -it ollama-server ollama run gemma4:31b
 ```
 
-Use `gemma4:31b` only on a strong enough production/server GPU setup, not for
-normal laptop development.
+Use `gemma4:31b` only for high-capacity production/server checks. The default
+production model below is `gemma4:26b` because it starts and responds faster.
 
 ## 14. Production Stack Startup
 
 Production uses `deploy/compose.prod.yaml` and the production Ollama compose
-file.
+file. The intended AES production runtime model is `gemma4:26b`.
 
 ```bash
 cd ~/projects/AES
-export AES_OLLAMA_MODEL=gemma4:e4b
+export AES_OLLAMA_MODEL=gemma4:26b
 export AES_OLLAMA_PULL_GROUP=baseline
 docker compose -f deploy/compose.prod.yaml --profile models up -d --build
 ```
@@ -488,7 +515,7 @@ For stronger production/server models:
 
 ```bash
 cd ~/projects/AES
-export AES_OLLAMA_MODEL=gemma4:12b
+export AES_OLLAMA_MODEL=gemma4:26b
 export AES_OLLAMA_PULL_GROUP=recommended
 docker compose -f deploy/compose.prod.yaml --profile models up -d --build
 ```
@@ -590,10 +617,16 @@ Start Open WebUI only:
 docker compose -f open-webui/open-webui.yaml up -d
 ```
 
-Start LangGraph only:
+Start LangGraph only for development defaults:
 
 ```bash
 docker compose -f langgraph/langgraph.yaml up -d --build
+```
+
+Start LangGraph only for production defaults:
+
+```bash
+docker compose -f langgraph/langgraph.prod.yaml up -d --build
 ```
 
 Start FEniCS MCP only:
@@ -641,6 +674,12 @@ Current equivalent:
 
 ```bash
 docker compose -f langgraph/langgraph.yaml up -d --build
+```
+
+Production equivalent:
+
+```bash
+docker compose -f langgraph/langgraph.prod.yaml up -d --build
 ```
 
 Old container status command:
