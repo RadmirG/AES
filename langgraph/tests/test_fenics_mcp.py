@@ -103,6 +103,46 @@ class FenicsRecipeTests(unittest.TestCase):
             "1",
         )
 
+    def test_heat_recipe_cleans_alpha_source_and_initial_condition(self):
+        recipe_result = build_fenics_recipe(
+            {
+                "raw_user_input": (
+                    "Solve the transient heat equation on the unit square "
+                    "Omega=[0,1]^2. Use du/dt = alpha * Delta(u) + f "
+                    "with alpha=1 and f=1. Use u=0 on the boundary. "
+                    "Use initial condition u(x,y,0)=sin(pi*x)sin(piy). "
+                    "Use final time T=1 and time step dt=0.01."
+                ),
+                "problem_class": "forward_problem",
+                "pde_info": "time_dependent_heat_equation",
+                "domain_info": "unit_square",
+                "coefficient_info": "1",
+                "source_info": "1",
+                "bc_info": "dirichlet_boundary_condition",
+                "initial_condition_info": "sin(pi*x)*sin(pi*y)",
+                "time_info": "T=1, dt=0.01",
+                "selected_formulation": "fem_problem_setup",
+            }
+        )
+
+        self.assertEqual(recipe_result["status"], "ready")
+        recipe = recipe_result["recipe"]
+        self.assertEqual(recipe["equation"]["diffusion_coefficient"], "1")
+        self.assertEqual(recipe["equation"]["source"], "1")
+        self.assertEqual(recipe["initial_condition"], "sin(pi*x)*sin(pi*y)")
+
+        calls = plan_dolfinx_mcp_calls(recipe)
+        material_calls = [
+            call for call in calls if call["tool_name"] == "set_material_properties"
+        ]
+        self.assertEqual(
+            [call["arguments"] for call in material_calls],
+            [
+                {"name": "k", "value": "1"},
+                {"name": "f", "value": "1"},
+            ],
+        )
+
     def test_poisson_recipe_builds_allowed_mcp_plan(self):
         recipe_result = build_fenics_recipe(
             {

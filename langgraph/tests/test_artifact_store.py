@@ -15,6 +15,13 @@ class ArtifactStoreTests(unittest.TestCase):
         self.assertEqual(manifest["artifacts"][0]["name"], "heat_solution.png")
         self.assertEqual(manifest["artifacts"][0]["status"], "referenced")
 
+    def test_failed_manifest_does_not_promote_requested_artifacts(self):
+        manifest = build_artifact_manifest(_state_with_failed_fenics_result())
+
+        self.assertEqual(manifest["status"], "failed")
+        self.assertEqual(manifest["artifacts"], [])
+        self.assertTrue(manifest["errors"])
+
     def test_persist_artifacts_writes_manifest_and_summary(self):
         with patch.dict(
             os.environ,
@@ -78,6 +85,54 @@ def _state_with_fenics_result():
                     }
                 },
                 "error": "",
+            }
+        ],
+    }
+
+
+def _state_with_failed_fenics_result():
+    return {
+        "raw_user_input": "Solve heat equation on the unit square.",
+        "problem_class": "forward_problem",
+        "pde_info": "time_dependent_heat_equation",
+        "domain_info": "unit_square",
+        "source_info": "1",
+        "bc_info": "dirichlet_boundary_condition",
+        "time_info": "T=1, dt=0.01",
+        "tool_results": [
+            {
+                "tool_name": "fenics_forward_solve",
+                "provider": "mcp:dolfinx",
+                "status": "failed",
+                "output": {
+                    "fenics_result": {
+                        "schema_version": "1.0",
+                        "provider": "mcp:dolfinx",
+                        "status": "failed",
+                        "execution_mode": "failed",
+                        "workflow": "heat_equation_unit_domain_backward_euler_v1",
+                        "problem_type": "heat_equation",
+                        "artifacts": [],
+                        "requested_artifacts": [
+                            {
+                                "name": "heat_solution.png",
+                                "kind": "plot",
+                                "status": "requested",
+                                "uri": "mcp://dolfinx/workspace/heat_solution.png",
+                                "storage": "provider_workspace",
+                                "media_type": "image/png",
+                                "producer": {
+                                    "provider": "mcp:dolfinx",
+                                    "tool_name": "plot_solution",
+                                },
+                                "metadata": {},
+                            }
+                        ],
+                        "errors": ["set_material_properties failed"],
+                        "warnings": [],
+                    }
+                },
+                "error": "set_material_properties failed",
             }
         ],
     }

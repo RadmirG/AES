@@ -118,6 +118,7 @@ def _collect_artifact_references(fenics_result: Dict[str, Any]) -> List[Dict[str
     if not isinstance(fenics_result, dict):
         return []
 
+    fenics_status = str(fenics_result.get("status", ""))
     artifacts = fenics_result.get("artifacts") or []
     if isinstance(artifacts, list) and artifacts:
         return [
@@ -125,6 +126,9 @@ def _collect_artifact_references(fenics_result: Dict[str, Any]) -> List[Dict[str
             for artifact in artifacts
             if isinstance(artifact, dict)
         ]
+
+    if fenics_status == "failed":
+        return []
 
     requested = fenics_result.get("requested_artifacts") or []
     if isinstance(requested, list):

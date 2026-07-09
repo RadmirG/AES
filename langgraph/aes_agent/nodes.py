@@ -1028,12 +1028,23 @@ def _clean_extracted_expression(value: str) -> str:
     cleaned = value.strip().strip("`$ ")
     parts = re.split(
         r"\s+(?:and|with)\s+"
-        r"(?:diffusion\s+coefficient|coefficient|alpha|boundary|initial|time|source)\b",
+        r"(?:diffusion\s+coefficient|coefficient|alpha|boundary|initial|time|source|f\s*=|k\s*=)\b",
         cleaned,
         maxsplit=1,
         flags=re.IGNORECASE,
     )
-    return parts[0].strip()
+    return _normalize_math_expression(parts[0].strip())
+
+
+def _normalize_math_expression(value: str) -> str:
+    cleaned = value.strip()
+    cleaned = re.sub(r"\bsin\(pi([xy])\)", r"sin(pi*\1)", cleaned)
+    cleaned = re.sub(
+        r"\bsin\(pi\*x\)\s*sin\(pi\*y\)",
+        "sin(pi*x)*sin(pi*y)",
+        cleaned,
+    )
+    return cleaned
 
 
 def _state_text(state: dict[str, Any]) -> str:

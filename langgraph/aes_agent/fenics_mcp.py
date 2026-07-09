@@ -174,11 +174,15 @@ def plan_dolfinx_mcp_calls(recipe: Dict[str, Any]) -> List[Dict[str, Any]]:
         {
             "tool_name": "set_material_properties",
             "arguments": {
-                "diffusion_coefficient": equation.get(
-                    "diffusion_coefficient",
-                    "1.0",
-                ),
-                "source": equation.get("source", "0.0"),
+                "name": "k",
+                "value": equation.get("diffusion_coefficient", "1.0"),
+            },
+        },
+        {
+            "tool_name": "set_material_properties",
+            "arguments": {
+                "name": "f",
+                "value": equation.get("source", "0.0"),
             },
         },
     ]
@@ -1073,11 +1077,22 @@ def _clean_expression(value: str) -> str:
     cleaned = value.strip().strip("`$ ")
     parts = re.split(
         r"\s+(?:and|with)\s+"
-        r"(?:diffusion\s+coefficient|coefficient|alpha|boundary|initial|time|source)\b",
+        r"(?:diffusion\s+coefficient|coefficient|alpha|boundary|initial|time|source|f\s*=|k\s*=)\b",
         cleaned,
         maxsplit=1,
         flags=re.IGNORECASE,
     )
     cleaned = parts[0].strip()
     cleaned = cleaned.replace("^", "**")
+    return _normalize_math_expression(cleaned)
+
+
+def _normalize_math_expression(value: str) -> str:
+    cleaned = value.strip()
+    cleaned = re.sub(r"\bsin\(pi([xy])\)", r"sin(pi*\1)", cleaned)
+    cleaned = re.sub(
+        r"\bsin\(pi\*x\)\s*sin\(pi\*y\)",
+        "sin(pi*x)*sin(pi*y)",
+        cleaned,
+    )
     return cleaned

@@ -405,6 +405,35 @@ class ExtractionFallbackTests(unittest.TestCase):
         self.assertEqual(result["source_info"], "1")
         self.assertEqual(result["coefficient_info"], "1")
 
+    @patch.object(nodes, "ollama_json", return_value={})
+    def test_transient_heat_extracts_separate_alpha_source_and_initial_condition(
+        self,
+        _ollama_json,
+    ):
+        result = nodes.extract_mathematical_structure(
+            {
+                "raw_user_input": (
+                    "Solve the transient heat equation on the unit square "
+                    "Omega=[0,1]^2. Use du/dt = alpha * Delta(u) + f "
+                    "with alpha=1 and f=1. Use u=0 on the boundary. "
+                    "Use initial condition u(x,y,0)=sin(pi*x)sin(piy). "
+                    "Use final time T=1 and time step dt=0.01."
+                ),
+                "problem_class": "forward_problem",
+                "pde_info": "time_dependent_heat_equation",
+            }
+        )
+
+        self.assertEqual(result["domain_info"], "unit_square")
+        self.assertEqual(result["coefficient_info"], "1")
+        self.assertEqual(result["source_info"], "1")
+        self.assertEqual(result["bc_info"], "dirichlet_boundary_condition")
+        self.assertEqual(
+            result["initial_condition_info"],
+            "sin(pi*x)*sin(pi*y)",
+        )
+        self.assertEqual(result["time_info"], "T=1, dt=0.01")
+
     @patch.object(nodes, "ollama_json", return_value={"missing_information": []})
     def test_completeness_detects_steady_transient_contradiction(
         self,
