@@ -4,6 +4,42 @@ import json
 from typing import Any, Dict, List
 
 
+def detect_request_intent_prompt(user_text: str) -> str:
+    return f"""
+You are the first routing node in an agentic engineering system named AES.
+
+Task:
+Decide whether the latest user message is a numerical engineering/PDE solve
+request that should enter the AES solver workflow.
+
+Return ONLY a valid JSON object with exactly these keys:
+{{
+  "request_intent": "...",
+  "intent_reason": "..."
+}}
+
+Rules:
+- "request_intent" must be one of:
+  "engineering_pde_request",
+  "operational_command",
+  "general_question",
+  "unsupported_request",
+  "empty_request"
+- Use "engineering_pde_request" only when the user asks AES to formulate,
+  solve, simulate, or compute an engineering/mathematical PDE problem.
+- Use "operational_command" for shell commands, Docker commands, SSH commands,
+  curl commands, deployment commands, log commands, or server maintenance.
+- Use "general_question" for conceptual questions about AES, LangGraph, MCP,
+  Ollama, architecture, or documentation.
+- Use "unsupported_request" when the message is neither an engineering PDE
+  solve request nor a supported AES task.
+- "intent_reason" must be one concise sentence.
+
+Latest user message:
+{user_text}
+"""
+
+
 def classify_problem_prompt(user_text: str) -> str:
     return f"""
 You are an orchestration node in an agentic engineering system.

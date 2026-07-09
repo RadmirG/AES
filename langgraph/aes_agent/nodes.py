@@ -8,6 +8,7 @@ from aes_agent.fenics_mcp import build_fenics_recipe
 from aes_agent.prompts import (
     check_problem_completeness_prompt,
     classify_problem_prompt,
+    detect_request_intent_prompt,
     extract_mathematical_structure_prompt,
     generate_clarification_prompt,
     select_formulation_prompt,
@@ -29,6 +30,94 @@ def ingest_problem(state: AgentState) -> Dict[str, Any]:
     raw_text = state.get("raw_user_input", "").strip()
     return {
         "raw_user_input": raw_text
+    }
+
+
+def detect_request_intent(state: AgentState) -> Dict[str, Any]:
+    user_text = state.get("raw_user_input", "")
+    deterministic = _detect_request_intent_from_text(user_text)
+    if deterministic["request_intent"] != "unknown_request":
+        return deterministic
+
+    result = ollama_json(detect_request_intent_prompt(user_text))
+    request_intent = safe_str(
+        result.get("request_intent"),
+        "unsupported_request",
+    )
+    if request_intent not in {
+        "engineering_pde_request",
+        "operational_command",
+        "general_question",
+        "unsupported_request",
+        "empty_request",
+    }:
+        request_intent = "unsupported_request"
+
+    return {
+        "request_intent": request_intent,
+        "intent_reason": safe_str(
+            result.get("intent_reason"),
+            "The latest message is not a supported AES solver request.",
+        ),
+    }
+
+
+def handle_non_engineering_request(state: AgentState) -> Dict[str, Any]:
+    intent = state.get("request_intent", "unsupported_request")
+    reason = state.get(
+        "intent_reason",
+        "The latest message is not a supported AES solver request.",
+    )
+    user_text = state.get("raw_user_input", "")
+
+    if intent == "operational_command":
+        message = (
+            "This looks like an operational/deployment command, not a numerical "
+            "engineering problem for AES to solve."
+        )
+        next_action = "ask_deployment_helper_or_send_pde_problem"
+    elif intent == "general_question":
+        message = (
+            "This looks like a general conceptual question, not a concrete PDE "
+            "solve request for the AES numerical workflow."
+        )
+        next_action = "ask_general_helper_or_send_pde_problem"
+    elif intent == "empty_request":
+        message = "No usable user request was provided."
+        next_action = "send_engineering_problem"
+    else:
+        message = (
+            "The latest message is outside the currently supported AES solver "
+            "workflow."
+        )
+        next_action = "send_supported_pde_problem"
+
+    generated_artifact = "\n".join(
+        [
+            "AES request gate",
+            "",
+            "Status: not_applicable",
+            f"Intent: {intent}",
+            f"Reason: {reason}",
+            "",
+            message,
+            "",
+            "AES will continue only for explicit engineering/PDE solve requests, "
+            "for example: solve a stationary heat equation on a unit square with "
+            "specified source, coefficient, and boundary conditions.",
+        ]
+    )
+
+    if user_text:
+        generated_artifact += (
+            "\n\nLatest user message classified by AES:\n"
+            f"{_artifact_value(user_text, limit=420)}"
+        )
+
+    return {
+        "generated_artifact": generated_artifact,
+        "agent_status": "not_applicable",
+        "next_action": next_action,
     }
 
 
@@ -669,6 +758,155 @@ def _lower_text(value: str) -> str:
 def _has_any(text: str, needles: list[str]) -> bool:
     lowered = _lower_text(text)
     return any(needle in lowered for needle in needles)
+
+
+def _detect_request_intent_from_text(user_text: str) -> dict[str, str]:
+    stripped = user_text.strip()
+    if not stripped:
+        return {
+            "request_intent": "empty_request",
+            "intent_reason": "The latest user message is empty.",
+        }
+
+    if _looks_like_operational_command(stripped):
+        return {
+            "request_intent": "operational_command",
+            "intent_reason": (
+                "The latest user message looks like a shell, Docker, SSH, "
+                "HTTP, or deployment command."
+            ),
+        }
+
+    lowered = _lower_text(stripped)
+    pde_markers = [
+        "heat equation",
+        "poisson",
+        "laplace",
+        "diffusion",
+        "pde",
+        "partial differential",
+        "boundary condition",
+        "dirichlet",
+        "neumann",
+        "finite element",
+        "weak form",
+        "strong form",
+        "delta(u)",
+        "grad(u)",
+        "unit square",
+    ]
+    solve_markers = [
+        "solve",
+        "compute",
+        "simulate",
+        "find ",
+        "formulate",
+        "model ",
+    ]
+    if _has_any(stripped, pde_markers) and (
+        _has_any(stripped, solve_markers)
+        or _has_time_derivative(stripped)
+        or "source" in lowered
+    ):
+        return {
+            "request_intent": "engineering_pde_request",
+            "intent_reason": (
+                "The latest user message asks for an engineering or PDE "
+                "solve/formulation workflow."
+            ),
+        }
+
+    general_markers = [
+        "what is",
+        "explain",
+        "how does",
+        "why",
+        "langgraph",
+        "langchain",
+        "mcp",
+        "ollama",
+        "open webui",
+        "docker",
+        "compose",
+        "deployment",
+        "architecture",
+        "documentation",
+    ]
+    if _has_any(stripped, general_markers):
+        return {
+            "request_intent": "general_question",
+            "intent_reason": (
+                "The latest user message is a conceptual or operational "
+                "question rather than a PDE solve request."
+            ),
+        }
+
+    return {
+        "request_intent": "unknown_request",
+        "intent_reason": "The request intent is ambiguous and requires model routing.",
+    }
+
+
+def _looks_like_operational_command(user_text: str) -> bool:
+    command_prefixes = (
+        "docker ",
+        "docker-compose ",
+        "ssh ",
+        "curl ",
+        "git ",
+        "cd ",
+        "export ",
+        "kubectl ",
+        "python ",
+        "python3 ",
+        "py ",
+        "pip ",
+        "pytest ",
+        "uvicorn ",
+        "powershell ",
+        "pwsh ",
+        "bash ",
+        "wsl ",
+        "sudo ",
+        "chmod ",
+        "chown ",
+        "ls ",
+        "cat ",
+        "grep ",
+        "rg ",
+        "tail ",
+    )
+    operational_fragments = (
+        "docker compose",
+        "docker logs",
+        "docker exec",
+        "compose.prod.yaml",
+        "compose.dev.yaml",
+        "--profile",
+        "--force-recreate",
+        "logs -f",
+        "up -d",
+        "ssh -l",
+        "ssh -n",
+        "ssh -t",
+        "curl -x",
+        "curl -s",
+    )
+    lines = [line.strip() for line in user_text.splitlines() if line.strip()]
+    if not lines:
+        return False
+
+    command_like_lines = 0
+    for line in lines:
+        lowered = line.lower()
+        if lowered.startswith(command_prefixes) or any(
+            fragment in lowered for fragment in operational_fragments
+        ):
+            command_like_lines += 1
+
+    if command_like_lines == len(lines):
+        return True
+    return command_like_lines > 0 and command_like_lines >= len(lines) / 2
 
 
 def _has_time_derivative(text: str) -> bool:

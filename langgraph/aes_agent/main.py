@@ -62,11 +62,13 @@ def extract_text_from_content(content: Union[str, List[Dict[str, Any]]]) -> str:
 
 def build_user_text_from_messages(messages: List[ChatMessage]) -> str:
     """
-    Combine user turns into one AES problem statement.
+    Extract the latest user turn as the active AES request.
 
-    OpenAI-compatible clients send the full chat history. AES is not yet using
-    a LangGraph checkpointer for multi-turn resume, so we preserve user context
-    by folding all user messages into the next graph invocation.
+    OpenAI-compatible clients send the full chat history. Folding all user
+    turns into one problem statement can make a new deployment/log command
+    inherit an older PDE request and accidentally trigger the solver workflow.
+    Until AES has checkpoint-backed multi-turn resume, the latest user message
+    is the only active request.
     """
     user_texts = [
         extract_text_from_content(msg.content).strip()
@@ -77,13 +79,7 @@ def build_user_text_from_messages(messages: List[ChatMessage]) -> str:
 
     if not user_texts:
         return ""
-    if len(user_texts) == 1:
-        return user_texts[0]
-
-    lines = ["Combined user problem statement from the chat history:"]
-    for index, text in enumerate(user_texts, start=1):
-        lines.append(f"\nUser message {index}:\n{text}")
-    return "\n".join(lines).strip()
+    return user_texts[-1]
 
 
 def run_aes_agent(user_text: str) -> Dict[str, Any]:
@@ -94,6 +90,8 @@ def run_aes_agent(user_text: str) -> Dict[str, Any]:
     logger.info("AES graph invocation started.")
     initial_state = {
         "raw_user_input": user_text,
+        "request_intent": "",
+        "intent_reason": "",
         "problem_class": "",
         "domain_info": "",
         "pde_info": "",

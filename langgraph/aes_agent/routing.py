@@ -3,6 +3,14 @@ from typing import Literal
 from aes_agent.state import AgentState
 
 
+def route_after_intent(
+    state: AgentState,
+) -> Literal["continue", "stop"]:
+    if state.get("request_intent") == "engineering_pde_request":
+        return "continue"
+    return "stop"
+
+
 def route_after_completeness(
     state: AgentState,
 ) -> Literal["clarify", "formulate"]:

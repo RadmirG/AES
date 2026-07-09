@@ -90,6 +90,56 @@ class ClarificationNodeTests(unittest.TestCase):
         )
 
 
+class RequestIntentNodeTests(unittest.TestCase):
+    @patch.object(
+        nodes,
+        "ollama_json",
+        side_effect=AssertionError("obvious command must not call the LLM"),
+    )
+    def test_docker_command_is_operational_intent(self, _ollama_json):
+        result = nodes.detect_request_intent(
+            {
+                "raw_user_input": (
+                    "docker compose -f deploy/compose.prod.yaml "
+                    "--profile models --profile fenics up -d --build "
+                    "--force-recreate langgraph"
+                )
+            }
+        )
+
+        self.assertEqual(result["request_intent"], "operational_command")
+        self.assertIn("command", result["intent_reason"])
+
+    @patch.object(
+        nodes,
+        "ollama_json",
+        side_effect=AssertionError("obvious PDE request must not call the LLM"),
+    )
+    def test_heat_equation_is_engineering_intent(self, _ollama_json):
+        result = nodes.detect_request_intent(
+            {
+                "raw_user_input": (
+                    "Solve the transient heat equation on the unit square with "
+                    "u=0 on the boundary, f=1, T=1, and dt=0.01."
+                )
+            }
+        )
+
+        self.assertEqual(result["request_intent"], "engineering_pde_request")
+
+    def test_non_engineering_response_does_not_select_tools(self):
+        result = nodes.handle_non_engineering_request(
+            {
+                "raw_user_input": "docker compose up -d",
+                "request_intent": "operational_command",
+                "intent_reason": "The message is a Docker command.",
+            }
+        )
+
+        self.assertEqual(result["agent_status"], "not_applicable")
+        self.assertIn("not a numerical engineering problem", result["generated_artifact"])
+
+
 class ToolNodeTests(unittest.TestCase):
     @patch.object(
         nodes,

@@ -1,6 +1,7 @@
 import unittest
 
 from aes_agent.routing import (
+    route_after_intent,
     route_after_completeness,
     route_after_numerical_recipe,
     route_after_validation,
@@ -8,6 +9,19 @@ from aes_agent.routing import (
 
 
 class RoutingTests(unittest.TestCase):
+    def test_engineering_intent_routes_to_workflow(self):
+        self.assertEqual(
+            route_after_intent({"request_intent": "engineering_pde_request"}),
+            "continue",
+        )
+
+    def test_non_engineering_intent_stops_workflow(self):
+        self.assertEqual(
+            route_after_intent({"request_intent": "operational_command"}),
+            "stop",
+        )
+        self.assertEqual(route_after_intent({}), "stop")
+
     def test_missing_information_routes_to_clarification(self):
         state = {"missing_information": ["Boundary conditions are missing."]}
 

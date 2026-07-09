@@ -46,20 +46,26 @@ class ChatHistoryInputTests(unittest.TestCase):
 
         self.assertEqual(text, "Solve Poisson.")
 
-    def test_multiple_user_messages_are_combined(self):
+    def test_multiple_user_messages_use_latest_user_turn(self):
         text = build_user_text_from_messages(
             [
                 ChatMessage(role="user", content="Solve a steady heat equation."),
                 ChatMessage(role="assistant", content="Clarification needed."),
-                ChatMessage(role="user", content="Use the weak formulation."),
+                ChatMessage(
+                    role="user",
+                    content=(
+                        "docker compose -f deploy/compose.prod.yaml "
+                        "--profile models up -d --build"
+                    ),
+                ),
             ]
         )
 
-        self.assertIn("User message 1:", text)
-        self.assertIn("Solve a steady heat equation.", text)
-        self.assertIn("User message 2:", text)
-        self.assertIn("Use the weak formulation.", text)
-        self.assertNotIn("Clarification needed.", text)
+        self.assertEqual(
+            text,
+            "docker compose -f deploy/compose.prod.yaml --profile models up -d --build",
+        )
+        self.assertNotIn("Solve a steady heat equation.", text)
 
 
 if __name__ == "__main__":
