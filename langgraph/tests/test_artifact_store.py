@@ -1,0 +1,87 @@
+import os
+import unittest
+from unittest.mock import patch
+
+from aes_agent.artifact_store import build_artifact_manifest, persist_artifacts
+
+
+class ArtifactStoreTests(unittest.TestCase):
+    def test_build_manifest_uses_fenics_artifact_references(self):
+        manifest = build_artifact_manifest(_state_with_fenics_result())
+
+        self.assertEqual(manifest["schema_version"], "1.0")
+        self.assertEqual(manifest["status"], "completed")
+        self.assertEqual(len(manifest["artifacts"]), 1)
+        self.assertEqual(manifest["artifacts"][0]["name"], "heat_solution.png")
+        self.assertEqual(manifest["artifacts"][0]["status"], "referenced")
+
+    def test_persist_artifacts_writes_manifest_and_summary(self):
+        with patch.dict(
+            os.environ,
+            {
+                "AES_ARTIFACT_ROOT": "test-artifacts",
+                "AES_ARTIFACT_RUN_ID": "test-run",
+            },
+        ):
+            with patch("aes_agent.artifact_store._ensure_directory") as mkdir:
+                with patch("aes_agent.artifact_store._write_text") as write_text:
+                    output = persist_artifacts(_state_with_fenics_result())
+
+            self.assertEqual(output["execution_mode"], "stored")
+            self.assertEqual(output["errors"], [])
+            self.assertIn("test-run", output["manifest_path"])
+            self.assertIn("test-run", output["summary_path"])
+            mkdir.assert_called_once()
+            self.assertEqual(write_text.call_count, 2)
+
+
+def _state_with_fenics_result():
+    return {
+        "raw_user_input": "Solve heat equation on the unit square.",
+        "problem_class": "forward_problem",
+        "pde_info": "time_dependent_heat_equation",
+        "domain_info": "unit_square",
+        "source_info": "1",
+        "bc_info": "dirichlet_boundary_condition",
+        "time_info": "T=1, dt=0.01",
+        "tool_results": [
+            {
+                "tool_name": "fenics_forward_solve",
+                "provider": "mcp:dolfinx",
+                "status": "completed",
+                "output": {
+                    "fenics_result": {
+                        "schema_version": "1.0",
+                        "provider": "mcp:dolfinx",
+                        "status": "completed",
+                        "execution_mode": "executed",
+                        "workflow": "heat_equation_unit_domain_backward_euler_v1",
+                        "problem_type": "heat_equation",
+                        "artifacts": [
+                            {
+                                "name": "heat_solution.png",
+                                "kind": "plot",
+                                "status": "available",
+                                "uri": "mcp://dolfinx/workspace/heat_solution.png",
+                                "storage": "provider_workspace",
+                                "media_type": "image/png",
+                                "producer": {
+                                    "provider": "mcp:dolfinx",
+                                    "tool_name": "plot_solution",
+                                },
+                                "metadata": {},
+                            }
+                        ],
+                        "requested_artifacts": [],
+                        "errors": [],
+                        "warnings": [],
+                    }
+                },
+                "error": "",
+            }
+        ],
+    }
+
+
+if __name__ == "__main__":
+    unittest.main()

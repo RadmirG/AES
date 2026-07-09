@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import os
 import re
 from typing import Any, Dict, List, Protocol
@@ -12,6 +13,31 @@ FENICS_TOOL_NAME = "fenics_forward_solve"
 FENICS_PROVIDER = "mcp:dolfinx"
 DEFAULT_DOLFINX_MCP_URL = ""
 logger = logging.getLogger("aes_agent.fenics_mcp")
+
+FENICS_ARTIFACT_TOOLS = {
+    "export_solution": {
+        "kind": "solution",
+        "default_media_type": "application/x-xdmf",
+    },
+    "plot_solution": {
+        "kind": "plot",
+        "default_media_type": "image/png",
+    },
+    "generate_report": {
+        "kind": "report",
+        "default_media_type": "text/html",
+    },
+}
+
+MCP_ERROR_MARKERS = (
+    "DOLFINX_API_ERROR",
+    "FILE_IO_ERROR",
+    "FUNCTION_NOT_FOUND",
+    "NO_ACTIVE_MESH",
+    "VALIDATION_ERROR",
+    "Permission denied",
+    "Traceback",
+)
 
 ALLOWED_DOLFINX_TOOLS = {
     "reset_session",
@@ -184,13 +210,25 @@ def execute_fenics_forward_solve(
         recipe_errors = recipe_result["errors"]
 
     if not recipe:
+        mcp_calls: List[Dict[str, Any]] = []
+        results: List[Dict[str, Any]] = []
+        warnings: List[str] = []
         return {
             "schema_version": "1.0",
             "provider": FENICS_PROVIDER,
             "execution_mode": "blocked",
             "recipe": {},
-            "mcp_calls": [],
-            "results": [],
+            "mcp_calls": mcp_calls,
+            "results": results,
+            "fenics_result": _build_fenics_result_contract(
+                execution_mode="blocked",
+                endpoint="",
+                recipe={},
+                calls=mcp_calls,
+                results=results,
+                errors=recipe_errors,
+                warnings=warnings,
+            ),
             "errors": recipe_errors,
         }
 
@@ -200,13 +238,25 @@ def execute_fenics_forward_solve(
         client = _default_dolfinx_client()
 
     if client is None:
+        results = []
+        errors: List[str] = []
+        warnings: List[str] = []
         return {
             "schema_version": "1.0",
             "provider": FENICS_PROVIDER,
             "execution_mode": "planned",
             "recipe": recipe,
             "mcp_calls": calls,
-            "results": [],
+            "results": results,
+            "fenics_result": _build_fenics_result_contract(
+                execution_mode="planned",
+                endpoint="",
+                recipe=recipe,
+                calls=calls,
+                results=results,
+                errors=errors,
+                warnings=warnings,
+            ),
             "errors": [],
             "message": (
                 "DOLFINx MCP execution is not enabled. Set DOLFINX_MCP_URL "
@@ -239,6 +289,9 @@ def execute_fenics_forward_solve(
 
     results = []
     empty_result_tools = []
+    errors = []
+    warnings = []
+    failed_tool = ""
     for index, call in enumerate(calls, start=1):
         tool_name = call["tool_name"]
         logger.info(
@@ -256,11 +309,21 @@ def execute_fenics_forward_solve(
                 "result": tool_result,
             }
         )
+        tool_error = _extract_mcp_tool_error(tool_name, tool_result)
+        if tool_error:
+            errors.append(tool_error)
+            failed_tool = tool_name
+            warnings.append(
+                f"Stopped DOLFINx MCP workflow after `{tool_name}` returned an error."
+            )
+            logger.warning("DOLFINx MCP tool failed: %s", tool_error)
+            break
 
     non_empty_result_count = len(results) - len(empty_result_tools)
-    warnings = []
     execution_mode = "executed"
-    if results and non_empty_result_count == 0:
+    if errors:
+        execution_mode = "failed"
+    elif results and non_empty_result_count == 0:
         execution_mode = "executed_unverified"
         warnings.append(
             "All MCP tool calls returned empty result objects. AES reached the "
@@ -280,7 +343,17 @@ def execute_fenics_forward_solve(
         "non_empty_result_count": non_empty_result_count,
         "empty_result_tools": empty_result_tools,
         "warnings": warnings,
-        "errors": [],
+        "failed_tool": failed_tool,
+        "fenics_result": _build_fenics_result_contract(
+            execution_mode=execution_mode,
+            endpoint=endpoint,
+            recipe=recipe,
+            calls=calls,
+            results=results,
+            errors=errors,
+            warnings=warnings,
+        ),
+        "errors": errors,
     }
 
 
@@ -308,6 +381,155 @@ def _should_execute_live() -> bool:
 def _client_endpoint(client: MCPToolClient) -> str:
     endpoint = getattr(client, "endpoint", "")
     return endpoint if isinstance(endpoint, str) else ""
+
+
+def _build_fenics_result_contract(
+    *,
+    execution_mode: str,
+    endpoint: str,
+    recipe: Dict[str, Any],
+    calls: List[Dict[str, Any]],
+    results: List[Dict[str, Any]],
+    errors: List[str],
+    warnings: List[str],
+) -> Dict[str, Any]:
+    return {
+        "schema_version": "1.0",
+        "provider": FENICS_PROVIDER,
+        "status": _fenics_status_from_execution_mode(execution_mode),
+        "execution_mode": execution_mode,
+        "workflow": recipe.get("workflow", ""),
+        "problem_type": recipe.get("problem_type", ""),
+        "mcp_endpoint": endpoint,
+        "mcp": {
+            "planned_call_count": len(calls),
+            "executed_call_count": len(results),
+            "planned_tools": [
+                call.get("tool_name", "")
+                for call in calls
+                if isinstance(call, dict)
+            ],
+            "executed_tools": [
+                result.get("tool_name", "")
+                for result in results
+                if isinstance(result, dict)
+            ],
+        },
+        "requested_artifacts": _requested_artifacts_from_calls(calls),
+        "artifacts": _available_artifacts_from_results(calls, results),
+        "diagnostics": _diagnostics_from_results(results),
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
+def _fenics_status_from_execution_mode(execution_mode: str) -> str:
+    if execution_mode == "executed":
+        return "completed"
+    if execution_mode == "executed_unverified":
+        return "unverified"
+    if execution_mode == "planned":
+        return "planned"
+    if execution_mode in {"blocked", "failed"}:
+        return "failed"
+    return "unknown"
+
+
+def _requested_artifacts_from_calls(calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    artifacts = []
+    for call in calls:
+        artifact = _artifact_ref_from_call(call, status="requested")
+        if artifact:
+            artifacts.append(artifact)
+    return artifacts
+
+
+def _available_artifacts_from_results(
+    calls: List[Dict[str, Any]],
+    results: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    artifacts = []
+    for index, result_entry in enumerate(results):
+        if not isinstance(result_entry, dict):
+            continue
+        call = calls[index] if index < len(calls) else {}
+        tool_name = result_entry.get("tool_name", "")
+        result = result_entry.get("result") or {}
+        if not isinstance(result, dict):
+            continue
+        if _extract_mcp_tool_error(str(tool_name), result):
+            continue
+        artifact = _artifact_ref_from_call(call, status="available")
+        if artifact:
+            artifact["source_result_index"] = index
+            artifacts.append(artifact)
+    return artifacts
+
+
+def _artifact_ref_from_call(
+    call: Dict[str, Any],
+    *,
+    status: str,
+) -> Dict[str, Any]:
+    if not isinstance(call, dict):
+        return {}
+
+    tool_name = call.get("tool_name", "")
+    spec = FENICS_ARTIFACT_TOOLS.get(str(tool_name))
+    if not spec:
+        return {}
+
+    arguments = call.get("arguments") or {}
+    if not isinstance(arguments, dict):
+        return {}
+
+    filename = str(arguments.get("filename", "")).strip()
+    if not filename:
+        return {}
+
+    return {
+        "name": filename,
+        "kind": spec["kind"],
+        "status": status,
+        "uri": f"mcp://dolfinx/workspace/{filename}",
+        "storage": "provider_workspace",
+        "media_type": _artifact_media_type(filename, spec["default_media_type"]),
+        "producer": {
+            "provider": FENICS_PROVIDER,
+            "tool_name": str(tool_name),
+        },
+        "metadata": {
+            "format": str(arguments.get("format", "")),
+        },
+    }
+
+
+def _artifact_media_type(filename: str, default: str) -> str:
+    lowered = filename.lower()
+    if lowered.endswith(".png"):
+        return "image/png"
+    if lowered.endswith(".html") or lowered.endswith(".htm"):
+        return "text/html"
+    if lowered.endswith(".xdmf"):
+        return "application/x-xdmf"
+    if lowered.endswith(".json"):
+        return "application/json"
+    return default
+
+
+def _diagnostics_from_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    for result_entry in results:
+        if not isinstance(result_entry, dict):
+            continue
+        if result_entry.get("tool_name") != "get_solver_diagnostics":
+            continue
+        result = result_entry.get("result") or {}
+        if isinstance(result, dict) and not _extract_mcp_tool_error(
+            "get_solver_diagnostics",
+            result,
+        ):
+            return result
+    return {}
 
 
 def _detect_problem_type(state: AgentState) -> str:
@@ -675,11 +897,75 @@ def _boundary_condition_calls(
                 "space_name": "V",
                 "type": bc.get("type", "dirichlet"),
                 "value": bc.get("value", "0.0"),
+                "boundary": bc.get("where", "boundary"),
                 "locator": bc.get("where", "boundary"),
             },
         }
         for bc in boundary_conditions
     ]
+
+
+def _extract_mcp_tool_error(tool_name: str, result: Dict[str, Any]) -> str:
+    if not isinstance(result, dict):
+        return f"{tool_name}: MCP tool returned a non-object result."
+
+    explicit_error = result.get("error")
+    if explicit_error:
+        return f"{tool_name}: {_stringify_mcp_value(explicit_error)}"
+
+    status = str(result.get("status", "")).strip().lower()
+    if status in {"error", "failed", "failure"}:
+        detail = _mcp_result_text(result) or status
+        return f"{tool_name}: {detail}"
+
+    content_text = _mcp_result_text(result)
+    if result.get("isError") is True or result.get("is_error") is True:
+        detail = content_text or "MCP tool returned isError=true."
+        return f"{tool_name}: {detail}"
+
+    if content_text and any(marker in content_text for marker in MCP_ERROR_MARKERS):
+        return f"{tool_name}: {content_text}"
+
+    return ""
+
+
+def _mcp_result_text(result: Dict[str, Any]) -> str:
+    parts: List[str] = []
+
+    content = result.get("content")
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict):
+                for key in ("text", "message", "detail", "data"):
+                    value = item.get(key)
+                    if isinstance(value, str) and value.strip():
+                        parts.append(value.strip())
+                        break
+            elif isinstance(item, str) and item.strip():
+                parts.append(item.strip())
+
+    for key in ("message", "detail", "details", "stderr"):
+        value = result.get(key)
+        if isinstance(value, str) and value.strip():
+            parts.append(value.strip())
+
+    return _truncate_mcp_text(" ".join(parts), limit=900)
+
+
+def _stringify_mcp_value(value: Any) -> str:
+    if isinstance(value, str):
+        return _truncate_mcp_text(value, limit=900)
+    try:
+        return _truncate_mcp_text(json.dumps(value, sort_keys=True), limit=900)
+    except TypeError:
+        return _truncate_mcp_text(str(value), limit=900)
+
+
+def _truncate_mcp_text(value: str, *, limit: int) -> str:
+    cleaned = " ".join(str(value).split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 3] + "..."
 
 
 def _postprocess_calls(solution_name: str, prefix: str) -> List[Dict[str, Any]]:

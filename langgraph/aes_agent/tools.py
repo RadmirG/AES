@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, TypedDict
 
+from aes_agent.artifact_store import persist_artifacts
 from aes_agent.fenics_mcp import execute_fenics_forward_solve
 from aes_agent.state import AgentState
 
@@ -82,6 +83,10 @@ def run_fenics_forward_solve(state: AgentState) -> Dict[str, Any]:
     return execute_fenics_forward_solve(state)
 
 
+def store_artifacts(state: AgentState) -> Dict[str, Any]:
+    return persist_artifacts(state)
+
+
 FENICS_FORWARD_SOLVE_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "description": (
@@ -91,6 +96,18 @@ FENICS_FORWARD_SOLVE_SCHEMA: Dict[str, Any] = {
     "required_state": [
         "numerical_recipe_status",
         "numerical_recipe",
+    ],
+}
+
+
+ARTIFACT_STORE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "Consumes previous tool results from AgentState and persists an AES-owned "
+        "artifact manifest under AES_ARTIFACT_ROOT."
+    ),
+    "required_state": [
+        "tool_results",
     ],
 }
 
@@ -124,6 +141,16 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
         provider="mcp:dolfinx",
         handler=run_fenics_forward_solve,
         input_schema=FENICS_FORWARD_SOLVE_SCHEMA,
+    ),
+    "artifact_store": ToolDefinition(
+        name="artifact_store",
+        description=(
+            "Persist AES-owned artifact manifests and summaries from previous "
+            "tool outputs. Providers return results; AES decides final storage."
+        ),
+        provider="local:artifact_store",
+        handler=store_artifacts,
+        input_schema=ARTIFACT_STORE_SCHEMA,
     ),
 }
 
@@ -176,6 +203,16 @@ def execute_tool(tool_name: str, state: AgentState) -> ToolResult:
             "error": str(exc),
         }
 
+    output_errors = _tool_output_errors(output)
+    if output_errors:
+        return {
+            "tool_name": tool_name,
+            "provider": definition.provider,
+            "status": "failed",
+            "output": output,
+            "error": "; ".join(output_errors),
+        }
+
     return {
         "tool_name": tool_name,
         "provider": definition.provider,
@@ -183,3 +220,19 @@ def execute_tool(tool_name: str, state: AgentState) -> ToolResult:
         "output": output,
         "error": "",
     }
+
+
+def _tool_output_errors(output: Dict[str, Any]) -> List[str]:
+    if not isinstance(output, dict):
+        return []
+
+    raw_errors = output.get("errors") or []
+    if isinstance(raw_errors, list):
+        errors = [str(error) for error in raw_errors if str(error).strip()]
+    else:
+        errors = [str(raw_errors)] if str(raw_errors).strip() else []
+
+    if output.get("execution_mode") == "failed" and not errors:
+        errors.append("Tool execution failed.")
+
+    return errors

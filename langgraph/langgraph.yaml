@@ -16,6 +16,9 @@ services:
       - DOLFINX_MCP_URL=http://dolfinx-mcp:8000/mcp
       - DOLFINX_MCP_EXECUTE=${DOLFINX_MCP_EXECUTE:-false}
       - DOLFINX_MCP_TIMEOUT=120
+      - AES_ARTIFACT_ROOT=/artifacts
+    volumes:
+      - ../artifacts:/artifacts
     networks:
       - ai-stack-net
 

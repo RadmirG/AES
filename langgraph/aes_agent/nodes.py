@@ -291,8 +291,11 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
         state.get("numerical_recipe_status") == "ready"
         and "fenics_forward_solve" in available_tools
     ):
+        selected_tools = ["fenics_forward_solve"]
+        if "artifact_store" in available_tools:
+            selected_tools.append("artifact_store")
         return {
-            "selected_tools": ["fenics_forward_solve"]
+            "selected_tools": selected_tools
         }
 
     prompt = select_tools_prompt(snapshot, tool_catalog())
@@ -309,6 +312,12 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
         and "fenics_forward_solve" not in selected_tools
     ):
         selected_tools.append("fenics_forward_solve")
+    if (
+        "fenics_forward_solve" in selected_tools
+        and "artifact_store" in available_tools
+        and "artifact_store" not in selected_tools
+    ):
+        selected_tools.append("artifact_store")
     if not selected_tools:
         selected_tools = available_tools
 
@@ -318,10 +327,12 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
 
 
 def execute_tools(state: AgentState) -> Dict[str, Any]:
-    tool_results = [
-        execute_tool(tool_name, state)
-        for tool_name in state.get("selected_tools", [])
-    ]
+    tool_results = []
+    working_state = dict(state)
+    for tool_name in state.get("selected_tools", []):
+        working_state["tool_results"] = tool_results
+        result = execute_tool(tool_name, working_state)
+        tool_results.append(result)
     tool_errors = [
         f"{result['tool_name']}: {result['error']}"
         for result in tool_results
@@ -506,6 +517,21 @@ def _append_tool_result_section(
         if message:
             lines.append(f"  Message: {_artifact_value(message, limit=320)}")
 
+        manifest = output.get("manifest")
+        if isinstance(manifest, dict):
+            artifact_count = len(manifest.get("artifacts") or [])
+            lines.append(f"  Artifact run: {_artifact_value(manifest.get('run_id'))}")
+            lines.append(f"  Artifact manifest status: {_artifact_value(manifest.get('status'))}")
+            lines.append(f"  Artifact reference count: {_artifact_value(artifact_count)}")
+
+        manifest_path = output.get("manifest_path")
+        if manifest_path:
+            lines.append(f"  Manifest path: {_artifact_value(manifest_path, limit=320)}")
+
+        summary_path = output.get("summary_path")
+        if summary_path:
+            lines.append(f"  Summary path: {_artifact_value(summary_path, limit=320)}")
+
         executed_call_count = output.get("executed_call_count")
         if executed_call_count is not None:
             lines.append(f"  Executed MCP calls: {_artifact_value(executed_call_count)}")
@@ -520,6 +546,23 @@ def _append_tool_result_section(
         if warnings:
             lines.append(f"  Warnings: {_artifact_list(warnings, limit=480)}")
 
+        failed_tool = output.get("failed_tool")
+        if failed_tool:
+            lines.append(f"  Failed MCP tool: {_artifact_value(failed_tool)}")
+
+        output_errors = output.get("errors") or []
+        if output_errors:
+            lines.append(f"  Output errors: {_artifact_list(output_errors, limit=480)}")
+
+        results = output.get("results") or []
+        result_names = [
+            _artifact_value(item.get("tool_name"), limit=60)
+            for item in results
+            if isinstance(item, dict) and item.get("tool_name")
+        ]
+        if result_names:
+            lines.append(f"  Executed MCP result tools: {_artifact_list(result_names, limit=400)}")
+
         calls = output.get("mcp_calls") or []
         call_names = [
             _artifact_value(call.get("tool_name"), limit=60)
@@ -529,7 +572,6 @@ def _append_tool_result_section(
         if call_names:
             lines.append(f"  MCP calls: {_artifact_list(call_names, limit=400)}")
 
-        results = output.get("results") or []
         if results:
             lines.append(f"  MCP result count: {len(results)}")
 

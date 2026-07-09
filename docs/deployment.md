@@ -55,6 +55,10 @@ production startup. To force planning-only mode, set
 Use `--profile fenics` for live execution and for log/status commands that
 include the FEniCS provider.
 
+LangGraph writes AES-owned artifact manifests to `/artifacts` inside the
+container. Both dev and prod Compose files mount this to the repository-level
+`artifacts/` directory, and generated files there are ignored by Git.
+
 The `models` profile starts a one-shot `ollama-model-puller` service. It waits
 for Ollama, pulls the configured manifest group, and also pulls the exact model
 named in `AES_OLLAMA_MODEL`.

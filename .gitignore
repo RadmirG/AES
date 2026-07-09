@@ -17,6 +17,8 @@ venv/
 # Docker / local data
 */data/
 *.log
+artifacts/*
+!artifacts/.gitkeep
 
 # Generated MCP provider workspaces
 mcp/providers/*/workspace/*

@@ -10,6 +10,10 @@ The tool maps a validated AES numerical recipe to an allowlisted DOLFINx MCP
 workflow. The LLM should not call low-level DOLFINx tools directly and should
 not generate arbitrary FEniCS Python code.
 
+FEniCS execution is followed by the AES-owned `artifact_store` tool. The MCP
+provider may create temporary provider workspace files, but the agent records
+final run metadata in an AES artifact manifest.
+
 ## First Supported Workflows
 
 - Forward Poisson / stationary diffusion problems.
@@ -19,6 +23,22 @@ not generate arbitrary FEniCS Python code.
 - Dirichlet boundary conditions.
 - CG + Hypre AMG solver defaults.
 - XDMF, PNG, diagnostics, and HTML report outputs.
+
+## Result Contract
+
+`fenics_forward_solve` returns a normalized `fenics_result` object with:
+
+- provider status,
+- planned and executed MCP tool names,
+- requested artifacts,
+- available provider artifact references,
+- diagnostics,
+- errors and warnings.
+
+The artifact references are not final user storage locations. They are provider
+references such as `mcp://dolfinx/workspace/heat_solution.png`. The
+`artifact_store` tool consumes these references and writes an AES-owned
+`manifest.json` plus `summary.md` under `AES_ARTIFACT_ROOT`.
 
 ## Execution Modes
 

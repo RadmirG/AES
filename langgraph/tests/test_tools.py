@@ -65,6 +65,26 @@ class ToolRegistryTests(unittest.TestCase):
         finally:
             TOOL_REGISTRY.pop("test_tool", None)
 
+    def test_execute_tool_marks_error_output_as_failed(self):
+        definition = ToolDefinition(
+            name="failing_output_tool",
+            description="Test-only failing output tool.",
+            provider="test",
+            handler=lambda _state: {
+                "execution_mode": "failed",
+                "errors": ["provider failed"],
+            },
+        )
+        try:
+            register_tool(definition)
+
+            result = execute_tool("failing_output_tool", {})
+            self.assertEqual(result["status"], "failed")
+            self.assertIn("provider failed", result["error"])
+            self.assertEqual(result["output"]["execution_mode"], "failed")
+        finally:
+            TOOL_REGISTRY.pop("failing_output_tool", None)
+
 
 if __name__ == "__main__":
     unittest.main()

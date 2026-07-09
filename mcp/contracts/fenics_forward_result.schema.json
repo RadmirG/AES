@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aes.local/contracts/fenics_forward_result.schema.json",
+  "title": "FEniCS Forward Solve Result",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "provider",
+    "status",
+    "execution_mode",
+    "workflow",
+    "problem_type",
+    "mcp",
+    "requested_artifacts",
+    "artifacts",
+    "errors",
+    "warnings"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "provider": {
+      "type": "string",
+      "const": "mcp:dolfinx"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["planned", "completed", "unverified", "failed", "unknown"]
+    },
+    "execution_mode": {
+      "type": "string",
+      "enum": ["planned", "executed", "executed_unverified", "blocked", "failed"]
+    },
+    "workflow": {
+      "type": "string"
+    },
+    "problem_type": {
+      "type": "string"
+    },
+    "mcp_endpoint": {
+      "type": "string"
+    },
+    "mcp": {
+      "type": "object",
+      "required": [
+        "planned_call_count",
+        "executed_call_count",
+        "planned_tools",
+        "executed_tools"
+      ],
+      "properties": {
+        "planned_call_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "executed_call_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "planned_tools": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "executed_tools": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "requested_artifacts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/artifact_ref"}
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/artifact_ref"}
+    },
+    "diagnostics": {
+      "type": "object"
+    },
+    "errors": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "warnings": {
+      "type": "array",
+      "items": {"type": "string"}
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "artifact_ref": {
+      "type": "object",
+      "required": [
+        "name",
+        "kind",
+        "status",
+        "uri",
+        "storage",
+        "media_type",
+        "producer",
+        "metadata"
+      ],
+      "properties": {
+        "name": {"type": "string"},
+        "kind": {
+          "type": "string",
+          "enum": ["solution", "plot", "report", "diagnostics", "bundle", "unknown"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["requested", "available", "referenced", "planned", "stored"]
+        },
+        "uri": {"type": "string"},
+        "storage": {"type": "string"},
+        "media_type": {"type": "string"},
+        "producer": {"type": "object"},
+        "metadata": {"type": "object"},
+        "source_result_index": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

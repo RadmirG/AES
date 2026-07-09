@@ -152,7 +152,10 @@ class ToolNodeTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(result["selected_tools"], ["fenics_forward_solve"])
+        self.assertEqual(
+            result["selected_tools"],
+            ["fenics_forward_solve", "artifact_store"],
+        )
 
     def test_tool_execution_reports_completed_results(self):
         result = nodes.execute_tools(

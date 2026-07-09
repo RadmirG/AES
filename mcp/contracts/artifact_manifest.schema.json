@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aes.local/contracts/artifact_manifest.schema.json",
+  "title": "AES Artifact Manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "created_at",
+    "status",
+    "problem",
+    "sources",
+    "artifacts",
+    "errors",
+    "warnings"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["stored", "planned", "completed", "unverified", "failed"]
+    },
+    "problem": {
+      "type": "object",
+      "required": [
+        "class",
+        "pde",
+        "domain",
+        "source",
+        "boundary_conditions",
+        "time"
+      ],
+      "properties": {
+        "class": {"type": "string"},
+        "pde": {"type": "string"},
+        "domain": {"type": "string"},
+        "source": {"type": "string"},
+        "boundary_conditions": {"type": "string"},
+        "time": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool_name", "provider", "status"],
+        "properties": {
+          "tool_name": {"type": "string"},
+          "provider": {"type": "string"},
+          "status": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/artifact_ref"}
+    },
+    "errors": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "warnings": {
+      "type": "array",
+      "items": {"type": "string"}
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "artifact_ref": {
+      "type": "object",
+      "required": [
+        "name",
+        "kind",
+        "status",
+        "uri",
+        "storage",
+        "media_type",
+        "producer",
+        "metadata"
+      ],
+      "properties": {
+        "name": {"type": "string"},
+        "kind": {"type": "string"},
+        "status": {
+          "type": "string",
+          "enum": ["referenced", "planned", "stored"]
+        },
+        "uri": {"type": "string"},
+        "storage": {"type": "string"},
+        "media_type": {"type": "string"},
+        "producer": {"type": "object"},
+        "metadata": {"type": "object"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

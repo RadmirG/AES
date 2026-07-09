@@ -27,6 +27,25 @@ class EmptyResultMCPClient(FakeMCPClient):
         return {}
 
 
+class ToolErrorMCPClient(FakeMCPClient):
+    def call_tool(self, name, arguments=None):
+        self.calls.append((name, arguments or {}))
+        if name == "apply_boundary_condition":
+            return {
+                "isError": True,
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "DOLFINX_API_ERROR: Either 'boundary' "
+                            "(geometric) or 'boundary_tag' must be specified."
+                        ),
+                    }
+                ],
+            }
+        return {"ok": True, "tool": name}
+
+
 class FenicsRecipeTests(unittest.TestCase):
     def test_steady_heat_recipe_uses_stationary_diffusion_workflow(self):
         recipe_result = build_fenics_recipe(
@@ -109,6 +128,11 @@ class FenicsRecipeTests(unittest.TestCase):
         self.assertIn("solve", tool_names)
         self.assertNotIn("run_custom_code", tool_names)
         self.assertTrue(set(tool_names).issubset(ALLOWED_DOLFINX_TOOLS))
+        boundary_calls = [
+            call for call in calls if call["tool_name"] == "apply_boundary_condition"
+        ]
+        self.assertEqual(boundary_calls[0]["arguments"]["boundary"], "boundary")
+        self.assertEqual(boundary_calls[0]["arguments"]["locator"], "boundary")
 
     def test_live_execution_uses_fake_mcp_client(self):
         recipe_result = build_fenics_recipe(
@@ -146,6 +170,15 @@ class FenicsRecipeTests(unittest.TestCase):
         self.assertEqual(output["executed_call_count"], len(client.calls))
         self.assertEqual(output["non_empty_result_count"], len(client.calls))
         self.assertEqual(output["warnings"], [])
+        self.assertEqual(output["fenics_result"]["status"], "completed")
+        self.assertEqual(
+            output["fenics_result"]["mcp"]["executed_call_count"],
+            len(client.calls),
+        )
+        self.assertEqual(
+            [artifact["name"] for artifact in output["fenics_result"]["artifacts"]],
+            ["heat_solution.xdmf", "heat_solution.png", "heat_report.html"],
+        )
         self.assertIn(
             "solve_time_dependent",
             [tool_name for tool_name, _arguments in client.calls],
@@ -179,10 +212,49 @@ class FenicsRecipeTests(unittest.TestCase):
         )
 
         self.assertEqual(output["execution_mode"], "executed_unverified")
+        self.assertEqual(output["fenics_result"]["status"], "unverified")
         self.assertEqual(output["executed_call_count"], len(client.calls))
         self.assertEqual(output["non_empty_result_count"], 0)
         self.assertTrue(output["empty_result_tools"])
         self.assertTrue(output["warnings"])
+
+    def test_live_execution_stops_on_mcp_tool_error(self):
+        recipe_result = build_fenics_recipe(
+            {
+                "raw_user_input": (
+                    "Solve the heat equation on the unit square with zero "
+                    "Dirichlet boundary conditions. Initial condition is "
+                    "sin(pi*x[0])*sin(pi*x[1]), T=1, dt=0.01."
+                ),
+                "problem_class": "forward_problem",
+                "pde_info": "time_dependent_heat_equation",
+                "domain_info": "unit_square",
+                "coefficient_info": "1.0",
+                "source_info": "0.0",
+                "bc_info": "dirichlet_boundary_condition",
+                "initial_condition_info": "sin(pi*x[0])*sin(pi*x[1])",
+                "time_info": "T=1, dt=0.01",
+                "selected_formulation": "fem_problem_setup",
+            }
+        )
+        client = ToolErrorMCPClient()
+
+        output = execute_fenics_forward_solve(
+            {
+                "numerical_recipe": recipe_result["recipe"],
+                "numerical_recipe_errors": [],
+            },
+            client=client,
+            execute=True,
+        )
+
+        called_tools = [tool_name for tool_name, _arguments in client.calls]
+        self.assertEqual(output["execution_mode"], "failed")
+        self.assertEqual(output["fenics_result"]["status"], "failed")
+        self.assertEqual(output["failed_tool"], "apply_boundary_condition")
+        self.assertTrue(output["errors"])
+        self.assertIn("DOLFINX_API_ERROR", output["errors"][0])
+        self.assertNotIn("solve_time_dependent", called_tools)
 
     def test_without_client_returns_planned_workflow(self):
         recipe_result = build_fenics_recipe(

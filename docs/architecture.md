@@ -10,6 +10,7 @@ Open WebUI
   -> AES tool registry
   -> MCP provider adapter
   -> provider-specific MCP servers
+  -> AES artifact store
 ```
 
 ## Source Layout
@@ -30,8 +31,23 @@ AES/
 - Keep the LLM behind explicit nodes and schemas.
 - Expose high-level AES wrapper tools to the model, not every low-level MCP tool.
 - Keep heavy execution backends in separate provider containers.
+- Keep final artifact policy in AES, not inside provider containers.
 - Use planning mode by default for expensive numerical tools.
 - Add live execution only after schema and smoke-test validation.
+
+## Artifact Store
+
+Providers return structured results and artifact references. AES owns the final
+artifact manifest and storage policy through the local `artifact_store` tool.
+
+The first implementation writes:
+
+- `manifest.json`,
+- `summary.md`.
+
+Both files are written below `AES_ARTIFACT_ROOT`, mounted as `/artifacts` in the
+LangGraph containers. Provider workspaces, such as the FEniCS `/workspace`, are
+treated as scratch or provider-owned storage, not as final AES output locations.
 
 ## MCP Provider Layer
 
