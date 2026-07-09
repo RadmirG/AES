@@ -35,7 +35,21 @@ sys.modules.setdefault("pydantic", pydantic_stub)
 sys.modules.setdefault("requests", types.ModuleType("requests"))
 sys.modules.setdefault("aes_agent.graph", graph_stub)
 
+from aes_agent import main
 from aes_agent.main import ChatMessage, build_user_text_from_messages
+
+
+class _FakeGraph:
+    def __init__(self):
+        self.calls = 0
+
+    def invoke(self, _state):
+        self.calls += 1
+        return {
+            "generated_artifact": f"result {self.calls}",
+            "agent_status": "ok",
+            "next_action": "done",
+        }
 
 
 class ChatHistoryInputTests(unittest.TestCase):
@@ -66,6 +80,22 @@ class ChatHistoryInputTests(unittest.TestCase):
             "docker compose -f deploy/compose.prod.yaml --profile models up -d --build",
         )
         self.assertNotIn("Solve a steady heat equation.", text)
+
+    def test_duplicate_request_reuses_cached_result(self):
+        fake_graph = _FakeGraph()
+        main._RESULT_CACHE.clear()
+        try:
+            old_graph = main.graph
+            main.graph = fake_graph
+
+            first = main.run_aes_agent("Solve Poisson on the unit square.")
+            second = main.run_aes_agent("Solve Poisson on the unit square.")
+
+            self.assertEqual(fake_graph.calls, 1)
+            self.assertEqual(first, second)
+        finally:
+            main.graph = old_graph
+            main._RESULT_CACHE.clear()
 
 
 if __name__ == "__main__":

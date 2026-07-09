@@ -723,8 +723,12 @@ def _artifact_value(value: Any, *, limit: int = 160) -> str:
     if not text:
         return "none"
     if len(text) > limit:
-        return text[: limit - 3].rstrip() + "..."
-    return text
+        text = text[: limit - 3].rstrip() + "..."
+    return _escape_markdown_value(text)
+
+
+def _escape_markdown_value(text: str) -> str:
+    return text.replace("*", "\\*")
 
 
 def _is_unknown(value: str) -> bool:

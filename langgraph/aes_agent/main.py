@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import logging
 import time
+import threading
 import uuid
 from typing import Any, Dict, List, Union
 
@@ -21,6 +24,9 @@ app = FastAPI(title="LangGraph Service")
 logger = logging.getLogger("aes_agent")
 
 AES_MODEL_ID = "aes-agent"
+AES_RESULT_CACHE_TTL_SECONDS = 10.0
+_RESULT_CACHE_LOCK = threading.Lock()
+_RESULT_CACHE: Dict[str, tuple[float, Dict[str, Any]]] = {}
 
 
 class Query(BaseModel):
@@ -86,6 +92,12 @@ def run_aes_agent(user_text: str) -> Dict[str, Any]:
     """
     Internal helper that runs the LangGraph graph.
     """
+    cache_key = _result_cache_key(user_text)
+    cached_result = _get_cached_result(cache_key)
+    if cached_result is not None:
+        logger.info("AES graph invocation reused cached result.")
+        return cached_result
+
     started_at = time.perf_counter()
     logger.info("AES graph invocation started.")
     initial_state = {
@@ -125,7 +137,41 @@ def run_aes_agent(user_text: str) -> Dict[str, Any]:
         result.get("next_action", ""),
         elapsed_ms,
     )
+    _set_cached_result(cache_key, result)
     return result
+
+
+def _result_cache_key(user_text: str) -> str:
+    return hashlib.sha256(user_text.strip().encode("utf-8")).hexdigest()
+
+
+def _get_cached_result(cache_key: str) -> Dict[str, Any] | None:
+    now = time.monotonic()
+    with _RESULT_CACHE_LOCK:
+        cached = _RESULT_CACHE.get(cache_key)
+        if not cached:
+            return None
+
+        created_at, result = cached
+        if now - created_at > AES_RESULT_CACHE_TTL_SECONDS:
+            _RESULT_CACHE.pop(cache_key, None)
+            return None
+
+        return copy.deepcopy(result)
+
+
+def _set_cached_result(cache_key: str, result: Dict[str, Any]) -> None:
+    now = time.monotonic()
+    with _RESULT_CACHE_LOCK:
+        expired_keys = [
+            key
+            for key, (created_at, _cached_result) in _RESULT_CACHE.items()
+            if now - created_at > AES_RESULT_CACHE_TTL_SECONDS
+        ]
+        for key in expired_keys:
+            _RESULT_CACHE.pop(key, None)
+
+        _RESULT_CACHE[cache_key] = (now, copy.deepcopy(result))
 
 
 def build_assistant_text(result: Dict[str, Any]) -> str:

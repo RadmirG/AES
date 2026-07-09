@@ -142,6 +142,13 @@ class FenicsRecipeTests(unittest.TestCase):
                 {"name": "f", "value": "1"},
             ],
         )
+        create_function_call = next(
+            call for call in calls if call["tool_name"] == "create_function"
+        )
+        self.assertEqual(
+            create_function_call["arguments"]["function_space"],
+            "V",
+        )
 
     def test_poisson_recipe_builds_allowed_mcp_plan(self):
         recipe_result = build_fenics_recipe(
@@ -173,6 +180,7 @@ class FenicsRecipeTests(unittest.TestCase):
         ]
         self.assertEqual(boundary_calls[0]["arguments"]["boundary"], "boundary")
         self.assertEqual(boundary_calls[0]["arguments"]["locator"], "boundary")
+        self.assertEqual(boundary_calls[0]["arguments"]["function_space"], "V")
 
     def test_live_execution_uses_fake_mcp_client(self):
         recipe_result = build_fenics_recipe(

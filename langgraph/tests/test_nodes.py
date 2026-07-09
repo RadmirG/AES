@@ -302,6 +302,12 @@ class ArtifactNodeTests(unittest.TestCase):
         self.assertNotIn("topic_topic", artifact)
         self.assertLess(len(artifact), 3000)
 
+    def test_artifact_values_escape_markdown_asterisks(self):
+        self.assertEqual(
+            nodes._artifact_value("sin(pi*x)*sin(pi*y)"),
+            "sin(pi\\*x)\\*sin(pi\\*y)",
+        )
+
 
 class ExtractionFallbackTests(unittest.TestCase):
     STATIONARY_HEAT_REQUEST = (

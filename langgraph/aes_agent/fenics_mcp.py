@@ -815,6 +815,7 @@ def _poisson_solver_calls(
             "tool_name": "define_variational_form",
             "arguments": {
                 "name": "poisson_form",
+                "function_space": "V",
                 "space_name": "V",
                 "bilinear_form": "k * dot(grad(u), grad(v)) * dx",
                 "linear_form": "f * v * dx",
@@ -850,6 +851,7 @@ def _heat_solver_calls(
             "tool_name": "create_function",
             "arguments": {
                 "name": "u_n",
+                "function_space": "V",
                 "space_name": "V",
                 "expression": recipe.get("initial_condition", "0.0"),
             },
@@ -858,6 +860,7 @@ def _heat_solver_calls(
             "tool_name": "define_variational_form",
             "arguments": {
                 "name": "heat_form",
+                "function_space": "V",
                 "space_name": "V",
                 "bilinear_form": "u * v * dx + dt * k * dot(grad(u), grad(v)) * dx",
                 "linear_form": "(u_n + dt * f) * v * dx",
@@ -898,6 +901,7 @@ def _boundary_condition_calls(
             "tool_name": "apply_boundary_condition",
             "arguments": {
                 "name": bc.get("name", "bc_boundary"),
+                "function_space": "V",
                 "space_name": "V",
                 "type": bc.get("type", "dirichlet"),
                 "value": bc.get("value", "0.0"),
