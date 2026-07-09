@@ -687,8 +687,20 @@ def _extract_expression_from_text(text: str, patterns: list[str]) -> str:
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
-            return match.group(1).strip().strip("`$ ")
+            return _clean_extracted_expression(match.group(1))
     return ""
+
+
+def _clean_extracted_expression(value: str) -> str:
+    cleaned = value.strip().strip("`$ ")
+    parts = re.split(
+        r"\s+(?:and|with)\s+"
+        r"(?:diffusion\s+coefficient|coefficient|alpha|boundary|initial|time|source)\b",
+        cleaned,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )
+    return parts[0].strip()
 
 
 def _state_text(state: dict[str, Any]) -> str:

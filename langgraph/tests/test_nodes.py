@@ -255,6 +255,27 @@ class ExtractionFallbackTests(unittest.TestCase):
         self.assertEqual(result["source_info"], "1")
         self.assertEqual(result["bc_info"], "dirichlet_boundary_condition")
 
+    @patch.object(nodes, "ollama_json", return_value={})
+    def test_structure_fallback_splits_source_from_coefficient_sentence(
+        self,
+        _ollama_json,
+    ):
+        result = nodes.extract_mathematical_structure(
+            {
+                "raw_user_input": (
+                    "Solve the stationary heat equation on the unit square "
+                    "Omega=[0,1]^2. Use homogeneous Dirichlet boundary "
+                    "conditions u=0 on the boundary. Use source f=1 and "
+                    "diffusion coefficient alpha=1."
+                ),
+                "problem_class": "forward_problem",
+                "pde_info": "stationary_diffusion_equation",
+            }
+        )
+
+        self.assertEqual(result["source_info"], "1")
+        self.assertEqual(result["coefficient_info"], "1")
+
     @patch.object(nodes, "ollama_json", return_value={"missing_information": []})
     def test_completeness_detects_steady_transient_contradiction(
         self,

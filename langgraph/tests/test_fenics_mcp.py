@@ -48,6 +48,35 @@ class FenicsRecipeTests(unittest.TestCase):
             "poisson_unit_domain_v1",
         )
 
+    def test_recipe_splits_source_from_coefficient_sentence(self):
+        recipe_result = build_fenics_recipe(
+            {
+                "raw_user_input": (
+                    "Solve the stationary heat equation on the unit square "
+                    "Omega=[0,1]^2. Use homogeneous Dirichlet boundary "
+                    "conditions u=0 on the boundary. Use source f=1 and "
+                    "diffusion coefficient alpha=1."
+                ),
+                "problem_class": "forward_problem",
+                "pde_info": "stationary_diffusion_equation",
+                "domain_info": "unit_square",
+                "coefficient_info": "1",
+                "source_info": "1",
+                "bc_info": "dirichlet_boundary_condition",
+                "selected_formulation": "fem_problem_setup",
+            }
+        )
+
+        self.assertEqual(recipe_result["status"], "ready")
+        self.assertEqual(
+            recipe_result["recipe"]["equation"]["source"],
+            "1",
+        )
+        self.assertEqual(
+            recipe_result["recipe"]["equation"]["diffusion_coefficient"],
+            "1",
+        )
+
     def test_poisson_recipe_builds_allowed_mcp_plan(self):
         recipe_result = build_fenics_recipe(
             {

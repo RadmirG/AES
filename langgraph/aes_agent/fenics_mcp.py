@@ -743,5 +743,13 @@ def _extract_number(text: str, patterns: List[str]) -> float | None:
 
 def _clean_expression(value: str) -> str:
     cleaned = value.strip().strip("`$ ")
+    parts = re.split(
+        r"\s+(?:and|with)\s+"
+        r"(?:diffusion\s+coefficient|coefficient|alpha|boundary|initial|time|source)\b",
+        cleaned,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )
+    cleaned = parts[0].strip()
     cleaned = cleaned.replace("^", "**")
     return cleaned
