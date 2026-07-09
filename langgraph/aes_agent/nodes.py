@@ -498,9 +498,27 @@ def _append_tool_result_section(
         if execution_mode:
             lines.append(f"  Execution mode: {_artifact_value(execution_mode)}")
 
+        endpoint = output.get("mcp_endpoint")
+        if endpoint:
+            lines.append(f"  MCP endpoint: {_artifact_value(endpoint)}")
+
         message = output.get("message")
         if message:
             lines.append(f"  Message: {_artifact_value(message, limit=320)}")
+
+        executed_call_count = output.get("executed_call_count")
+        if executed_call_count is not None:
+            lines.append(f"  Executed MCP calls: {_artifact_value(executed_call_count)}")
+
+        non_empty_result_count = output.get("non_empty_result_count")
+        if non_empty_result_count is not None:
+            lines.append(
+                f"  Non-empty MCP results: {_artifact_value(non_empty_result_count)}"
+            )
+
+        warnings = output.get("warnings") or []
+        if warnings:
+            lines.append(f"  Warnings: {_artifact_list(warnings, limit=480)}")
 
         calls = output.get("mcp_calls") or []
         call_names = [
@@ -565,7 +583,7 @@ def _artifact_value(value: Any, *, limit: int = 160) -> str:
     if value is None:
         return "none"
 
-    if isinstance(value, (dict, list, tuple, set)):
+    if isinstance(value, (dict, list, tuple, set, int, float, bool)):
         text = str(value)
     else:
         text = safe_str(value, "none")

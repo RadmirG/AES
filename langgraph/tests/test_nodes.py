@@ -223,6 +223,9 @@ class ArtifactNodeTests(unittest.TestCase):
                         "status": "completed",
                         "output": {
                             "execution_mode": "planned",
+                            "mcp_endpoint": "http://dolfinx-mcp:8000/mcp",
+                            "executed_call_count": 3,
+                            "non_empty_result_count": 3,
                             "mcp_calls": [
                                 {"tool_name": "reset_session"},
                                 {"tool_name": "create_unit_square"},
@@ -240,6 +243,9 @@ class ArtifactNodeTests(unittest.TestCase):
         self.assertIn("stationary_diffusion_equation", artifact)
         self.assertIn("fenics_forward_solve", artifact)
         self.assertIn("Execution mode: planned", artifact)
+        self.assertIn("MCP endpoint: http://dolfinx-mcp:8000/mcp", artifact)
+        self.assertIn("Executed MCP calls: 3", artifact)
+        self.assertIn("Non-empty MCP results: 3", artifact)
         self.assertNotIn("topic_topic", artifact)
         self.assertLess(len(artifact), 3000)
 

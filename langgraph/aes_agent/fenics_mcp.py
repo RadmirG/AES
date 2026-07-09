@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 from typing import Any, Dict, List, Protocol
@@ -10,6 +11,7 @@ from aes_agent.state import AgentState
 FENICS_TOOL_NAME = "fenics_forward_solve"
 FENICS_PROVIDER = "mcp:dolfinx"
 DEFAULT_DOLFINX_MCP_URL = ""
+logger = logging.getLogger("aes_agent.fenics_mcp")
 
 ALLOWED_DOLFINX_TOOLS = {
     "reset_session",
@@ -212,6 +214,13 @@ def execute_fenics_forward_solve(
             ),
         }
 
+    endpoint = _client_endpoint(client)
+    logger.info(
+        "Executing DOLFINx MCP workflow: endpoint=%s calls=%s workflow=%s",
+        endpoint or "unknown",
+        len(calls),
+        recipe.get("workflow", ""),
+    )
     available_tools = {
         tool.get("name")
         for tool in client.list_tools()
@@ -228,21 +237,49 @@ def execute_fenics_forward_solve(
             + ", ".join(missing_tools)
         )
 
-    results = [
-        {
-            "tool_name": call["tool_name"],
-            "result": client.call_tool(call["tool_name"], call["arguments"]),
-        }
-        for call in calls
-    ]
+    results = []
+    empty_result_tools = []
+    for index, call in enumerate(calls, start=1):
+        tool_name = call["tool_name"]
+        logger.info(
+            "Calling DOLFINx MCP tool %s/%s: %s",
+            index,
+            len(calls),
+            tool_name,
+        )
+        tool_result = client.call_tool(tool_name, call["arguments"])
+        if not tool_result:
+            empty_result_tools.append(tool_name)
+        results.append(
+            {
+                "tool_name": tool_name,
+                "result": tool_result,
+            }
+        )
+
+    non_empty_result_count = len(results) - len(empty_result_tools)
+    warnings = []
+    execution_mode = "executed"
+    if results and non_empty_result_count == 0:
+        execution_mode = "executed_unverified"
+        warnings.append(
+            "All MCP tool calls returned empty result objects. AES reached the "
+            "MCP client path, but the provider response does not prove that "
+            "solver-side artifacts were produced."
+        )
 
     return {
         "schema_version": "1.0",
         "provider": FENICS_PROVIDER,
-        "execution_mode": "executed",
+        "execution_mode": execution_mode,
+        "mcp_endpoint": endpoint,
         "recipe": recipe,
         "mcp_calls": calls,
         "results": results,
+        "executed_call_count": len(results),
+        "non_empty_result_count": non_empty_result_count,
+        "empty_result_tools": empty_result_tools,
+        "warnings": warnings,
         "errors": [],
     }
 
@@ -266,6 +303,11 @@ def _default_dolfinx_client() -> MCPToolClient:
 def _should_execute_live() -> bool:
     value = os.getenv("DOLFINX_MCP_EXECUTE", "").strip().lower()
     return value in {"1", "true", "yes", "on"}
+
+
+def _client_endpoint(client: MCPToolClient) -> str:
+    endpoint = getattr(client, "endpoint", "")
+    return endpoint if isinstance(endpoint, str) else ""
 
 
 def _detect_problem_type(state: AgentState) -> str:

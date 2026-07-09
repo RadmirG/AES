@@ -11,6 +11,7 @@ from aes_agent.fenics_mcp import (
 class FakeMCPClient:
     def __init__(self):
         self.calls = []
+        self.endpoint = "http://fake-dolfinx/mcp"
 
     def list_tools(self):
         return [{"name": tool_name} for tool_name in ALLOWED_DOLFINX_TOOLS]
@@ -18,6 +19,12 @@ class FakeMCPClient:
     def call_tool(self, name, arguments=None):
         self.calls.append((name, arguments or {}))
         return {"ok": True, "tool": name}
+
+
+class EmptyResultMCPClient(FakeMCPClient):
+    def call_tool(self, name, arguments=None):
+        self.calls.append((name, arguments or {}))
+        return {}
 
 
 class FenicsRecipeTests(unittest.TestCase):
@@ -135,10 +142,47 @@ class FenicsRecipeTests(unittest.TestCase):
 
         self.assertEqual(output["execution_mode"], "executed")
         self.assertEqual(len(output["results"]), len(client.calls))
+        self.assertEqual(output["mcp_endpoint"], "http://fake-dolfinx/mcp")
+        self.assertEqual(output["executed_call_count"], len(client.calls))
+        self.assertEqual(output["non_empty_result_count"], len(client.calls))
+        self.assertEqual(output["warnings"], [])
         self.assertIn(
             "solve_time_dependent",
             [tool_name for tool_name, _arguments in client.calls],
         )
+
+    def test_live_execution_reports_unverified_empty_mcp_results(self):
+        recipe_result = build_fenics_recipe(
+            {
+                "raw_user_input": (
+                    "Solve Poisson on the unit square with f = 1 and "
+                    "u=0 on boundary."
+                ),
+                "problem_class": "forward_problem",
+                "pde_info": "poisson_equation",
+                "domain_info": "unit_square",
+                "coefficient_info": "1.0",
+                "source_info": "1.0",
+                "bc_info": "dirichlet_boundary_condition",
+                "selected_formulation": "fem_problem_setup",
+            }
+        )
+        client = EmptyResultMCPClient()
+
+        output = execute_fenics_forward_solve(
+            {
+                "numerical_recipe": recipe_result["recipe"],
+                "numerical_recipe_errors": [],
+            },
+            client=client,
+            execute=True,
+        )
+
+        self.assertEqual(output["execution_mode"], "executed_unverified")
+        self.assertEqual(output["executed_call_count"], len(client.calls))
+        self.assertEqual(output["non_empty_result_count"], 0)
+        self.assertTrue(output["empty_result_tools"])
+        self.assertTrue(output["warnings"])
 
     def test_without_client_returns_planned_workflow(self):
         recipe_result = build_fenics_recipe(
