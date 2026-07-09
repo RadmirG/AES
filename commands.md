@@ -506,6 +506,8 @@ file. The intended AES production runtime model is `gemma4:26b`.
 
 Production enables live FEniCS MCP execution by default, so start it with the
 `fenics` profile. Without this profile, `dolfinx-mcp` is not started.
+LangGraph does not use a hard Compose `depends_on` on `dolfinx-mcp`, because
+that would make commands using only `--profile models` invalid.
 
 ```bash
 cd ~/projects/AES

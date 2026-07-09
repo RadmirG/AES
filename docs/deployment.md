@@ -50,6 +50,11 @@ Production enables live FEniCS MCP execution by default through
 production startup. To force planning-only mode, set
 `DOLFINX_MCP_EXECUTE=false`.
 
+`langgraph` intentionally does not declare a hard Compose `depends_on` on
+`dolfinx-mcp`, because `dolfinx-mcp` is behind the optional `fenics` profile.
+Use `--profile fenics` for live execution and for log/status commands that
+include the FEniCS provider.
+
 The `models` profile starts a one-shot `ollama-model-puller` service. It waits
 for Ollama, pulls the configured manifest group, and also pulls the exact model
 named in `AES_OLLAMA_MODEL`.

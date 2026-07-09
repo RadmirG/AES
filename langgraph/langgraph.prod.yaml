@@ -5,8 +5,6 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:8002:8001"
-    depends_on:
-      - dolfinx-mcp
     environment:
       - OLLAMA_BASE_URL=http://ollama-server:11434
       - OLLAMA_MODEL=${AES_OLLAMA_MODEL:-gemma4:26b}
