@@ -6,9 +6,9 @@
 # - Default production context in compose: OLLAMA_CONTEXT_LENGTH=8192
 #
 # This profile assumes materially stronger hardware than the laptop dev setup.
-# Keep the default model conservative enough to boot on a moderate GPU server,
-# then promote larger models through environment/config once latency, VRAM,
-# context length, and concurrent-user behavior are measured.
+# The intended production AES runtime model is gemma4:26b. Keep smaller models
+# available as fallback/smoke-test options, but do not let the runtime default
+# drift away from the production target.
 production_profile:
   name: gpu_server_prod
   runtime: ollama
@@ -18,13 +18,13 @@ production_profile:
     - "1"
   runtime_notes:
     - Use this manifest for production/server pulls, not for laptop iteration.
-    - Keep OLLAMA_CONTEXT_LENGTH=8192 until the target GPU memory is known.
-    - Prefer one default model plus one coding model before pulling high-capacity groups.
-    - Promote 26B/31B/32B models only after latency and memory are measured.
+    - Keep OLLAMA_CONTEXT_LENGTH=8192 until latency and memory behavior are measured.
+    - Use gemma4:26b as the default AES production model.
+    - Keep smaller models available for fallback, smoke tests, and emergency operation.
     - Treat 70B+ models as frontier/large-server options, not baseline AES production.
 
 defaults:
-  aes_ollama_model: gemma4:e4b
+  aes_ollama_model: gemma4:26b
   production_reasoning_model: gemma4:12b
   production_coding_model: qwen2.5-coder:14b
   production_agent_model: qwen3:14b
@@ -33,8 +33,9 @@ defaults:
 
 pull_groups:
   baseline:
-    description: Conservative production set for a moderate GPU server.
+    description: Production runtime model plus smaller fallback/smoke-test models.
     models:
+      - gemma4:26b
       - gemma4:e4b
       - qwen3:8b
       - qwen2.5-coder:7b
@@ -64,7 +65,7 @@ pull_groups:
       - deepseek-r1:70b
 
   not_for_prod_default:
-    description: Useful for smoke tests, but too small for the default production answer quality target.
+    description: Useful for smoke tests, but too small for the production answer quality target.
     models:
       - gemma4:e2b
       - qwen3:0.6b
@@ -78,7 +79,7 @@ runtime:
   recommended_ollama_num_ctx: 8192
   max_planned_ollama_num_ctx: 32768
   recommended_env:
-    AES_OLLAMA_MODEL: gemma4:e4b
+    AES_OLLAMA_MODEL: gemma4:26b
 
 automation:
   puller_script: pull_models.py
@@ -86,12 +87,13 @@ automation:
   default_pull_group: baseline
   pulls_runtime_model: true
   runtime_selector_env: AES_OLLAMA_MODEL
-  runtime_selector_default: gemma4:e4b
+  runtime_selector_default: gemma4:26b
   pull_group_env: AES_OLLAMA_PULL_GROUP
 
 models:
-  default: gemma4:e4b
+  default: gemma4:26b
   reasoning:
+    - gemma4:26b
     - gemma4:e4b
     - gemma4:12b
     - qwen3:14b

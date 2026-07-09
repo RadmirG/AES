@@ -39,7 +39,7 @@
       - "${AES_OLLAMA_PULL_GROUP:-baseline}"
       - --include-default
       - --model
-      - "${AES_OLLAMA_MODEL:-gemma4:e4b}"
+      - "${AES_OLLAMA_MODEL:-gemma4:26b}"
     networks:
       - ai-stack-net
 

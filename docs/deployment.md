@@ -18,6 +18,7 @@ docker compose -f ollama/ollama-server.prod.yaml up -d
 docker compose -f open-webui/open-webui.yaml up -d
 docker compose -f mcp/compose.mcp.yaml --profile fenics up -d
 docker compose -f langgraph/langgraph.yaml up -d --build
+docker compose -f langgraph/langgraph.prod.yaml up -d --build
 ```
 
 `mcp/compose.mcp.yaml` is itself a thin MCP entrypoint. It includes the
@@ -41,7 +42,7 @@ AES_OLLAMA_MODEL=qwen3:4b docker compose -f deploy/compose.dev.yaml --profile mo
 Production/server stack with model pull automation:
 
 ```bash
-AES_OLLAMA_MODEL=gemma4:e4b docker compose -f deploy/compose.prod.yaml --profile models up -d --build
+AES_OLLAMA_MODEL=gemma4:26b docker compose -f deploy/compose.prod.yaml --profile models up -d --build
 ```
 
 The `models` profile starts a one-shot `ollama-model-puller` service. It waits
@@ -57,7 +58,7 @@ AES_OLLAMA_MODEL=qwen3:4b docker compose -f deploy/compose.dev.yaml --profile mo
 Production stack with the optional FEniCS MCP provider:
 
 ```bash
-AES_OLLAMA_MODEL=gemma4:e4b docker compose -f deploy/compose.prod.yaml --profile models --profile fenics up -d --build
+AES_OLLAMA_MODEL=gemma4:26b docker compose -f deploy/compose.prod.yaml --profile models --profile fenics up -d --build
 ```
 
 Additional MCP providers can be activated through their profiles once their
@@ -125,7 +126,7 @@ AES_OLLAMA_MODEL=qwen3:4b
 For production the documented default is:
 
 ```text
-AES_OLLAMA_MODEL=gemma4:e4b
+AES_OLLAMA_MODEL=gemma4:26b
 ```
 
 From the host or WSL, test AES through the published port:
@@ -197,7 +198,7 @@ startup, enable the `models` profile:
 
 ```bash
 AES_OLLAMA_MODEL=qwen3:4b docker compose -f deploy/compose.dev.yaml --profile models up -d --build
-AES_OLLAMA_MODEL=gemma4:e4b docker compose -f deploy/compose.prod.yaml --profile models up -d --build
+AES_OLLAMA_MODEL=gemma4:26b docker compose -f deploy/compose.prod.yaml --profile models up -d --build
 ```
 
 For a pull-only run, target the one-shot service directly:
