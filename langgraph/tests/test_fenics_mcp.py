@@ -21,6 +21,33 @@ class FakeMCPClient:
 
 
 class FenicsRecipeTests(unittest.TestCase):
+    def test_steady_heat_recipe_uses_stationary_diffusion_workflow(self):
+        recipe_result = build_fenics_recipe(
+            {
+                "raw_user_input": (
+                    "Solve a steady heat equation on a unit square with "
+                    "u=0 on the boundary and source f=1."
+                ),
+                "problem_class": "forward_problem",
+                "pde_info": "stationary_diffusion_equation",
+                "domain_info": "unit_square",
+                "coefficient_info": "1.0",
+                "source_info": "1.0",
+                "bc_info": "dirichlet_boundary_condition",
+                "selected_formulation": "fem_problem_setup",
+            }
+        )
+
+        self.assertEqual(recipe_result["status"], "ready")
+        self.assertEqual(
+            recipe_result["recipe"]["problem_type"],
+            "poisson_equation",
+        )
+        self.assertEqual(
+            recipe_result["recipe"]["workflow"],
+            "poisson_unit_domain_v1",
+        )
+
     def test_poisson_recipe_builds_allowed_mcp_plan(self):
         recipe_result = build_fenics_recipe(
             {

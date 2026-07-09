@@ -60,16 +60,30 @@ def extract_text_from_content(content: Union[str, List[Dict[str, Any]]]) -> str:
     return ""
 
 
-def extract_last_user_message(messages: List[ChatMessage]) -> str:
+def build_user_text_from_messages(messages: List[ChatMessage]) -> str:
     """
-    Take the last user message as the input to the AES agent.
+    Combine user turns into one AES problem statement.
+
+    OpenAI-compatible clients send the full chat history. AES is not yet using
+    a LangGraph checkpointer for multi-turn resume, so we preserve user context
+    by folding all user messages into the next graph invocation.
     """
-    for msg in reversed(messages):
-        if msg.role == "user":
-            text = extract_text_from_content(msg.content)
-            if text.strip():
-                return text.strip()
-    return ""
+    user_texts = [
+        extract_text_from_content(msg.content).strip()
+        for msg in messages
+        if msg.role == "user"
+    ]
+    user_texts = [text for text in user_texts if text]
+
+    if not user_texts:
+        return ""
+    if len(user_texts) == 1:
+        return user_texts[0]
+
+    lines = ["Combined user problem statement from the chat history:"]
+    for index, text in enumerate(user_texts, start=1):
+        lines.append(f"\nUser message {index}:\n{text}")
+    return "\n".join(lines).strip()
 
 
 def run_aes_agent(user_text: str) -> Dict[str, Any]:
@@ -225,7 +239,7 @@ def chat_completions(request: ChatCompletionRequest):
         request.model,
         request.stream,
     )
-    user_text = extract_last_user_message(request.messages)
+    user_text = build_user_text_from_messages(request.messages)
     if not user_text:
         raise HTTPException(
             status_code=400,

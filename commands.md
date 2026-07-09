@@ -326,6 +326,38 @@ curl -s -X POST http://127.0.0.1:8002/v1/chat/completions \
   | jq .
 ```
 
+## 11. Providing PDE Formulations In Chat
+
+AES currently folds all user messages in a chat into one problem statement, but
+the safest interaction is to provide the problem data and formulation in one
+message.
+
+For a steady heat equation, use a stationary formulation. Example:
+
+```text
+Solve the stationary heat equation on the unit square Omega=[0,1]^2.
+Use homogeneous Dirichlet boundary conditions u=0 on the boundary.
+Use source f=1 and diffusion coefficient alpha=1.
+Use the strong form -alpha * Delta(u) = f.
+Use the weak FEM form: find u in H_0^1(Omega) such that
+integral_Omega alpha * grad(u) dot grad(v) dx = integral_Omega f * v dx
+for all test functions v in H_0^1(Omega).
+```
+
+For a transient heat equation, include initial and time data. Example:
+
+```text
+Solve the transient heat equation on the unit square Omega=[0,1]^2.
+Use du/dt = alpha * Delta(u) + f with alpha=1 and f=1.
+Use u=0 on the boundary.
+Use initial condition u(x,y,0)=sin(pi*x)*sin(pi*y).
+Use final time T=1 and time step dt=0.01.
+```
+
+Do not mix the word `steady` with a time derivative such as `du/dt` or
+`partial u / partial t`. That describes a transient formulation and AES will ask
+which problem type should be solved.
+
 Open WebUI locally:
 
 ```text
@@ -396,7 +428,7 @@ started Open WebUI before these variables existed and `aes-agent` still does not
 appear, configure the same OpenAI-compatible connection in the Open WebUI admin
 settings or recreate the local Open WebUI data directory.
 
-## 11. Stop The Dev Stack
+## 12. Stop The Dev Stack
 
 Stop containers but keep volumes/data:
 
@@ -410,7 +442,7 @@ Stop containers including optional FEniCS profile if it was started:
 docker compose -f deploy/compose.dev.yaml --profile models --profile fenics down
 ```
 
-## 12. Manual Ollama Commands
+## 13. Manual Ollama Commands
 
 Enter the Ollama container shell:
 
@@ -440,7 +472,7 @@ docker exec -it ollama-server ollama run gemma4:31b
 Use `gemma4:31b` only on a strong enough production/server GPU setup, not for
 normal laptop development.
 
-## 13. Production Stack Startup
+## 14. Production Stack Startup
 
 Production uses `deploy/compose.prod.yaml` and the production Ollama compose
 file.
@@ -473,7 +505,7 @@ Stop production services:
 docker compose -f deploy/compose.prod.yaml --profile models down
 ```
 
-## 14. Optional FEniCS MCP Provider
+## 15. Optional FEniCS MCP Provider
 
 Do not enable this for the first smoke test unless the image already exists:
 
@@ -519,7 +551,7 @@ FEniCS MCP endpoint:
 http://127.0.0.1:8003/mcp
 ```
 
-## 15. Optional MCP Provider Profiles
+## 16. Optional MCP Provider Profiles
 
 These providers are scaffolded but require their images before use:
 
@@ -535,7 +567,7 @@ retrieval MCP:  http://127.0.0.1:8004
 filesystem MCP: http://127.0.0.1:8005
 ```
 
-## 16. Component-Level Compose Commands
+## 17. Component-Level Compose Commands
 
 Usually use `deploy/compose.dev.yaml` or `deploy/compose.prod.yaml`. These
 component-level commands are useful for isolated debugging.
@@ -570,7 +602,7 @@ Start FEniCS MCP only:
 docker compose -f mcp/compose.mcp.yaml --profile fenics up -d
 ```
 
-## 17. Original Legacy Docker Commands
+## 18. Original Legacy Docker Commands
 
 These commands are preserved from the original `commands.sh`. Some filenames are
 old and no longer match the redesigned repo layout.
@@ -637,7 +669,7 @@ docker compose -f deploy/compose.dev.yaml --profile models logs -f
 docker compose -f deploy/compose.dev.yaml --profile models logs -f ollama
 ```
 
-## 18. Remote Access To Open WebUI
+## 19. Remote Access To Open WebUI
 
 Optional SSH tunnel template. Replace the placeholders locally and do not commit
 real usernames, hostnames, IP addresses, or credentials:
@@ -656,7 +688,7 @@ Do not commit real Open WebUI usernames, email addresses, or passwords. Keep
 test accounts and credentials in a local password manager or ignored `.env`
 files only.
 
-## 19. Useful Cleanup Commands
+## 20. Useful Cleanup Commands
 
 Show running AES-related containers:
 
