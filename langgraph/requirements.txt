@@ -1,3 +1,7 @@
+# LangGraph / AES API service runtime dependencies.
+# These are installed inside the langgraph Docker image and can also be used
+# in the central aes_test_env for local tests and IDE support.
+
 fastapi
 uvicorn[standard]
 pydantic

@@ -1,0 +1,4 @@
+# Ollama helper-script Python dependencies.
+#
+# ollama/pull_models.py and its tests currently use only the Python standard
+# library, so this file intentionally has no third-party packages.

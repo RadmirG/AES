@@ -1,0 +1,13 @@
+# Central AES Python test/development environment.
+#
+# Install this file into a local environment named aes_test_env when you want
+# one Python environment that can run all current repository tests and helper
+# scripts outside Docker.
+#
+# Each Python-capable subproject owns its own requirements.txt. This central
+# file only composes them.
+
+-r langgraph/requirements.txt
+-r mcp/requirements.txt
+-r ollama/requirements.txt
+-r open-webui/requirements.txt
