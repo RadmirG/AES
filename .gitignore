@@ -24,7 +24,10 @@ mcp/providers/*/workspace/*
 
 # Editors
 .vscode/
+.vs/
+**/.vs/
 .idea/
+**/.idea/
 
 # OS
 .DS_Store

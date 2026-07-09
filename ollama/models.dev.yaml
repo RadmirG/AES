@@ -1,0 +1,104 @@
+﻿# Ollama models for the local AES development setup.
+#
+# Target laptop:
+# - CPU: Intel Core i7-7820HQ @ 2.90GHz
+# - GPU: Intel HD Graphics 630 + NVIDIA Quadro M2200
+# - RAM: 64 GB
+#
+# This is a CPU-first / small-GPU development profile. The RAM is generous,
+# but the CPU and mobile workstation GPU make 7B/8B models noticeably slower.
+# Keep normal AES development on 0.5B-4B models and use the 7B/8B group only
+# when quality checks matter more than iteration speed.
+hardware_profile:
+  name: laptop_i7_7820hq_64gb_quadro_m2200
+  cpu: Intel Core i7-7820HQ @ 2.90GHz
+  gpu:
+    - Intel HD Graphics 630
+    - NVIDIA Quadro M2200
+  ram_gb: 64
+  storage:
+    - CT2000P3PSSD8
+    - SAMSUNG MZVLB1T0HALR-000L7
+  runtime_notes:
+    - Prefer CPU-friendly models between 0.5B and 4B parameters.
+    - Use a 4096-token context for graph development and local tests.
+    - Raise context to 8192 only for selected debugging sessions.
+    - Treat 7B/8B models as optional slow checks, not default dev models.
+    - Avoid 14B+ models for normal laptop development.
+
+defaults:
+  aes_ollama_model: qwen3:4b
+  fast_smoke_model: qwen2.5-coder:1.5b
+  coding_model: qwen2.5-coder:3b
+  reasoning_model: phi4-mini:3.8b
+  general_model: llama3.2:3b
+
+pull_groups:
+  minimal:
+    description: Smallest useful set for graph/API smoke tests.
+    models:
+      - qwen2.5-coder:1.5b
+      - qwen3:1.7b
+
+  recommended:
+    description: Best local AES dev set for this laptop.
+    models:
+      - qwen3:4b
+      - qwen2.5-coder:3b
+      - phi4-mini:3.8b
+      - llama3.2:3b
+
+  ultra_fast_optional:
+    description: Very small models for rapid endpoint and routing checks.
+    models:
+      - qwen2.5-coder:0.5b
+      - qwen3:0.6b
+      - llama3.2:1b
+      - smollm2:360m
+      - smollm2:1.7b
+
+  slow_optional:
+    description: Try only when laptop latency is acceptable.
+    models:
+      - qwen2.5-coder:7b
+      - qwen3:8b
+
+  not_for_dev_default:
+    description: Fits poorly into the local iteration loop; use on stronger hardware.
+    models:
+      - qwen3:14b
+      - qwen3:30b
+      - qwen2.5-coder:14b
+      - qwen2.5-coder:32b
+
+runtime:
+  recommended_ollama_num_ctx: 4096
+  max_laptop_ollama_num_ctx: 8192
+  recommended_env:
+    AES_OLLAMA_MODEL: qwen3:4b
+
+automation:
+  puller_script: pull_models.py
+  compose_profile: models
+  default_pull_group: recommended
+  pulls_runtime_model: true
+  runtime_selector_env: AES_OLLAMA_MODEL
+  runtime_selector_default: qwen3:4b
+  pull_group_env: AES_OLLAMA_PULL_GROUP
+
+models:
+  default: qwen3:4b
+  fast:
+    - qwen2.5-coder:1.5b
+    - qwen3:1.7b
+    - llama3.2:1b
+  balanced:
+    - qwen3:4b
+    - qwen2.5-coder:3b
+    - phi4-mini:3.8b
+    - llama3.2:3b
+  optional_slow:
+    - qwen2.5-coder:7b
+    - qwen3:8b
+
+

@@ -1,0 +1,24 @@
+id: fenics
+name: FEniCS/DOLFINx MCP Provider
+status: implemented_not_live_validated
+enabled_by_default: false
+profile: fenics
+transport: streamable-http
+url: http://dolfinx-mcp:8000/mcp
+public_url: http://127.0.0.1:8003/mcp
+compose_file: compose.yaml
+allowlist: allowlist.yaml
+tool_schema_snapshot: tool_schemas.snapshot.json
+workspace: workspace
+smoke_tests: smoke_tests
+aes_wrapper_tools:
+  - fenics_forward_solve
+contracts:
+  - ../../contracts/fenics_forward_solve.schema.json
+  - ../../contracts/numerical_recipe.schema.json
+  - ../../contracts/tool_result.schema.json
+notes:
+  - FEniCS/DOLFINx is installed in the external dolfinx-mcp image, not in the AES LangGraph container.
+  - AES should keep live execution disabled until tool schemas have been validated against the running provider.
+  - Low-level DOLFINx MCP tools are called by AES wrapper logic, not directly by the LLM.
+

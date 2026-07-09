@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from typing import Any, Dict, List, Union
@@ -11,7 +12,13 @@ from pydantic import BaseModel
 
 from aes_agent.graph import graph
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+
 app = FastAPI(title="LangGraph Service")
+logger = logging.getLogger("aes_agent")
 
 AES_MODEL_ID = "aes-agent"
 
@@ -53,22 +60,38 @@ def extract_text_from_content(content: Union[str, List[Dict[str, Any]]]) -> str:
     return ""
 
 
-def extract_last_user_message(messages: List[ChatMessage]) -> str:
+def build_user_text_from_messages(messages: List[ChatMessage]) -> str:
     """
-    Take the last user message as the input to the AES agent.
+    Combine user turns into one AES problem statement.
+
+    OpenAI-compatible clients send the full chat history. AES is not yet using
+    a LangGraph checkpointer for multi-turn resume, so we preserve user context
+    by folding all user messages into the next graph invocation.
     """
-    for msg in reversed(messages):
-        if msg.role == "user":
-            text = extract_text_from_content(msg.content)
-            if text.strip():
-                return text.strip()
-    return ""
+    user_texts = [
+        extract_text_from_content(msg.content).strip()
+        for msg in messages
+        if msg.role == "user"
+    ]
+    user_texts = [text for text in user_texts if text]
+
+    if not user_texts:
+        return ""
+    if len(user_texts) == 1:
+        return user_texts[0]
+
+    lines = ["Combined user problem statement from the chat history:"]
+    for index, text in enumerate(user_texts, start=1):
+        lines.append(f"\nUser message {index}:\n{text}")
+    return "\n".join(lines).strip()
 
 
 def run_aes_agent(user_text: str) -> Dict[str, Any]:
     """
     Internal helper that runs the LangGraph graph.
     """
+    started_at = time.perf_counter()
+    logger.info("AES graph invocation started.")
     initial_state = {
         "raw_user_input": user_text,
         "problem_class": "",
@@ -96,7 +119,15 @@ def run_aes_agent(user_text: str) -> Dict[str, Any]:
         "next_action": "",
     }
 
-    return graph.invoke(initial_state)
+    result = graph.invoke(initial_state)
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "AES graph invocation finished: status=%s next_action=%s elapsed_ms=%.1f",
+        result.get("agent_status", ""),
+        result.get("next_action", ""),
+        elapsed_ms,
+    )
+    return result
 
 
 def build_assistant_text(result: Dict[str, Any]) -> str:
@@ -175,16 +206,19 @@ def build_streaming_chunk(
 
 @app.get("/health")
 def health():
+    logger.info("Health check requested.")
     return {"status": "ok"}
 
 
 @app.post("/invoke")
 def invoke(query: Query):
+    logger.info("Direct /invoke request received.")
     return run_aes_agent(query.text)
 
 
 @app.get("/v1/models")
 def list_models():
+    logger.info("OpenAI-compatible model list requested.")
     return {
         "object": "list",
         "data": [
@@ -200,7 +234,12 @@ def list_models():
 
 @app.post("/v1/chat/completions")
 def chat_completions(request: ChatCompletionRequest):
-    user_text = extract_last_user_message(request.messages)
+    logger.info(
+        "OpenAI-compatible chat completion requested: model=%s stream=%s",
+        request.model,
+        request.stream,
+    )
+    user_text = build_user_text_from_messages(request.messages)
     if not user_text:
         raise HTTPException(
             status_code=400,

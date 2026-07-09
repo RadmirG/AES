@@ -1,0 +1,6 @@
+# MCP provider-management Python dependencies.
+#
+# The current MCP smoke scripts use only the Python standard library. PyYAML is
+# required for the provider-manifest unit tests under mcp/tests.
+
+PyYAML

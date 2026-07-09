@@ -1,0 +1,14 @@
+id: filesystem
+name: Filesystem MCP Provider
+status: planned
+enabled_by_default: false
+profile: filesystem
+transport: streamable-http
+url: http://filesystem-mcp:8000/mcp
+public_url: http://127.0.0.1:8005/mcp
+compose_file: compose.yaml
+allowlist: allowlist.yaml
+aes_wrapper_tools: []
+notes:
+  - Planned provider for narrow, permission-aware filesystem access.
+  - Start read-only and avoid unrestricted shell execution.

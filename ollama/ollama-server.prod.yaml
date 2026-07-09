@@ -1,0 +1,49 @@
+﻿services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11435:11434"
+    volumes:
+      - ./data:/root/.ollama
+    environment:
+      - OLLAMA_CONTEXT_LENGTH=8192
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["1"]
+              capabilities: [gpu]
+    networks:
+      - ai-stack-net
+
+  ollama-model-puller:
+    image: python:3.12-slim
+    profiles:
+      - models
+    depends_on:
+      - ollama
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace/ollama:ro
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+    command:
+      - python
+      - ollama/pull_models.py
+      - --file
+      - ollama/models.prod.yaml
+      - --group
+      - "${AES_OLLAMA_PULL_GROUP:-baseline}"
+      - --include-default
+      - --model
+      - "${AES_OLLAMA_MODEL:-gemma4:e4b}"
+    networks:
+      - ai-stack-net
+
+networks:
+  ai-stack-net:
+    external: true
+

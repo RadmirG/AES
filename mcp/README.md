@@ -19,13 +19,39 @@ The design goal is to keep tool execution modular and governed:
 ```text
 mcp/
   compose.mcp.yaml
-  providers.yaml
+  providers.yaml              # provider index
   providers/
-    fenics/
-    retrieval/
-    filesystem/
+    fenics/provider.yaml      # provider-owned governance manifest
+    retrieval/provider.yaml
+    filesystem/provider.yaml
   contracts/
 ```
+
+The central `compose.mcp.yaml` is only an MCP entrypoint. It includes the
+provider-owned Compose files:
+
+```text
+mcp/compose.mcp.yaml
+  -> providers/fenics/compose.yaml
+  -> providers/retrieval/compose.yaml
+  -> providers/filesystem/compose.yaml
+```
+
+This keeps every provider responsible for its own image, ports, volumes,
+profiles, workspace, and operational README.
+
+The central `providers.yaml` is only a provider index:
+
+```text
+mcp/providers.yaml
+  -> providers/fenics/provider.yaml
+  -> providers/retrieval/provider.yaml
+  -> providers/filesystem/provider.yaml
+```
+
+Each provider owns its AES/governance metadata in its local `provider.yaml`,
+including transport, profile, URLs, allowlist, schema snapshot, wrapper tools,
+contracts, and operational notes.
 
 ## Execution Modes
 
@@ -65,3 +91,15 @@ Then start the AES MCP providers:
 docker compose -f mcp/compose.mcp.yaml --profile fenics up -d
 ```
 
+## Provider Lifecycle
+
+In the current Docker Compose setup, MCP providers are optional long-running
+services selected with profiles. For example, the FEniCS provider starts only
+when the `fenics` profile is active.
+
+On-demand provider startup is a later architecture step. It would require a
+controller that can start a provider before tool execution, wait for readiness,
+run the tool, collect artifacts, and shut the provider down. Kubernetes Jobs,
+a Docker API controller, or a workflow engine could provide that behavior later.
+For the first reliable version, long-running optional providers are simpler and
+easier to debug.

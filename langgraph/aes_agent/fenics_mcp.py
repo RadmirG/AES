@@ -270,10 +270,14 @@ def _should_execute_live() -> bool:
 
 def _detect_problem_type(state: AgentState) -> str:
     text = _all_state_text(state)
+    is_stationary_heat = (
+        "heat" in text
+        and any(marker in text for marker in ["steady", "stationary", "steady-state", "steady state"])
+    )
+    if "poisson" in text or "stationary_diffusion" in text or is_stationary_heat:
+        return "poisson_equation"
     if "heat" in text or "time_dependent_heat" in text:
         return "heat_equation"
-    if "poisson" in text or "stationary_diffusion" in text:
-        return "poisson_equation"
     return "unsupported"
 
 

@@ -8,7 +8,7 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://ollama-server:11434
 #      - OLLAMA_MODEL=gemma4:31b
-      - OLLAMA_MODEL=gemma4:e4b
+      - OLLAMA_MODEL=${AES_OLLAMA_MODEL:-qwen3:4b}
       - OLLAMA_TIMEOUT=300
       - OLLAMA_NUM_CTX=4096
       # Optional live FEniCS/DOLFINx MCP execution.

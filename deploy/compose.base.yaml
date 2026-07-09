@@ -1,6 +1,0 @@
-name: aes
-
-networks:
-  ai-stack-net:
-    external: true
-

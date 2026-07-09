@@ -35,6 +35,29 @@ class ValidationNodeTests(unittest.TestCase):
         self.assertEqual(result["validation_status"], "invalid")
         self.assertTrue(result["validation_errors"])
 
+    @patch.object(nodes, "ollama_json", return_value={})
+    def test_supported_forward_formulation_validates_deterministically(
+        self,
+        _ollama_json,
+    ):
+        result = nodes.validate_formulation(
+            {
+                "raw_user_input": (
+                    "Solve a steady heat equation on a unit square with "
+                    "u=0 on the boundary and source f=1."
+                ),
+                "problem_class": "forward_problem",
+                "pde_info": "stationary_diffusion_equation",
+                "domain_info": "unit_square",
+                "source_info": "1",
+                "bc_info": "dirichlet_boundary_condition",
+                "selected_formulation": "fem_problem_setup",
+            }
+        )
+
+        self.assertEqual(result["validation_status"], "valid")
+        self.assertEqual(result["validation_errors"], [])
+
 
 class ClarificationNodeTests(unittest.TestCase):
     @patch.object(nodes, "ollama_json", return_value={})
@@ -117,6 +140,99 @@ class ToolNodeTests(unittest.TestCase):
 
         self.assertEqual(result["tool_execution_status"], "failed")
         self.assertTrue(result["tool_errors"])
+
+
+class ExtractionFallbackTests(unittest.TestCase):
+    @patch.object(
+        nodes,
+        "ollama_json",
+        return_value={
+            "problem_class": "unknown_problem",
+            "pde_info": "unknown_pde",
+        },
+    )
+    def test_steady_heat_classifies_as_stationary_forward_problem(
+        self,
+        _ollama_json,
+    ):
+        result = nodes.classify_problem(
+            {
+                "raw_user_input": (
+                    "Solve a steady heat equation on a unit square with "
+                    "u=0 on the boundary and source f=1."
+                )
+            }
+        )
+
+        self.assertEqual(result["problem_class"], "forward_problem")
+        self.assertEqual(result["pde_info"], "stationary_diffusion_equation")
+
+    @patch.object(nodes, "ollama_json", return_value={})
+    def test_structure_fallback_extracts_unit_square_source_and_bc(
+        self,
+        _ollama_json,
+    ):
+        result = nodes.extract_mathematical_structure(
+            {
+                "raw_user_input": (
+                    "Solve a steady heat equation on a unit square with "
+                    "u=0 on the boundary and source f=1."
+                ),
+                "problem_class": "forward_problem",
+                "pde_info": "stationary_diffusion_equation",
+            }
+        )
+
+        self.assertEqual(result["domain_info"], "unit_square")
+        self.assertEqual(result["source_info"], "1")
+        self.assertEqual(result["bc_info"], "dirichlet_boundary_condition")
+
+    @patch.object(nodes, "ollama_json", return_value={"missing_information": []})
+    def test_completeness_detects_steady_transient_contradiction(
+        self,
+        _ollama_json,
+    ):
+        result = nodes.check_problem_completeness(
+            {
+                "raw_user_input": (
+                    "Solve a steady heat equation. The formulation is "
+                    "\\partial u / \\partial t = alpha * Delta u - f."
+                ),
+                "problem_class": "forward_problem",
+                "pde_info": "stationary_diffusion_equation",
+                "domain_info": "unit_square",
+                "source_info": "1",
+                "bc_info": "dirichlet_boundary_condition",
+                "initial_condition_info": "unknown_initial_condition",
+                "time_info": "unknown_time",
+            }
+        )
+
+        self.assertTrue(
+            any("steady/stationary" in item for item in result["missing_information"])
+        )
+
+    @patch.object(
+        nodes,
+        "ollama_json",
+        return_value={"selected_formulation": "unknown_formulation"},
+    )
+    def test_formulation_falls_back_for_supported_forward_pde(
+        self,
+        _ollama_json,
+    ):
+        result = nodes.select_formulation(
+            {
+                "problem_class": "forward_problem",
+                "pde_info": "stationary_diffusion_equation",
+                "domain_info": "unit_square",
+                "source_info": "1",
+                "bc_info": "dirichlet_boundary_condition",
+                "missing_information": [],
+            }
+        )
+
+        self.assertEqual(result["selected_formulation"], "fem_problem_setup")
 
 
 class NumericalRecipeNodeTests(unittest.TestCase):
