@@ -153,6 +153,19 @@ class FenicsRecipeTests(unittest.TestCase):
             create_function_call["arguments"]["expression"],
             "sin(pi*x[0])*sin(pi*x[1])",
         )
+        form_call = next(
+            call for call in calls if call["tool_name"] == "define_variational_form"
+        )
+        self.assertIn("bilinear", form_call["arguments"])
+        self.assertIn("linear", form_call["arguments"])
+        self.assertEqual(
+            form_call["arguments"]["bilinear"],
+            form_call["arguments"]["bilinear_form"],
+        )
+        self.assertEqual(
+            form_call["arguments"]["linear"],
+            form_call["arguments"]["linear_form"],
+        )
 
     def test_existing_dolfinx_coordinates_are_not_rewritten(self):
         recipe_result = build_fenics_recipe(
@@ -208,6 +221,11 @@ class FenicsRecipeTests(unittest.TestCase):
         self.assertIn("solve", tool_names)
         self.assertNotIn("run_custom_code", tool_names)
         self.assertTrue(set(tool_names).issubset(ALLOWED_DOLFINX_TOOLS))
+        form_call = next(
+            call for call in calls if call["tool_name"] == "define_variational_form"
+        )
+        self.assertIn("bilinear", form_call["arguments"])
+        self.assertIn("linear", form_call["arguments"])
         boundary_calls = [
             call for call in calls if call["tool_name"] == "apply_boundary_condition"
         ]

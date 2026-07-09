@@ -817,6 +817,8 @@ def _poisson_solver_calls(
                 "name": "poisson_form",
                 "function_space": "V",
                 "space_name": "V",
+                "bilinear": "k * dot(grad(u), grad(v)) * dx",
+                "linear": "f * v * dx",
                 "bilinear_form": "k * dot(grad(u), grad(v)) * dx",
                 "linear_form": "f * v * dx",
             },
@@ -864,6 +866,8 @@ def _heat_solver_calls(
                 "name": "heat_form",
                 "function_space": "V",
                 "space_name": "V",
+                "bilinear": "u * v * dx + dt * k * dot(grad(u), grad(v)) * dx",
+                "linear": "(u_n + dt * f) * v * dx",
                 "bilinear_form": "u * v * dx + dt * k * dot(grad(u), grad(v)) * dx",
                 "linear_form": "(u_n + dt * f) * v * dx",
                 "parameters": {
