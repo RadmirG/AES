@@ -142,6 +142,74 @@ class ToolNodeTests(unittest.TestCase):
         self.assertTrue(result["tool_errors"])
 
 
+class ArtifactNodeTests(unittest.TestCase):
+    @patch.object(
+        nodes,
+        "ollama_json",
+        side_effect=AssertionError("final artifact must not call the LLM"),
+    )
+    def test_final_artifact_is_deterministic_and_bounded(self, _ollama_json):
+        result = nodes.generate_artifact(
+            {
+                "problem_class": "forward_problem",
+                "pde_info": "stationary_diffusion_equation",
+                "domain_info": "unit_square",
+                "coefficient_info": "1.0",
+                "source_info": "1",
+                "bc_info": "dirichlet_boundary_condition",
+                "initial_condition_info": "unknown_initial_condition",
+                "time_info": "unknown_time",
+                "selected_formulation": "fem_problem_setup",
+                "validation_status": "valid",
+                "numerical_recipe_status": "ready",
+                "numerical_recipe": {
+                    "provider": "mcp:dolfinx",
+                    "workflow": "poisson_unit_domain_v1",
+                    "problem_type": "poisson_equation",
+                    "domain": {
+                        "type": "unit_square",
+                        "nx": 32,
+                        "ny": 32,
+                    },
+                    "equation": {
+                        "diffusion_coefficient": "1.0",
+                        "source": "1",
+                    },
+                    "solver": {
+                        "type": "linear",
+                        "solver_type": "cg",
+                    },
+                },
+                "selected_tools": ["fenics_forward_solve"],
+                "tool_execution_status": "completed",
+                "tool_results": [
+                    {
+                        "tool_name": "fenics_forward_solve",
+                        "provider": "mcp:dolfinx",
+                        "status": "completed",
+                        "output": {
+                            "execution_mode": "planned",
+                            "mcp_calls": [
+                                {"tool_name": "reset_session"},
+                                {"tool_name": "create_unit_square"},
+                                {"tool_name": "solve"},
+                            ],
+                        },
+                        "error": "",
+                    }
+                ],
+            }
+        )
+
+        artifact = result["generated_artifact"]
+        self.assertEqual(result["agent_status"], "ok")
+        self.assertIn("stationary_diffusion_equation", artifact)
+        self.assertIn("fenics_forward_solve", artifact)
+        self.assertIn("Execution mode: planned", artifact)
+        self.assertNotIn("topic_topic", artifact)
+        self.assertLess(len(artifact), 3000)
+
+
 class ExtractionFallbackTests(unittest.TestCase):
     @patch.object(
         nodes,

@@ -10,7 +10,6 @@ from aes_agent.prompts import (
     classify_problem_prompt,
     extract_mathematical_structure_prompt,
     generate_clarification_prompt,
-    generate_artifact_prompt,
     select_formulation_prompt,
     select_tools_prompt,
     validate_formulation_prompt,
@@ -332,9 +331,6 @@ def generate_artifact(state: AgentState) -> Dict[str, Any]:
         "tool_errors": state.get("tool_errors", []),
     }
 
-    prompt = generate_artifact_prompt(snapshot)
-    result = ollama_json(prompt)
-
     if state.get("tool_execution_status") == "failed":
         agent_status = "tool_error"
         next_action = "review_tool_errors"
@@ -343,10 +339,208 @@ def generate_artifact(state: AgentState) -> Dict[str, Any]:
         next_action = "review_tool_results"
 
     return {
-        "generated_artifact": safe_str(result.get("generated_artifact"), ""),
+        "generated_artifact": _build_generated_artifact(
+            snapshot,
+            agent_status,
+            next_action,
+        ),
         "agent_status": agent_status,
         "next_action": next_action,
     }
+
+
+def _build_generated_artifact(
+    snapshot: dict[str, Any],
+    agent_status: str,
+    next_action: str,
+) -> str:
+    lines = [
+        "AES workflow result",
+        "",
+        f"Status: {agent_status}",
+        f"Next action: {next_action}",
+        "",
+        "Problem interpretation:",
+        f"- Class: {_artifact_value(snapshot.get('problem_class'))}",
+        f"- PDE: {_artifact_value(snapshot.get('pde_info'))}",
+        f"- Domain: {_artifact_value(snapshot.get('domain_info'))}",
+        f"- Coefficients: {_artifact_value(snapshot.get('coefficient_info'))}",
+        f"- Source: {_artifact_value(snapshot.get('source_info'))}",
+        f"- Boundary conditions: {_artifact_value(snapshot.get('bc_info'))}",
+        f"- Initial condition: {_artifact_value(snapshot.get('initial_condition_info'))}",
+        f"- Time: {_artifact_value(snapshot.get('time_info'))}",
+        "",
+        "Formulation and validation:",
+        f"- Selected formulation: {_artifact_value(snapshot.get('selected_formulation'))}",
+        f"- Validation status: {_artifact_value(snapshot.get('validation_status'))}",
+        f"- Numerical recipe status: {_artifact_value(snapshot.get('numerical_recipe_status'))}",
+    ]
+
+    _append_issue_section(lines, "Missing information", snapshot.get("missing_information"))
+    _append_issue_section(lines, "Validation errors", snapshot.get("validation_errors"))
+    _append_issue_section(
+        lines,
+        "Numerical recipe errors",
+        snapshot.get("numerical_recipe_errors"),
+    )
+
+    recipe = snapshot.get("numerical_recipe") or {}
+    if isinstance(recipe, dict) and recipe:
+        _append_recipe_section(lines, recipe)
+
+    selected_tools = snapshot.get("selected_tools") or []
+    if selected_tools:
+        lines.extend(
+            [
+                "",
+                f"Selected tools: {_artifact_list(selected_tools)}",
+            ]
+        )
+
+    tool_results = snapshot.get("tool_results") or []
+    lines.extend(
+        [
+            "",
+            f"Tool execution status: {_artifact_value(snapshot.get('tool_execution_status'))}",
+        ]
+    )
+    if tool_results:
+        _append_tool_result_section(lines, tool_results)
+
+    _append_issue_section(lines, "Tool errors", snapshot.get("tool_errors"))
+
+    return "\n".join(lines).strip()
+
+
+def _append_recipe_section(lines: list[str], recipe: dict[str, Any]) -> None:
+    domain = recipe.get("domain") if isinstance(recipe.get("domain"), dict) else {}
+    equation = recipe.get("equation") if isinstance(recipe.get("equation"), dict) else {}
+    solver = recipe.get("solver") if isinstance(recipe.get("solver"), dict) else {}
+
+    lines.extend(
+        [
+            "",
+            "Numerical recipe:",
+            f"- Provider: {_artifact_value(recipe.get('provider'))}",
+            f"- Workflow: {_artifact_value(recipe.get('workflow'))}",
+            f"- Problem type: {_artifact_value(recipe.get('problem_type'))}",
+            f"- Domain type: {_artifact_value(domain.get('type'))}",
+            f"- Mesh resolution: {_mesh_resolution(domain)}",
+            f"- Diffusion coefficient: {_artifact_value(equation.get('diffusion_coefficient'))}",
+            f"- Source: {_artifact_value(equation.get('source'))}",
+            f"- Solver: {_artifact_value(solver.get('type') or solver.get('solver_type'))}",
+        ]
+    )
+
+    assumptions = recipe.get("assumptions") or []
+    if assumptions:
+        lines.append(f"- Assumptions: {_artifact_list(assumptions)}")
+
+
+def _append_tool_result_section(
+    lines: list[str],
+    tool_results: list[dict[str, Any]],
+) -> None:
+    lines.append("Tool results:")
+    for result in tool_results:
+        if not isinstance(result, dict):
+            continue
+
+        tool_name = _artifact_value(result.get("tool_name"))
+        status = _artifact_value(result.get("status"))
+        provider = _artifact_value(result.get("provider"))
+        lines.append(f"- {tool_name}: {status} ({provider})")
+
+        error = result.get("error")
+        if error:
+            lines.append(f"  Error: {_artifact_value(error)}")
+
+        output = result.get("output") or {}
+        if not isinstance(output, dict):
+            continue
+
+        execution_mode = output.get("execution_mode")
+        if execution_mode:
+            lines.append(f"  Execution mode: {_artifact_value(execution_mode)}")
+
+        message = output.get("message")
+        if message:
+            lines.append(f"  Message: {_artifact_value(message, limit=320)}")
+
+        calls = output.get("mcp_calls") or []
+        call_names = [
+            _artifact_value(call.get("tool_name"), limit=60)
+            for call in calls
+            if isinstance(call, dict) and call.get("tool_name")
+        ]
+        if call_names:
+            lines.append(f"  MCP calls: {_artifact_list(call_names, limit=400)}")
+
+        results = output.get("results") or []
+        if results:
+            lines.append(f"  MCP result count: {len(results)}")
+
+
+def _append_issue_section(
+    lines: list[str],
+    title: str,
+    issues: Any,
+) -> None:
+    values = issues if isinstance(issues, list) else []
+    if not values:
+        return
+
+    lines.extend(["", f"{title}:"])
+    for issue in values[:10]:
+        lines.append(f"- {_artifact_value(issue, limit=320)}")
+    if len(values) > 10:
+        lines.append(f"- ... {len(values) - 10} more")
+
+
+def _mesh_resolution(domain: dict[str, Any]) -> str:
+    nx = domain.get("nx")
+    ny = domain.get("ny")
+    if nx is not None and ny is not None:
+        return f"{nx} x {ny}"
+
+    resolution = domain.get("resolution")
+    if isinstance(resolution, list) and resolution:
+        return " x ".join(str(value) for value in resolution)
+
+    return "not specified"
+
+
+def _artifact_list(values: Any, *, limit: int = 240) -> str:
+    if not isinstance(values, list):
+        return "none"
+
+    rendered = [
+        _artifact_value(value, limit=80)
+        for value in values[:12]
+        if _artifact_value(value, limit=80) != "none"
+    ]
+    if len(values) > 12:
+        rendered.append(f"... {len(values) - 12} more")
+
+    text = ", ".join(rendered) if rendered else "none"
+    return _artifact_value(text, limit=limit)
+
+
+def _artifact_value(value: Any, *, limit: int = 160) -> str:
+    if value is None:
+        return "none"
+
+    if isinstance(value, (dict, list, tuple, set)):
+        text = str(value)
+    else:
+        text = safe_str(value, "none")
+
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return "none"
+    if len(text) > limit:
+        return text[: limit - 3].rstrip() + "..."
+    return text
 
 
 def _is_unknown(value: str) -> bool:
