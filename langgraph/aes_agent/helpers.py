@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Dict, List
 
 import requests
 
+
+logger = logging.getLogger("aes_agent.ollama")
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama-server:11434")
 OLLAMA_GENERATE_URL = f"{OLLAMA_BASE_URL}/api/generate"
@@ -66,6 +69,31 @@ def ollama_json(prompt: str) -> Dict[str, Any]:
         response.raise_for_status()
     except requests.exceptions.Timeout as exc:
         raise RuntimeError("Ollama request timed out.") from exc
+    except requests.exceptions.HTTPError as exc:
+        status_code = (
+            exc.response.status_code
+            if exc.response is not None
+            else "unknown"
+        )
+        body = (
+            exc.response.text[:500]
+            if exc.response is not None and exc.response.text
+            else ""
+        )
+        logger.warning(
+            "Ollama JSON request failed: model=%s status=%s body=%s",
+            OLLAMA_MODEL,
+            status_code,
+            body,
+        )
+        return {}
+    except requests.exceptions.RequestException as exc:
+        logger.warning(
+            "Ollama JSON request failed: model=%s error=%s",
+            OLLAMA_MODEL,
+            exc,
+        )
+        return {}
 
     data = response.json()
     model_text = data.get("response", "")
