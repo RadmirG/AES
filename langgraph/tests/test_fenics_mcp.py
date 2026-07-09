@@ -149,6 +149,39 @@ class FenicsRecipeTests(unittest.TestCase):
             create_function_call["arguments"]["function_space"],
             "V",
         )
+        self.assertEqual(
+            create_function_call["arguments"]["expression"],
+            "sin(pi*x[0])*sin(pi*x[1])",
+        )
+
+    def test_existing_dolfinx_coordinates_are_not_rewritten(self):
+        recipe_result = build_fenics_recipe(
+            {
+                "raw_user_input": (
+                    "Solve the heat equation on the unit square with zero "
+                    "Dirichlet boundary conditions. Initial condition is "
+                    "sin(pi*x[0])*sin(pi*x[1]), T=1, dt=0.01."
+                ),
+                "problem_class": "forward_problem",
+                "pde_info": "time_dependent_heat_equation",
+                "domain_info": "unit_square",
+                "coefficient_info": "1.0",
+                "source_info": "0.0",
+                "bc_info": "dirichlet_boundary_condition",
+                "initial_condition_info": "sin(pi*x[0])*sin(pi*x[1])",
+                "time_info": "T=1, dt=0.01",
+                "selected_formulation": "fem_problem_setup",
+            }
+        )
+        calls = plan_dolfinx_mcp_calls(recipe_result["recipe"])
+        create_function_call = next(
+            call for call in calls if call["tool_name"] == "create_function"
+        )
+
+        self.assertEqual(
+            create_function_call["arguments"]["expression"],
+            "sin(pi*x[0])*sin(pi*x[1])",
+        )
 
     def test_poisson_recipe_builds_allowed_mcp_plan(self):
         recipe_result = build_fenics_recipe(

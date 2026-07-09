@@ -853,7 +853,9 @@ def _heat_solver_calls(
                 "name": "u_n",
                 "function_space": "V",
                 "space_name": "V",
-                "expression": recipe.get("initial_condition", "0.0"),
+                "expression": _to_dolfinx_expression(
+                    recipe.get("initial_condition", "0.0"),
+                ),
             },
         },
         {
@@ -1100,3 +1102,30 @@ def _normalize_math_expression(value: str) -> str:
         cleaned,
     )
     return cleaned
+
+
+def _to_dolfinx_expression(value: Any) -> str:
+    expression = _normalize_math_expression(str(value))
+
+    converted = expression
+    protected_tokens = {
+        "__AES_X0__": "x[0]",
+        "__AES_X1__": "x[1]",
+        "__AES_X2__": "x[2]",
+    }
+    for token, coordinate in protected_tokens.items():
+        converted = re.sub(
+            re.escape(coordinate),
+            token,
+            converted,
+            flags=re.IGNORECASE,
+        )
+
+    converted = re.sub(r"\bx\b", "x[0]", converted)
+    converted = re.sub(r"\by\b", "x[1]", converted)
+    converted = re.sub(r"\bz\b", "x[2]", converted)
+
+    for token, coordinate in protected_tokens.items():
+        converted = converted.replace(token, coordinate)
+
+    return converted
