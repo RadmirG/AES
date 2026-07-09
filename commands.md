@@ -375,6 +375,22 @@ OPENAI_API_KEY=aes-dev-no-auth
 DEFAULT_MODELS=aes-agent
 ```
 
+`aes-agent` is the wrapper model exposed by AES to Open WebUI. The real LLM used
+inside AES is selected by `AES_OLLAMA_MODEL`, which Compose passes into the
+LangGraph container as `OLLAMA_MODEL`.
+
+Current dev binding:
+
+```text
+AES_OLLAMA_MODEL=qwen3:4b -> OLLAMA_MODEL=qwen3:4b -> Ollama /api/generate
+```
+
+Check the running LangGraph container:
+
+```bash
+docker exec langgraph printenv OLLAMA_MODEL
+```
+
 Open WebUI persists some settings in its database after first startup. If you
 started Open WebUI before these variables existed and `aes-agent` still does not
 appear, configure the same OpenAI-compatible connection in the Open WebUI admin
@@ -488,6 +504,13 @@ Smoke-test the FEniCS MCP tool list:
 cd ~/projects/AES
 DOLFINX_MCP_URL=http://127.0.0.1:8003/mcp \
 python mcp/providers/fenics/smoke_tests/smoke_tools_list.py
+```
+
+If the smoke test reports a non-JSON response, inspect the provider directly:
+
+```bash
+docker compose -f deploy/compose.dev.yaml --profile fenics logs -f dolfinx-mcp
+curl -i http://127.0.0.1:8003/mcp
 ```
 
 FEniCS MCP endpoint:

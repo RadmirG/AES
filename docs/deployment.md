@@ -108,6 +108,26 @@ GET /v1/models
 POST /v1/chat/completions
 ```
 
+`aes-agent` is the public wrapper model name shown to Open WebUI. It is not the
+raw LLM. Inside the LangGraph service, AES calls Ollama with the environment
+variable `OLLAMA_MODEL`, which is set by Compose from `AES_OLLAMA_MODEL`:
+
+```text
+AES_OLLAMA_MODEL -> OLLAMA_MODEL -> Ollama /api/generate payload model
+```
+
+For development the default is:
+
+```text
+AES_OLLAMA_MODEL=qwen3:4b
+```
+
+For production the documented default is:
+
+```text
+AES_OLLAMA_MODEL=gemma4:e4b
+```
+
 From the host or WSL, test AES through the published port:
 
 ```bash
