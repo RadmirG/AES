@@ -14,7 +14,7 @@ services:
       # Optional live FEniCS/DOLFINx MCP execution.
       # Leave DOLFINX_MCP_EXECUTE=false to return a planned MCP workflow only.
       - DOLFINX_MCP_URL=http://dolfinx-mcp:8000/mcp
-      - DOLFINX_MCP_EXECUTE=false
+      - DOLFINX_MCP_EXECUTE=${DOLFINX_MCP_EXECUTE:-false}
       - DOLFINX_MCP_TIMEOUT=120
     networks:
       - ai-stack-net

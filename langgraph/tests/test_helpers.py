@@ -46,6 +46,15 @@ class OllamaHelperTests(unittest.TestCase):
         self.assertEqual(result, {})
         post.assert_called_once()
 
+    @patch.object(helpers.requests, "post")
+    def test_ollama_timeout_returns_empty_json(self, post):
+        post.side_effect = helpers.requests.exceptions.Timeout("slow model")
+
+        result = helpers.ollama_json("Return JSON.")
+
+        self.assertEqual(result, {})
+        post.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

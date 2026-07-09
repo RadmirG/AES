@@ -73,6 +73,22 @@ class ClarificationNodeTests(unittest.TestCase):
             ["Please clarify: Boundary conditions are missing."],
         )
 
+    @patch.object(
+        nodes,
+        "ollama_json",
+        side_effect=AssertionError("clarification with known issues must not call Ollama"),
+    )
+    def test_known_issues_use_deterministic_clarification(self, _ollama_json):
+        result = nodes.generate_clarification(
+            {"validation_errors": ["The selected formulation is inconsistent."]}
+        )
+
+        self.assertEqual(result["agent_status"], "needs_clarification")
+        self.assertEqual(
+            result["clarification_questions"],
+            ["Please clarify: The selected formulation is inconsistent."],
+        )
+
 
 class ToolNodeTests(unittest.TestCase):
     @patch.object(
@@ -119,6 +135,24 @@ class ToolNodeTests(unittest.TestCase):
         )
 
         self.assertIn("fenics_forward_solve", result["selected_tools"])
+
+    @patch.object(
+        nodes,
+        "ollama_json",
+        side_effect=AssertionError("ready recipe must not call Ollama for tool selection"),
+    )
+    def test_ready_recipe_selects_fenics_without_llm(
+        self,
+        _ollama_json,
+    ):
+        result = nodes.select_tools(
+            {
+                "selected_formulation": "fem_problem_setup",
+                "numerical_recipe_status": "ready",
+            }
+        )
+
+        self.assertEqual(result["selected_tools"], ["fenics_forward_solve"])
 
     def test_tool_execution_reports_completed_results(self):
         result = nodes.execute_tools(
@@ -211,6 +245,42 @@ class ArtifactNodeTests(unittest.TestCase):
 
 
 class ExtractionFallbackTests(unittest.TestCase):
+    STATIONARY_HEAT_REQUEST = (
+        "Solve the stationary heat equation on the unit square Omega=[0,1]^2. "
+        "Use homogeneous Dirichlet boundary conditions u=0 on the boundary. "
+        "Use source f=1 and diffusion coefficient alpha=1. "
+        "Use the strong form -alpha * Delta(u) = f. "
+        "Use the weak FEM form: find u in H_0^1(Omega) such that "
+        "integral_Omega alpha * grad(u) dot grad(v) dx = integral_Omega f * v dx "
+        "for all test functions v in H_0^1(Omega)."
+    )
+
+    @patch.object(
+        nodes,
+        "ollama_json",
+        side_effect=AssertionError("supported PDE path must not call Ollama"),
+    )
+    def test_supported_stationary_heat_uses_deterministic_path(self, _ollama_json):
+        state = {
+            "raw_user_input": self.STATIONARY_HEAT_REQUEST,
+        }
+
+        state.update(nodes.classify_problem(state))
+        state.update(nodes.extract_mathematical_structure(state))
+        state.update(nodes.check_problem_completeness(state))
+        state.update(nodes.select_formulation(state))
+        state.update(nodes.validate_formulation(state))
+
+        self.assertEqual(state["problem_class"], "forward_problem")
+        self.assertEqual(state["pde_info"], "stationary_diffusion_equation")
+        self.assertEqual(state["domain_info"], "unit_square")
+        self.assertEqual(state["source_info"], "1")
+        self.assertEqual(state["coefficient_info"], "1")
+        self.assertEqual(state["bc_info"], "dirichlet_boundary_condition")
+        self.assertEqual(state["missing_information"], [])
+        self.assertEqual(state["selected_formulation"], "fem_problem_setup")
+        self.assertEqual(state["validation_status"], "valid")
+
     @patch.object(
         nodes,
         "ollama_json",

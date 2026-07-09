@@ -504,11 +504,14 @@ production model below is `gemma4:26b` because it starts and responds faster.
 Production uses `deploy/compose.prod.yaml` and the production Ollama compose
 file. The intended AES production runtime model is `gemma4:26b`.
 
+Production enables live FEniCS MCP execution by default, so start it with the
+`fenics` profile. Without this profile, `dolfinx-mcp` is not started.
+
 ```bash
 cd ~/projects/AES
 export AES_OLLAMA_MODEL=gemma4:26b
 export AES_OLLAMA_PULL_GROUP=baseline
-docker compose -f deploy/compose.prod.yaml --profile models up -d --build
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics up -d --build
 ```
 
 For stronger production/server models:
@@ -517,19 +520,19 @@ For stronger production/server models:
 cd ~/projects/AES
 export AES_OLLAMA_MODEL=gemma4:26b
 export AES_OLLAMA_PULL_GROUP=recommended
-docker compose -f deploy/compose.prod.yaml --profile models up -d --build
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics up -d --build
 ```
 
 Check production services:
 
 ```bash
-docker compose -f deploy/compose.prod.yaml --profile models ps
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics ps
 ```
 
 Stop production services:
 
 ```bash
-docker compose -f deploy/compose.prod.yaml --profile models down
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics down
 ```
 
 ## 15. Optional FEniCS MCP Provider

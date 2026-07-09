@@ -42,8 +42,13 @@ AES_OLLAMA_MODEL=qwen3:4b docker compose -f deploy/compose.dev.yaml --profile mo
 Production/server stack with model pull automation:
 
 ```bash
-AES_OLLAMA_MODEL=gemma4:26b docker compose -f deploy/compose.prod.yaml --profile models up -d --build
+AES_OLLAMA_MODEL=gemma4:26b docker compose -f deploy/compose.prod.yaml --profile models --profile fenics up -d --build
 ```
+
+Production enables live FEniCS MCP execution by default through
+`DOLFINX_MCP_EXECUTE=true`, so the `fenics` profile is part of the normal
+production startup. To force planning-only mode, set
+`DOLFINX_MCP_EXECUTE=false`.
 
 The `models` profile starts a one-shot `ollama-model-puller` service. It waits
 for Ollama, pulls the configured manifest group, and also pulls the exact model
@@ -55,7 +60,7 @@ Development stack with the optional FEniCS MCP provider:
 AES_OLLAMA_MODEL=qwen3:4b docker compose -f deploy/compose.dev.yaml --profile models --profile fenics up -d --build
 ```
 
-Production stack with the optional FEniCS MCP provider:
+Production stack with explicit FEniCS MCP provider profile:
 
 ```bash
 AES_OLLAMA_MODEL=gemma4:26b docker compose -f deploy/compose.prod.yaml --profile models --profile fenics up -d --build
@@ -245,14 +250,21 @@ docker build -t dolfinx-mcp:latest .
 
 ## Execution Switch
 
-The full stack still defaults to planning mode:
+The development stack defaults to planning mode:
 
 ```text
 DOLFINX_MCP_EXECUTE=false
 ```
 
-Change this to `true` only after the live provider schemas have been checked
-against `mcp/providers/fenics/tool_schemas.snapshot.json`.
+The production stack defaults to live FEniCS MCP execution:
+
+```text
+DOLFINX_MCP_EXECUTE=true
+```
+
+Live execution requires the `fenics` Compose profile so the `dolfinx-mcp`
+container is running. If the live provider schema changes, compare it against
+`mcp/providers/fenics/tool_schemas.snapshot.json`.
 
 
 

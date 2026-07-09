@@ -22,7 +22,8 @@ not generate arbitrary FEniCS Python code.
 
 ## Execution Modes
 
-By default AES returns a planned MCP workflow without contacting a live solver:
+The development stack returns a planned MCP workflow without contacting a live
+solver unless explicitly overridden:
 
 ```text
 DOLFINX_MCP_EXECUTE=false
@@ -33,8 +34,12 @@ To execute against a running `dolfinx-mcp` Streamable HTTP server:
 ```text
 DOLFINX_MCP_URL=http://dolfinx-mcp:8000/mcp
 DOLFINX_MCP_EXECUTE=true
-DOLFINX_MCP_TIMEOUT=120
+DOLFINX_MCP_TIMEOUT=300
 ```
+
+The production stack is configured this way by default in
+`langgraph/langgraph.prod.yaml`. Start production with the `fenics` Compose
+profile so the `dolfinx-mcp` container is available.
 
 The external server can be built from:
 

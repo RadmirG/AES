@@ -5,16 +5,18 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:8002:8001"
+    depends_on:
+      - dolfinx-mcp
     environment:
       - OLLAMA_BASE_URL=http://ollama-server:11434
       - OLLAMA_MODEL=${AES_OLLAMA_MODEL:-gemma4:26b}
       - OLLAMA_TIMEOUT=300
       - OLLAMA_NUM_CTX=4096
-      # Optional live FEniCS/DOLFINx MCP execution.
-      # Leave DOLFINX_MCP_EXECUTE=false to return a planned MCP workflow only.
+      # Production enables live FEniCS/DOLFINx MCP execution.
+      # Start the deployment with --profile fenics so dolfinx-mcp is running.
       - DOLFINX_MCP_URL=http://dolfinx-mcp:8000/mcp
-      - DOLFINX_MCP_EXECUTE=false
-      - DOLFINX_MCP_TIMEOUT=120
+      - DOLFINX_MCP_EXECUTE=${DOLFINX_MCP_EXECUTE:-true}
+      - DOLFINX_MCP_TIMEOUT=300
     networks:
       - ai-stack-net
 

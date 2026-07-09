@@ -68,6 +68,10 @@ DOLFINX_MCP_EXECUTE=true
 DOLFINX_MCP_URL=http://dolfinx-mcp:8000/mcp
 ```
 
+Production defaults to live FEniCS execution and should be started with the
+`fenics` profile. Development defaults to planning mode unless
+`DOLFINX_MCP_EXECUTE=true` is exported.
+
 ## First Provider
 
 The first concrete provider is `fenics`, backed by the external

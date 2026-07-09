@@ -34,10 +34,12 @@ def ingest_problem(state: AgentState) -> Dict[str, Any]:
 
 def classify_problem(state: AgentState) -> Dict[str, Any]:
     user_text = state.get("raw_user_input", "")
+    fallback = _classify_problem_from_text(user_text)
+    if not _is_unknown(fallback["problem_class"]) and not _is_unknown(fallback["pde_info"]):
+        return fallback
+
     prompt = classify_problem_prompt(user_text)
     result = ollama_json(prompt)
-    fallback = _classify_problem_from_text(user_text)
-
     problem_class = safe_str(result.get("problem_class"), "unknown_problem")
     pde_info = safe_str(result.get("pde_info"), "unknown_pde")
 
@@ -55,6 +57,9 @@ def extract_mathematical_structure(state: AgentState) -> Dict[str, Any]:
     user_text = state.get("raw_user_input", "")
     problem_class = state.get("problem_class", "")
     pde_info = state.get("pde_info", "")
+    fallback = _extract_structure_from_text(user_text, pde_info)
+    if _has_supported_structure(fallback, pde_info):
+        return fallback
 
     prompt = extract_mathematical_structure_prompt(
         user_text=user_text,
@@ -62,7 +67,6 @@ def extract_mathematical_structure(state: AgentState) -> Dict[str, Any]:
         pde_info=pde_info,
     )
     result = ollama_json(prompt)
-    fallback = _extract_structure_from_text(user_text, pde_info)
 
     return {
         "domain_info": _fallback_if_unknown(
@@ -112,9 +116,13 @@ def check_problem_completeness(state: AgentState) -> Dict[str, Any]:
         user_text=user_text,
         snapshot=snapshot,
     )
+    deterministic_missing = _deterministic_missing_information(user_text, snapshot)
+    if not deterministic_missing and _is_supported_forward_pde_state(snapshot):
+        return {"missing_information": []}
+
     result = ollama_json(prompt)
     missing_information = safe_list_of_str(result.get("missing_information"))
-    missing_information.extend(_deterministic_missing_information(user_text, snapshot))
+    missing_information.extend(deterministic_missing)
 
     return {
         "missing_information": _dedupe(missing_information)
@@ -138,19 +146,29 @@ def generate_clarification(state: AgentState) -> Dict[str, Any]:
         "numerical_recipe_errors": state.get("numerical_recipe_errors", []),
     }
 
-    result = ollama_json(generate_clarification_prompt(snapshot))
-    clarification_questions = safe_list_of_str(
-        result.get("clarification_questions")
-    )
     unresolved_issues = (
         state.get("missing_information", [])
         or state.get("validation_errors", [])
         or state.get("numerical_recipe_errors", [])
     )
+    if unresolved_issues:
+        return {
+            "clarification_questions": [
+                f"Please clarify: {issue}" for issue in unresolved_issues
+            ],
+            "generated_artifact": (
+                "Additional information is required before the workflow can continue."
+            ),
+            "agent_status": "needs_clarification",
+            "next_action": "request_clarification",
+        }
+
+    result = ollama_json(generate_clarification_prompt(snapshot))
+    clarification_questions = safe_list_of_str(
+        result.get("clarification_questions")
+    )
     if not clarification_questions:
-        clarification_questions = [
-            f"Please clarify: {issue}" for issue in unresolved_issues
-        ]
+        clarification_questions = ["Please clarify the requested engineering problem."]
 
     return {
         "clarification_questions": clarification_questions,
@@ -177,14 +195,17 @@ def select_formulation(state: AgentState) -> Dict[str, Any]:
     }
 
     prompt = select_formulation_prompt(snapshot)
-    result = ollama_json(prompt)
-    selected_formulation = safe_str(
-        result.get("selected_formulation"),
-        "unknown_formulation",
-    )
-    if _is_unknown(selected_formulation) and not snapshot["missing_information"]:
-        if _is_supported_forward_pde_state(state):
-            selected_formulation = "fem_problem_setup"
+    if not snapshot["missing_information"] and _is_supported_forward_pde_state(state):
+        selected_formulation = "fem_problem_setup"
+    else:
+        result = ollama_json(prompt)
+        selected_formulation = safe_str(
+            result.get("selected_formulation"),
+            "unknown_formulation",
+        )
+        if _is_unknown(selected_formulation) and not snapshot["missing_information"]:
+            if _is_supported_forward_pde_state(state):
+                selected_formulation = "fem_problem_setup"
 
     return {
         "selected_formulation": selected_formulation
@@ -204,6 +225,13 @@ def validate_formulation(state: AgentState) -> Dict[str, Any]:
         "selected_formulation": state.get("selected_formulation", ""),
     }
 
+    deterministic_errors = _deterministic_validation_errors(state)
+    if not deterministic_errors:
+        return {
+            "validation_status": "valid",
+            "validation_errors": [],
+        }
+
     result = ollama_json(validate_formulation_prompt(snapshot))
     validation_status = safe_str(
         result.get("validation_status"),
@@ -214,7 +242,6 @@ def validate_formulation(state: AgentState) -> Dict[str, Any]:
     if validation_status not in {"valid", "invalid"}:
         validation_status = "invalid"
 
-    deterministic_errors = _deterministic_validation_errors(state)
     if validation_status == "invalid" and not deterministic_errors:
         validation_status = "valid"
         validation_errors = []
@@ -260,6 +287,14 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
     }
 
     available_tools = list_available_tools()
+    if (
+        state.get("numerical_recipe_status") == "ready"
+        and "fenics_forward_solve" in available_tools
+    ):
+        return {
+            "selected_tools": ["fenics_forward_solve"]
+        }
+
     prompt = select_tools_prompt(snapshot, tool_catalog())
     result = ollama_json(prompt)
     requested_tools = safe_list_of_str(result.get("selected_tools"))
@@ -763,6 +798,17 @@ def _is_supported_forward_pde_state(state: dict[str, Any]) -> bool:
     if _is_unknown(str(state.get("domain_info", ""))):
         return False
     if _is_unknown(str(state.get("bc_info", ""))):
+        return False
+    return True
+
+
+def _has_supported_structure(structure: dict[str, str], pde_info: str) -> bool:
+    state = {"pde_info": pde_info, **structure}
+    if not (_is_stationary_problem(state) or _is_time_dependent_problem(state)):
+        return False
+    if _is_unknown(str(structure.get("domain_info", ""))):
+        return False
+    if _is_unknown(str(structure.get("bc_info", ""))):
         return False
     return True
 

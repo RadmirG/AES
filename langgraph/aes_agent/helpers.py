@@ -67,7 +67,12 @@ def ollama_json(prompt: str) -> Dict[str, Any]:
         )
         response.raise_for_status()
     except requests.exceptions.Timeout as exc:
-        raise RuntimeError("Ollama request timed out.") from exc
+        logger.warning(
+            "Ollama JSON request timed out: model=%s timeout=%s",
+            OLLAMA_MODEL,
+            OLLAMA_TIMEOUT,
+        )
+        return {}
     except requests.exceptions.HTTPError as exc:
         status_code = (
             exc.response.status_code
