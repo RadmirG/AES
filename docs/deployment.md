@@ -92,6 +92,40 @@ $env:AES_OLLAMA_MODEL = "qwen3:4b"
 docker compose -f deploy/compose.dev.yaml --profile models up -d --build
 ```
 
+## Open WebUI AES Connection
+
+Open WebUI is connected to two backends:
+
+```text
+Ollama: http://ollama-server:11434
+AES:    http://langgraph:8001/v1
+```
+
+The AES endpoint is OpenAI-compatible and exposes model `aes-agent` through:
+
+```text
+GET /v1/models
+POST /v1/chat/completions
+```
+
+From the host or WSL, test AES through the published port:
+
+```bash
+curl -s http://127.0.0.1:8002/v1/models | jq .
+```
+
+From inside the Open WebUI container, use the Docker service URL:
+
+```text
+http://langgraph:8001/v1
+```
+
+Open WebUI persists some settings in its database. If Open WebUI was started
+before the AES OpenAI-compatible environment variables were added, the new
+variables may not appear automatically in the UI. Configure the AES OpenAI
+connection in the Open WebUI admin settings or recreate the local Open WebUI
+data directory for a fresh dev setup.
+
 ## Ollama Model Manifests and Pull Automation
 
 Model recommendations are tracked in:

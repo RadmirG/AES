@@ -332,6 +332,54 @@ Open WebUI locally:
 http://127.0.0.1:3000
 ```
 
+If `aes-agent` is not visible in Open WebUI, first verify that AES exposes the
+model:
+
+```bash
+curl -s http://127.0.0.1:8002/v1/models | jq .
+```
+
+Expected result:
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "aes-agent",
+      "object": "model",
+      "created": 0,
+      "owned_by": "aes"
+    }
+  ]
+}
+```
+
+Open WebUI runs inside a container, so its OpenAI-compatible base URL for AES is
+the Docker-internal service URL:
+
+```text
+http://langgraph:8001/v1
+```
+
+Do not configure Open WebUI with `http://127.0.0.1:8002/v1` from inside the
+container. That address points back to the Open WebUI container itself, not the
+LangGraph container.
+
+The compose file sets these Open WebUI variables:
+
+```text
+ENABLE_OPENAI_API=True
+OPENAI_API_BASE_URL=http://langgraph:8001/v1
+OPENAI_API_KEY=aes-dev-no-auth
+DEFAULT_MODELS=aes-agent
+```
+
+Open WebUI persists some settings in its database after first startup. If you
+started Open WebUI before these variables existed and `aes-agent` still does not
+appear, configure the same OpenAI-compatible connection in the Open WebUI admin
+settings or recreate the local Open WebUI data directory.
+
 ## 11. Stop The Dev Stack
 
 Stop containers but keep volumes/data:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from typing import Any, Dict, List, Union
@@ -11,7 +12,13 @@ from pydantic import BaseModel
 
 from aes_agent.graph import graph
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+
 app = FastAPI(title="LangGraph Service")
+logger = logging.getLogger("aes_agent")
 
 AES_MODEL_ID = "aes-agent"
 
@@ -69,6 +76,8 @@ def run_aes_agent(user_text: str) -> Dict[str, Any]:
     """
     Internal helper that runs the LangGraph graph.
     """
+    started_at = time.perf_counter()
+    logger.info("AES graph invocation started.")
     initial_state = {
         "raw_user_input": user_text,
         "problem_class": "",
@@ -96,7 +105,15 @@ def run_aes_agent(user_text: str) -> Dict[str, Any]:
         "next_action": "",
     }
 
-    return graph.invoke(initial_state)
+    result = graph.invoke(initial_state)
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "AES graph invocation finished: status=%s next_action=%s elapsed_ms=%.1f",
+        result.get("agent_status", ""),
+        result.get("next_action", ""),
+        elapsed_ms,
+    )
+    return result
 
 
 def build_assistant_text(result: Dict[str, Any]) -> str:
@@ -175,16 +192,19 @@ def build_streaming_chunk(
 
 @app.get("/health")
 def health():
+    logger.info("Health check requested.")
     return {"status": "ok"}
 
 
 @app.post("/invoke")
 def invoke(query: Query):
+    logger.info("Direct /invoke request received.")
     return run_aes_agent(query.text)
 
 
 @app.get("/v1/models")
 def list_models():
+    logger.info("OpenAI-compatible model list requested.")
     return {
         "object": "list",
         "data": [
@@ -200,6 +220,11 @@ def list_models():
 
 @app.post("/v1/chat/completions")
 def chat_completions(request: ChatCompletionRequest):
+    logger.info(
+        "OpenAI-compatible chat completion requested: model=%s stream=%s",
+        request.model,
+        request.stream,
+    )
     user_text = extract_last_user_message(request.messages)
     if not user_text:
         raise HTTPException(
