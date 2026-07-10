@@ -4,6 +4,7 @@ from aes_agent.routing import (
     route_after_intent,
     route_after_completeness,
     route_after_numerical_recipe,
+    route_after_solution_mode,
     route_after_validation,
 )
 
@@ -43,6 +44,24 @@ class RoutingTests(unittest.TestCase):
             "clarify",
         )
         self.assertEqual(route_after_validation({}), "clarify")
+
+    def test_solution_mode_routes_to_requested_output_question(self):
+        self.assertEqual(
+            route_after_solution_mode({"solution_mode": "needs_output_intent"}),
+            "ask_output",
+        )
+
+    def test_solution_mode_routes_to_formulation_summary(self):
+        self.assertEqual(
+            route_after_solution_mode({"solution_mode": "formulation_summary"}),
+            "formulation_summary",
+        )
+
+    def test_solution_mode_routes_to_recipe_preparation(self):
+        self.assertEqual(
+            route_after_solution_mode({"solution_mode": "generate_fenics_code"}),
+            "prepare",
+        )
 
     def test_ready_numerical_recipe_routes_to_tools(self):
         self.assertEqual(

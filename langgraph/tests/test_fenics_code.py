@@ -6,6 +6,7 @@ from unittest.mock import patch
 sys.modules.setdefault("requests", types.ModuleType("requests"))
 
 from aes_agent.fenics_code import (
+    build_user_code_candidate,
     execute_fenics_code_solve,
     validate_python_code_safety,
 )
@@ -27,6 +28,22 @@ class FenicsCodeTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "unsafe")
         self.assertTrue(any("subprocess" in error for error in result["errors"]))
+
+    def test_user_code_candidate_extracts_fenced_python(self):
+        result = build_user_code_candidate(
+            {
+                "raw_user_input": (
+                    "Please run this:\n"
+                    "```python\n"
+                    "from dolfinx import fem\n"
+                    "print('ok')\n"
+                    "```"
+                )
+            }
+        )
+
+        self.assertTrue(result["python_code"].startswith("from dolfinx"))
+        self.assertEqual(result["warnings"], [])
 
     @patch(
         "aes_agent.fenics_code.ollama_json",
@@ -79,6 +96,53 @@ class FenicsCodeTests(unittest.TestCase):
 
         self.assertEqual(output["execution_mode"], "blocked")
         self.assertTrue(output["errors"])
+
+    def test_user_code_path_uses_user_code_without_llm(self):
+        output = execute_fenics_code_solve(
+            {
+                "raw_user_input": (
+                    "```python\n"
+                    "from dolfinx import fem\n"
+                    "import ufl\n"
+                    "print('ok')\n"
+                    "```"
+                ),
+                "solution_mode": "execute_user_fenics_code",
+                "numerical_recipe": {
+                    "provider": "local:fenics_code",
+                    "workflow": "llm_generated_dolfinx_script_v1",
+                    "execution_requested": True,
+                },
+            },
+            execute=False,
+        )
+
+        self.assertEqual(output["execution_mode"], "generated")
+        self.assertEqual(output["safety_status"], "safe")
+        self.assertIn("from dolfinx", output["generated_files"][0]["content"])
+
+    def test_unsafe_user_code_is_rejected_before_artifact_materialization(self):
+        output = execute_fenics_code_solve(
+            {
+                "raw_user_input": (
+                    "```python\n"
+                    "import subprocess\n"
+                    "subprocess.run(['echo', 'bad'])\n"
+                    "```"
+                ),
+                "solution_mode": "execute_user_fenics_code",
+                "numerical_recipe": {
+                    "provider": "local:fenics_code",
+                    "workflow": "llm_generated_dolfinx_script_v1",
+                    "execution_requested": True,
+                },
+            },
+            execute=True,
+        )
+
+        self.assertEqual(output["execution_mode"], "failed")
+        self.assertEqual(output["safety_status"], "unsafe")
+        self.assertEqual(output["generated_files"], [])
 
 
 if __name__ == "__main__":

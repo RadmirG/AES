@@ -141,6 +141,18 @@ class RequestIntentNodeTests(unittest.TestCase):
 
 
 class ToolNodeTests(unittest.TestCase):
+    def test_solution_mode_asks_for_output_for_pde_text_only(self):
+        result = nodes.select_solution_mode(
+            {
+                "raw_user_input": (
+                    "Consider the stationary heat equation -div(a grad u)=f "
+                    "on a 2D rectangle in R^2 with Dirichlet boundary conditions."
+                )
+            }
+        )
+
+        self.assertEqual(result["solution_mode"], "needs_output_intent")
+
     def test_solution_mode_prefers_generated_code_for_python_file_request(self):
         result = nodes.select_solution_mode(
             {
@@ -164,6 +176,32 @@ class ToolNodeTests(unittest.TestCase):
         )
 
         self.assertEqual(result["solution_mode"], "execute_generated_fenics_code")
+
+    def test_solution_mode_detects_user_provided_python_code(self):
+        result = nodes.select_solution_mode(
+            {
+                "raw_user_input": (
+                    "```python\n"
+                    "from dolfinx import fem\n"
+                    "import ufl\n"
+                    "print('candidate solve')\n"
+                    "```"
+                )
+            }
+        )
+
+        self.assertEqual(result["solution_mode"], "execute_user_fenics_code")
+
+    def test_output_intent_clarification_question_is_deterministic(self):
+        result = nodes.generate_clarification(
+            {
+                "solution_mode": "needs_output_intent",
+            }
+        )
+
+        self.assertEqual(result["agent_status"], "needs_clarification")
+        self.assertEqual(result["next_action"], "select_requested_output")
+        self.assertIn("formulation summary", result["generated_artifact"])
 
     @patch.object(
         nodes,
@@ -248,6 +286,11 @@ class ToolNodeTests(unittest.TestCase):
         )
 
         self.assertEqual(result["selected_tools"], ["fenics_code_solve", "artifact_store"])
+
+    def test_terminal_paths_select_only_artifact_store(self):
+        result = nodes.select_artifact_store({"agent_status": "needs_clarification"})
+
+        self.assertEqual(result["selected_tools"], ["artifact_store"])
 
     def test_tool_execution_reports_completed_results(self):
         result = nodes.execute_tools(
@@ -551,6 +594,27 @@ class NumericalRecipeNodeTests(unittest.TestCase):
         self.assertEqual(
             result["numerical_recipe"]["workflow"],
             "llm_generated_dolfinx_script_v1",
+        )
+
+    def test_user_code_mode_prepares_code_recipe(self):
+        result = nodes.prepare_numerical_recipe(
+            {
+                "raw_user_input": "from dolfinx import fem\n",
+                "solution_mode": "execute_user_fenics_code",
+                "problem_class": "forward_problem",
+                "pde_info": "stationary_diffusion_equation",
+                "domain_info": "unit_square",
+                "coefficient_info": "1.0",
+                "source_info": "1.0",
+                "bc_info": "dirichlet_boundary_condition",
+                "selected_formulation": "fem_problem_setup",
+            }
+        )
+
+        self.assertEqual(result["numerical_recipe_status"], "ready")
+        self.assertEqual(
+            result["numerical_recipe"]["target"]["code_origin"],
+            "user",
         )
 
     def test_heat_recipe_requires_initial_condition(self):

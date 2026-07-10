@@ -22,6 +22,25 @@ class ArtifactStoreTests(unittest.TestCase):
         self.assertEqual(manifest["artifacts"], [])
         self.assertTrue(manifest["errors"])
 
+    def test_manifest_records_terminal_workflow_message(self):
+        manifest = build_artifact_manifest(
+            {
+                "raw_user_input": "Consider -div(a grad u)=f.",
+                "solution_mode": "needs_output_intent",
+                "agent_status": "needs_clarification",
+                "next_action": "select_requested_output",
+                "generated_artifact": "Please choose formulation, code, or execution.",
+                "tool_results": [],
+            }
+        )
+
+        self.assertEqual(manifest["status"], "stored")
+        self.assertEqual(
+            manifest["workflow_message"],
+            "Please choose formulation, code, or execution.",
+        )
+        self.assertEqual(manifest["agent"]["solution_mode"], "needs_output_intent")
+
     def test_persist_artifacts_writes_manifest_and_summary(self):
         with patch.dict(
             os.environ,

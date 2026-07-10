@@ -221,6 +221,24 @@ def check_problem_completeness(state: AgentState) -> Dict[str, Any]:
 
 
 def generate_clarification(state: AgentState) -> Dict[str, Any]:
+    if state.get("solution_mode") == "needs_output_intent":
+        questions = [
+            (
+                "What output do you want from AES: a formulation summary, a "
+                "generated DOLFINx/FEniCS Python file, or execution with "
+                "stored result artifacts?"
+            )
+        ]
+        return {
+            "clarification_questions": questions,
+            "generated_artifact": _render_clarification_artifact(
+                "The PDE problem is specified, but the requested output is not.",
+                questions,
+            ),
+            "agent_status": "needs_clarification",
+            "next_action": "select_requested_output",
+        }
+
     snapshot = {
         "raw_user_input": state.get("raw_user_input", ""),
         "problem_class": state.get("problem_class", ""),
@@ -243,12 +261,14 @@ def generate_clarification(state: AgentState) -> Dict[str, Any]:
         or state.get("numerical_recipe_errors", [])
     )
     if unresolved_issues:
+        questions = [
+            f"Please clarify: {issue}" for issue in unresolved_issues
+        ]
         return {
-            "clarification_questions": [
-                f"Please clarify: {issue}" for issue in unresolved_issues
-            ],
-            "generated_artifact": (
-                "Additional information is required before the workflow can continue."
+            "clarification_questions": questions,
+            "generated_artifact": _render_clarification_artifact(
+                "Additional information is required before the workflow can continue.",
+                questions,
             ),
             "agent_status": "needs_clarification",
             "next_action": "request_clarification",
@@ -265,7 +285,10 @@ def generate_clarification(state: AgentState) -> Dict[str, Any]:
         "clarification_questions": clarification_questions,
         "generated_artifact": safe_str(
             result.get("generated_artifact"),
-            "Additional information is required before the workflow can continue.",
+            _render_clarification_artifact(
+                "Additional information is required before the workflow can continue.",
+                clarification_questions,
+            ),
         ),
         "agent_status": "needs_clarification",
         "next_action": "request_clarification",
@@ -357,7 +380,9 @@ def select_solution_mode(state: AgentState) -> Dict[str, Any]:
         return {"solution_mode": configured}
 
     user_text = state.get("raw_user_input", "")
-    lowered = _lower_text(user_text)
+
+    if _looks_like_user_python_code(user_text):
+        return {"solution_mode": "execute_user_fenics_code"}
 
     code_markers = [
         "python file",
@@ -370,10 +395,22 @@ def select_solution_mode(state: AgentState) -> Dict[str, Any]:
         "as code",
         "solve.py",
     ]
+    formulation_markers = [
+        "formulation summary",
+        "formulate",
+        "derive the weak form",
+        "derive weak form",
+        "weak form only",
+        "mathematical formulation",
+        "fem formulation",
+        "explain the formulation",
+    ]
     execution_markers = [
+        "solve",
         "execute",
         "run it",
         "run the",
+        "compute",
         "compute result",
         "generate result",
         "plot",
@@ -383,23 +420,62 @@ def select_solution_mode(state: AgentState) -> Dict[str, Any]:
 
     if _has_any(user_text, code_markers):
         mode = "generate_fenics_code"
+    elif _has_any(user_text, formulation_markers):
+        mode = "formulation_summary"
     elif _has_any(user_text, execution_markers):
         mode = "execute_generated_fenics_code"
     else:
-        mode = "generate_fenics_code"
+        mode = "needs_output_intent"
 
     return {"solution_mode": mode}
+
+
+def generate_formulation_summary(state: AgentState) -> Dict[str, Any]:
+    lines = [
+        "AES formulation summary",
+        "",
+        "Problem interpretation:",
+        f"- Class: {_artifact_value(state.get('problem_class'))}",
+        f"- PDE: {_artifact_value(state.get('pde_info'))}",
+        f"- Domain: {_artifact_value(state.get('domain_info'))}",
+        f"- Coefficients: {_artifact_value(state.get('coefficient_info'))}",
+        f"- Source: {_artifact_value(state.get('source_info'))}",
+        f"- Boundary conditions: {_artifact_value(state.get('bc_info'))}",
+        f"- Initial condition: {_artifact_value(state.get('initial_condition_info'))}",
+        f"- Time: {_artifact_value(state.get('time_info'))}",
+        "",
+        "Next available AES actions:",
+        "- Generate a DOLFINx/FEniCS `solve.py` file.",
+        "- Execute a generated or user-provided FEniCS script inside the provider container.",
+        "- Use the deterministic MCP recipe path for known simple smoke-test workflows.",
+    ]
+    return {
+        "solution_mode": "formulation_summary",
+        "generated_artifact": "\n".join(lines),
+        "agent_status": "ok",
+        "next_action": "review_formulation_summary",
+    }
 
 
 def prepare_numerical_recipe(state: AgentState) -> Dict[str, Any]:
     if state.get("solution_mode") in {
         "generate_fenics_code",
         "execute_generated_fenics_code",
+        "execute_user_fenics_code",
     }:
         return {
             "numerical_recipe_status": "ready",
             "numerical_recipe": build_fenics_code_recipe(state),
             "numerical_recipe_errors": [],
+        }
+
+    if state.get("solution_mode") == "needs_output_intent":
+        return {
+            "numerical_recipe_status": "needs_output_intent",
+            "numerical_recipe": {},
+            "numerical_recipe_errors": [
+                "The requested output is not specified."
+            ],
         }
 
     recipe_result = build_fenics_recipe(state)
@@ -435,6 +511,7 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
             state.get("solution_mode") in {
                 "generate_fenics_code",
                 "execute_generated_fenics_code",
+                "execute_user_fenics_code",
             }
             or (state.get("numerical_recipe") or {}).get("provider") == "local:fenics_code"
         )
@@ -483,6 +560,13 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
 
     return {
         "selected_tools": selected_tools
+    }
+
+
+def select_artifact_store(state: AgentState) -> Dict[str, Any]:
+    available_tools = list_available_tools()
+    return {
+        "selected_tools": ["artifact_store"] if "artifact_store" in available_tools else []
     }
 
 
@@ -541,16 +625,36 @@ def generate_artifact(state: AgentState) -> Dict[str, Any]:
     if state.get("tool_execution_status") == "failed":
         agent_status = "tool_error"
         next_action = "review_tool_errors"
+    elif state.get("agent_status") in {
+        "needs_clarification",
+        "not_applicable",
+    }:
+        agent_status = state.get("agent_status", "")
+        next_action = state.get("next_action", "")
     else:
         agent_status = "ok"
-        next_action = "review_tool_results"
+        next_action = state.get("next_action") or "review_tool_results"
 
-    return {
-        "generated_artifact": _build_generated_artifact(
+    if (
+        state.get("generated_artifact")
+        and (
+            agent_status in {"needs_clarification", "not_applicable"}
+            or state.get("solution_mode") == "formulation_summary"
+        )
+    ):
+        generated_artifact = _append_terminal_artifact_summary(
+            state.get("generated_artifact", ""),
+            state.get("tool_results", []),
+        )
+    else:
+        generated_artifact = _build_generated_artifact(
             snapshot,
             agent_status,
             next_action,
-        ),
+        )
+
+    return {
+        "generated_artifact": generated_artifact,
         "agent_status": agent_status,
         "next_action": next_action,
     }
@@ -748,6 +852,17 @@ def _append_tool_result_section(
             lines.append(f"  MCP result count: {len(results)}")
 
 
+def _append_terminal_artifact_summary(
+    base_artifact: str,
+    tool_results: list[dict[str, Any]],
+) -> str:
+    lines = [base_artifact.strip()]
+    if tool_results:
+        lines.extend(["", "Artifact storage:"])
+        _append_tool_result_section(lines, tool_results)
+    return "\n".join(lines).strip()
+
+
 def _append_issue_section(
     lines: list[str],
     title: str,
@@ -762,6 +877,21 @@ def _append_issue_section(
         lines.append(f"- {_artifact_value(issue, limit=320)}")
     if len(values) > 10:
         lines.append(f"- ... {len(values) - 10} more")
+
+
+def _render_clarification_artifact(
+    intro: str,
+    questions: list[str],
+) -> str:
+    lines = [
+        "AES clarification required",
+        "",
+        intro,
+        "",
+        "Clarification questions:",
+    ]
+    lines.extend(f"- {question}" for question in questions)
+    return "\n".join(lines).strip()
 
 
 def _mesh_resolution(domain: dict[str, Any]) -> str:
@@ -847,11 +977,38 @@ def _has_any(text: str, needles: list[str]) -> bool:
     return any(needle in lowered for needle in needles)
 
 
+def _looks_like_user_python_code(user_text: str) -> bool:
+    stripped = user_text.strip()
+    lowered = stripped.lower()
+    if not stripped:
+        return False
+    if "```python" in lowered:
+        return True
+    code_markers = [
+        "from dolfinx",
+        "import dolfinx",
+        "import fenics",
+        "from fenics",
+        "import ufl",
+        "from mpi4py",
+        "from petsc4py",
+        "def main(",
+        "if __name__",
+    ]
+    return (
+        "\n" in stripped
+        and any(marker in lowered for marker in code_markers)
+    )
+
+
 def _configured_solution_mode() -> str:
     configured = os.getenv("AES_SOLUTION_MODE", "").strip()
     allowed = {
         "generate_fenics_code",
         "execute_generated_fenics_code",
+        "execute_user_fenics_code",
+        "formulation_summary",
+        "needs_output_intent",
         "deterministic_mcp_recipe",
     }
     return configured if configured in allowed else ""

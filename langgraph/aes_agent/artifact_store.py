@@ -101,6 +101,12 @@ def build_artifact_manifest(state: AgentState) -> Dict[str, Any]:
             "boundary_conditions": state.get("bc_info", ""),
             "time": state.get("time_info", ""),
         },
+        "agent": {
+            "status": state.get("agent_status", ""),
+            "next_action": state.get("next_action", ""),
+            "solution_mode": state.get("solution_mode", ""),
+        },
+        "workflow_message": state.get("generated_artifact", ""),
         "sources": _summarize_tool_results(tool_results),
         "artifacts": artifacts,
         "errors": errors,
@@ -311,6 +317,8 @@ def _build_run_id(state: AgentState) -> str:
 
     seed = {
         "raw_user_input": state.get("raw_user_input", ""),
+        "solution_mode": state.get("solution_mode", ""),
+        "generated_artifact": state.get("generated_artifact", ""),
         "numerical_recipe": state.get("numerical_recipe", {}),
     }
     digest = hashlib.sha256(
@@ -334,6 +342,10 @@ def _render_summary(manifest: Dict[str, Any]) -> str:
         "",
         "## Artifacts",
     ]
+
+    message = str(manifest.get("workflow_message", "")).strip()
+    if message:
+        lines.extend(["", "## Workflow Message", message])
 
     artifacts = manifest.get("artifacts") or []
     if artifacts:

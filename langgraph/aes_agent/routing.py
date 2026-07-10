@@ -27,6 +27,16 @@ def route_after_validation(
     return "clarify"
 
 
+def route_after_solution_mode(
+    state: AgentState,
+) -> Literal["ask_output", "formulation_summary", "prepare"]:
+    if state.get("solution_mode") == "needs_output_intent":
+        return "ask_output"
+    if state.get("solution_mode") == "formulation_summary":
+        return "formulation_summary"
+    return "prepare"
+
+
 def route_after_numerical_recipe(
     state: AgentState,
 ) -> Literal["clarify", "tools"]:

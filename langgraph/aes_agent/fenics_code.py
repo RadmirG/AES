@@ -17,6 +17,7 @@ FENICS_CODE_WORKFLOW = "llm_generated_dolfinx_script_v1"
 DEFAULT_SCRIPT_NAME = "solve.py"
 
 ALLOWED_IMPORT_ROOTS = {
+    "__future__",
     "dolfinx",
     "ufl",
     "mpi4py",
@@ -105,11 +106,19 @@ def build_fenics_code_recipe(state: AgentState) -> Dict[str, Any]:
         "workflow": FENICS_CODE_WORKFLOW,
         "problem_type": state.get("pde_info", ""),
         "solution_mode": state.get("solution_mode", "generate_fenics_code"),
-        "execution_requested": state.get("solution_mode") == "execute_generated_fenics_code",
+        "execution_requested": state.get("solution_mode") in {
+            "execute_generated_fenics_code",
+            "execute_user_fenics_code",
+        },
         "target": {
             "language": "python",
             "framework": "dolfinx",
             "entrypoint": DEFAULT_SCRIPT_NAME,
+            "code_origin": (
+                "user"
+                if state.get("solution_mode") == "execute_user_fenics_code"
+                else "llm"
+            ),
         },
         "problem": {
             "class": state.get("problem_class", ""),
@@ -142,7 +151,10 @@ def execute_fenics_code_solve(
     execute: bool | None = None,
 ) -> Dict[str, Any]:
     recipe = state.get("numerical_recipe") or build_fenics_code_recipe(state)
-    generation = generate_dolfinx_script(state, recipe)
+    if state.get("solution_mode") == "execute_user_fenics_code":
+        generation = build_user_code_candidate(state)
+    else:
+        generation = generate_dolfinx_script(state, recipe)
     code = generation["python_code"]
     safety = validate_python_code_safety(code)
 
@@ -165,6 +177,12 @@ def execute_fenics_code_solve(
     ) and execution_requested
 
     if not should_execute:
+        warnings = list(generation["warnings"])
+        if execution_requested:
+            warnings.append(
+                "Execution was requested, but DOLFINX_CODE_EXECUTE is not enabled; "
+                "AES generated/stored the checked solve.py without running it."
+            )
         return _build_output(
             recipe=recipe,
             generation=generation,
@@ -172,7 +190,7 @@ def execute_fenics_code_solve(
             execution_mode="generated",
             status="generated",
             errors=[],
-            warnings=generation["warnings"],
+            warnings=warnings,
         )
 
     if client is None:
@@ -252,9 +270,26 @@ def generate_dolfinx_script(
     }
 
 
+def build_user_code_candidate(state: AgentState) -> Dict[str, Any]:
+    code = _extract_user_python_code(state.get("raw_user_input", ""))
+    return {
+        "summary": "Using user-provided Python code as candidate solve.py.",
+        "python_code": code,
+        "expected_artifacts": ["solve.py", "diagnostics.json", "solution.xdmf", "solution.png"],
+        "warnings": [] if code else ["No Python code block or FEniCS-like Python code was detected."],
+    }
+
+
 def validate_python_code_safety(code: str) -> Dict[str, Any]:
     errors: List[str] = []
     warnings: List[str] = []
+
+    if not code.strip():
+        return {
+            "status": "unsafe",
+            "errors": ["Python code is empty."],
+            "warnings": [],
+        }
 
     try:
         tree = ast.parse(code)
@@ -318,6 +353,18 @@ def _extract_code(value: str) -> str:
         stripped = re.sub(r"^```(?:python)?\s*", "", stripped, flags=re.IGNORECASE)
         stripped = re.sub(r"\s*```$", "", stripped)
     return stripped.strip()
+
+
+def _extract_user_python_code(value: str) -> str:
+    stripped = value.strip()
+    fenced = re.search(
+        r"```(?:python|py)?\s*(.*?)```",
+        stripped,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if fenced:
+        return fenced.group(1).strip()
+    return stripped
 
 
 def _fallback_dolfinx_script(state: AgentState) -> str:
