@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 import re
 from typing import Any, Dict
 
-from aes_agent.helpers import ollama_json, safe_list_of_str, safe_str
+from aes_agent.fenics_code import build_fenics_code_recipe
 from aes_agent.fenics_mcp import build_fenics_recipe
+from aes_agent.helpers import ollama_json, safe_list_of_str, safe_str
 from aes_agent.prompts import (
     check_problem_completeness_prompt,
     classify_problem_prompt,
@@ -349,7 +351,57 @@ def validate_formulation(state: AgentState) -> Dict[str, Any]:
     }
 
 
+def select_solution_mode(state: AgentState) -> Dict[str, Any]:
+    configured = _configured_solution_mode()
+    if configured:
+        return {"solution_mode": configured}
+
+    user_text = state.get("raw_user_input", "")
+    lowered = _lower_text(user_text)
+
+    code_markers = [
+        "python file",
+        "python script",
+        "fenics file",
+        "fenics executable",
+        "executable python",
+        "source code",
+        "code only",
+        "as code",
+        "solve.py",
+    ]
+    execution_markers = [
+        "execute",
+        "run it",
+        "run the",
+        "compute result",
+        "generate result",
+        "plot",
+        "xdmf",
+        "simulation result",
+    ]
+
+    if _has_any(user_text, code_markers):
+        mode = "generate_fenics_code"
+    elif _has_any(user_text, execution_markers):
+        mode = "execute_generated_fenics_code"
+    else:
+        mode = "generate_fenics_code"
+
+    return {"solution_mode": mode}
+
+
 def prepare_numerical_recipe(state: AgentState) -> Dict[str, Any]:
+    if state.get("solution_mode") in {
+        "generate_fenics_code",
+        "execute_generated_fenics_code",
+    }:
+        return {
+            "numerical_recipe_status": "ready",
+            "numerical_recipe": build_fenics_code_recipe(state),
+            "numerical_recipe_errors": [],
+        }
+
     recipe_result = build_fenics_recipe(state)
 
     return {
@@ -371,11 +423,30 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
         "time_info": state.get("time_info", ""),
         "missing_information": state.get("missing_information", []),
         "selected_formulation": state.get("selected_formulation", ""),
+        "solution_mode": state.get("solution_mode", ""),
         "numerical_recipe_status": state.get("numerical_recipe_status", ""),
         "numerical_recipe": state.get("numerical_recipe", {}),
     }
 
     available_tools = list_available_tools()
+    if (
+        state.get("numerical_recipe_status") == "ready"
+        and (
+            state.get("solution_mode") in {
+                "generate_fenics_code",
+                "execute_generated_fenics_code",
+            }
+            or (state.get("numerical_recipe") or {}).get("provider") == "local:fenics_code"
+        )
+        and "fenics_code_solve" in available_tools
+    ):
+        selected_tools = ["fenics_code_solve"]
+        if "artifact_store" in available_tools:
+            selected_tools.append("artifact_store")
+        return {
+            "selected_tools": selected_tools
+        }
+
     if (
         state.get("numerical_recipe_status") == "ready"
         and "fenics_forward_solve" in available_tools
@@ -455,6 +526,7 @@ def generate_artifact(state: AgentState) -> Dict[str, Any]:
         "time_info": state.get("time_info", ""),
         "missing_information": state.get("missing_information", []),
         "selected_formulation": state.get("selected_formulation", ""),
+        "solution_mode": state.get("solution_mode", ""),
         "validation_status": state.get("validation_status", ""),
         "validation_errors": state.get("validation_errors", []),
         "numerical_recipe_status": state.get("numerical_recipe_status", ""),
@@ -507,6 +579,7 @@ def _build_generated_artifact(
         "",
         "Formulation and validation:",
         f"- Selected formulation: {_artifact_value(snapshot.get('selected_formulation'))}",
+        f"- Solution mode: {_artifact_value(snapshot.get('solution_mode'))}",
         f"- Validation status: {_artifact_value(snapshot.get('validation_status'))}",
         f"- Numerical recipe status: {_artifact_value(snapshot.get('numerical_recipe_status'))}",
     ]
@@ -597,6 +670,16 @@ def _append_tool_result_section(
         execution_mode = output.get("execution_mode")
         if execution_mode:
             lines.append(f"  Execution mode: {_artifact_value(execution_mode)}")
+
+        generated_file_names = output.get("generated_file_names") or []
+        if generated_file_names:
+            lines.append(
+                f"  Generated files: {_artifact_list(generated_file_names, limit=320)}"
+            )
+
+        safety_status = output.get("safety_status")
+        if safety_status:
+            lines.append(f"  Safety status: {_artifact_value(safety_status)}")
 
         endpoint = output.get("mcp_endpoint")
         if endpoint:
@@ -762,6 +845,16 @@ def _lower_text(value: str) -> str:
 def _has_any(text: str, needles: list[str]) -> bool:
     lowered = _lower_text(text)
     return any(needle in lowered for needle in needles)
+
+
+def _configured_solution_mode() -> str:
+    configured = os.getenv("AES_SOLUTION_MODE", "").strip()
+    allowed = {
+        "generate_fenics_code",
+        "execute_generated_fenics_code",
+        "deterministic_mcp_recipe",
+    }
+    return configured if configured in allowed else ""
 
 
 def _detect_request_intent_from_text(user_text: str) -> dict[str, str]:

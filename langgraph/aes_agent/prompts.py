@@ -255,6 +255,41 @@ Rules:
 """
 
 
+def generate_fenics_dolfinx_code_prompt(snapshot: Dict[str, Any]) -> str:
+    return f"""
+You are a senior numerical software engineer inside AES.
+
+Task:
+Generate one executable Python script for DOLFINx/FEniCSx that implements the
+PDE problem described by the current AES state.
+
+Current AES state:
+{json.dumps(snapshot, indent=2)}
+
+Return ONLY a valid JSON object with exactly these keys:
+{{
+  "summary": "...",
+  "python_code": "...",
+  "expected_artifacts": ["solution.xdmf", "diagnostics.json"]
+}}
+
+Code requirements:
+- Use DOLFINx/FEniCSx, not legacy dolfin/fenics.
+- The script must be self-contained and runnable as `python solve.py` inside a
+  DOLFINx container.
+- Prefer imports from: dolfinx, ufl, mpi4py, petsc4py, numpy, matplotlib,
+  pathlib, json, math.
+- Do not use network access, shell commands, subprocesses, dynamic imports,
+  eval, exec, input, or absolute output paths.
+- Write outputs into the current working directory only.
+- Use clear variable names and comments where useful.
+- Include basic diagnostics printed to stdout and, if practical, write
+  diagnostics.json.
+- If plotting is included, save a PNG file instead of opening a GUI window.
+- Keep the code robust for headless container execution.
+"""
+
+
 def generate_artifact_prompt(snapshot: Dict[str, Any]) -> str:
     return f"""
 You are an orchestration node in an agentic engineering system.

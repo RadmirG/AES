@@ -41,6 +41,23 @@ class ArtifactStoreTests(unittest.TestCase):
             mkdir.assert_called_once()
             self.assertEqual(write_text.call_count, 2)
 
+    def test_persist_artifacts_materializes_generated_code_file(self):
+        with patch.dict(
+            os.environ,
+            {
+                "AES_ARTIFACT_ROOT": "test-artifacts",
+                "AES_ARTIFACT_RUN_ID": "code-run",
+            },
+        ):
+            with patch("aes_agent.artifact_store._ensure_directory"):
+                with patch("aes_agent.artifact_store._write_text") as write_text:
+                    output = persist_artifacts(_state_with_generated_code_result())
+
+        self.assertEqual(output["execution_mode"], "stored")
+        self.assertEqual(write_text.call_count, 3)
+        written_paths = [str(call.args[0]) for call in write_text.call_args_list]
+        self.assertTrue(any(path.endswith("solve.py") for path in written_paths))
+
 
 def _state_with_fenics_result():
     return {
@@ -133,6 +150,61 @@ def _state_with_failed_fenics_result():
                     }
                 },
                 "error": "set_material_properties failed",
+            }
+        ],
+    }
+
+
+def _state_with_generated_code_result():
+    return {
+        "raw_user_input": "Give me a FEniCS executable Python file.",
+        "problem_class": "forward_problem",
+        "pde_info": "stationary_diffusion_equation",
+        "domain_info": "unit_square",
+        "source_info": "1",
+        "bc_info": "dirichlet_boundary_condition",
+        "tool_results": [
+            {
+                "tool_name": "fenics_code_solve",
+                "provider": "local:fenics_code",
+                "status": "completed",
+                "output": {
+                    "generated_files": [
+                        {
+                            "name": "solve.py",
+                            "kind": "source_code",
+                            "media_type": "text/x-python",
+                            "content": "print('ok')\n",
+                        }
+                    ],
+                    "fenics_result": {
+                        "schema_version": "1.0",
+                        "provider": "local:fenics_code",
+                        "status": "generated",
+                        "execution_mode": "generated",
+                        "workflow": "llm_generated_dolfinx_script_v1",
+                        "problem_type": "stationary_diffusion_equation",
+                        "artifacts": [
+                            {
+                                "name": "solve.py",
+                                "kind": "source_code",
+                                "status": "available",
+                                "uri": "inline://fenics-code/solve.py",
+                                "storage": "inline",
+                                "media_type": "text/x-python",
+                                "producer": {
+                                    "provider": "local:fenics_code",
+                                    "tool_name": "fenics_code_solve",
+                                },
+                                "metadata": {},
+                            }
+                        ],
+                        "requested_artifacts": [],
+                        "errors": [],
+                        "warnings": [],
+                    },
+                },
+                "error": "",
             }
         ],
     }

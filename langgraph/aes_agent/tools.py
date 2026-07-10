@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, TypedDict
 
 from aes_agent.artifact_store import persist_artifacts
+from aes_agent.fenics_code import execute_fenics_code_solve
 from aes_agent.fenics_mcp import execute_fenics_forward_solve
 from aes_agent.state import AgentState
 
@@ -83,6 +84,10 @@ def run_fenics_forward_solve(state: AgentState) -> Dict[str, Any]:
     return execute_fenics_forward_solve(state)
 
 
+def run_fenics_code_solve(state: AgentState) -> Dict[str, Any]:
+    return execute_fenics_code_solve(state)
+
+
 def store_artifacts(state: AgentState) -> Dict[str, Any]:
     return persist_artifacts(state)
 
@@ -108,6 +113,21 @@ ARTIFACT_STORE_SCHEMA: Dict[str, Any] = {
     ),
     "required_state": [
         "tool_results",
+    ],
+}
+
+
+FENICS_CODE_SOLVE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "Generates a DOLFINx/FEniCSx Python script from the validated AES "
+        "problem state, statically checks it, and optionally executes it through "
+        "a provider-side MCP script runner when that contract is available."
+    ),
+    "required_state": [
+        "solution_mode",
+        "numerical_recipe_status",
+        "numerical_recipe",
     ],
 }
 
@@ -141,6 +161,17 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
         provider="mcp:dolfinx",
         handler=run_fenics_forward_solve,
         input_schema=FENICS_FORWARD_SOLVE_SCHEMA,
+    ),
+    "fenics_code_solve": ToolDefinition(
+        name="fenics_code_solve",
+        description=(
+            "Generate a complete DOLFINx Python solver script for flexible PDE "
+            "workflows, run a static safety check, and store the generated code. "
+            "Live execution requires a FEniCS MCP script-runner tool."
+        ),
+        provider="local:fenics_code",
+        handler=run_fenics_code_solve,
+        input_schema=FENICS_CODE_SOLVE_SCHEMA,
     ),
     "artifact_store": ToolDefinition(
         name="artifact_store",

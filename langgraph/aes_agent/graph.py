@@ -12,6 +12,7 @@ from aes_agent.nodes import (
     ingest_problem,
     prepare_numerical_recipe,
     select_formulation,
+    select_solution_mode,
     select_tools,
     validate_formulation,
 )
@@ -35,6 +36,7 @@ builder.add_node("check_problem_completeness", check_problem_completeness)
 builder.add_node("generate_clarification", generate_clarification)
 builder.add_node("select_formulation", select_formulation)
 builder.add_node("validate_formulation", validate_formulation)
+builder.add_node("select_solution_mode", select_solution_mode)
 builder.add_node("prepare_numerical_recipe", prepare_numerical_recipe)
 builder.add_node("select_tools", select_tools)
 builder.add_node("execute_tools", execute_tools)
@@ -66,10 +68,11 @@ builder.add_conditional_edges(
     "validate_formulation",
     route_after_validation,
     {
-        "tools": "prepare_numerical_recipe",
+        "tools": "select_solution_mode",
         "clarify": "generate_clarification",
     },
 )
+builder.add_edge("select_solution_mode", "prepare_numerical_recipe")
 builder.add_conditional_edges(
     "prepare_numerical_recipe",
     route_after_numerical_recipe,

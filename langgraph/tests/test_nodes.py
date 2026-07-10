@@ -141,6 +141,30 @@ class RequestIntentNodeTests(unittest.TestCase):
 
 
 class ToolNodeTests(unittest.TestCase):
+    def test_solution_mode_prefers_generated_code_for_python_file_request(self):
+        result = nodes.select_solution_mode(
+            {
+                "raw_user_input": (
+                    "Solve the transient heat equation. As a solution I need "
+                    "a FEniCS executable python file."
+                )
+            }
+        )
+
+        self.assertEqual(result["solution_mode"], "generate_fenics_code")
+
+    def test_solution_mode_selects_execution_for_result_request(self):
+        result = nodes.select_solution_mode(
+            {
+                "raw_user_input": (
+                    "Solve the heat equation and execute it to generate result "
+                    "files and a plot."
+                )
+            }
+        )
+
+        self.assertEqual(result["solution_mode"], "execute_generated_fenics_code")
+
     @patch.object(
         nodes,
         "ollama_json",
@@ -206,6 +230,24 @@ class ToolNodeTests(unittest.TestCase):
             result["selected_tools"],
             ["fenics_forward_solve", "artifact_store"],
         )
+
+    @patch(
+        "aes_agent.nodes.ollama_json",
+        side_effect=AssertionError("ready generated-code recipe must not call Ollama for tool selection"),
+    )
+    def test_ready_code_recipe_selects_fenics_code_tool(self, _ollama_json):
+        result = nodes.select_tools(
+            {
+                "solution_mode": "generate_fenics_code",
+                "selected_formulation": "fem_problem_setup",
+                "numerical_recipe_status": "ready",
+                "numerical_recipe": {
+                    "provider": "local:fenics_code",
+                },
+            }
+        )
+
+        self.assertEqual(result["selected_tools"], ["fenics_code_solve", "artifact_store"])
 
     def test_tool_execution_reports_completed_results(self):
         result = nodes.execute_tools(
@@ -489,6 +531,28 @@ class ExtractionFallbackTests(unittest.TestCase):
 
 
 class NumericalRecipeNodeTests(unittest.TestCase):
+    def test_generated_code_mode_prepares_code_recipe(self):
+        result = nodes.prepare_numerical_recipe(
+            {
+                "raw_user_input": "Solve Poisson and give me a FEniCS Python file.",
+                "solution_mode": "generate_fenics_code",
+                "problem_class": "forward_problem",
+                "pde_info": "stationary_diffusion_equation",
+                "domain_info": "unit_square",
+                "coefficient_info": "1.0",
+                "source_info": "1.0",
+                "bc_info": "dirichlet_boundary_condition",
+                "selected_formulation": "fem_problem_setup",
+            }
+        )
+
+        self.assertEqual(result["numerical_recipe_status"], "ready")
+        self.assertEqual(result["numerical_recipe"]["provider"], "local:fenics_code")
+        self.assertEqual(
+            result["numerical_recipe"]["workflow"],
+            "llm_generated_dolfinx_script_v1",
+        )
+
     def test_heat_recipe_requires_initial_condition(self):
         result = nodes.prepare_numerical_recipe(
             {

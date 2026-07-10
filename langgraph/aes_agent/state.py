@@ -3,6 +3,7 @@ from typing import Any, Dict, List, TypedDict
 
 class AgentState(TypedDict):
     raw_user_input: str
+    solution_mode: str
     request_intent: str
     intent_reason: str
     problem_class: str

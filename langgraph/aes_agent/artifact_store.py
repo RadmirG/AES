@@ -24,6 +24,12 @@ def persist_artifacts(state: AgentState) -> Dict[str, Any]:
 
     try:
         _ensure_directory(run_dir)
+        materialized_artifacts = _materialize_inline_artifacts(
+            state.get("tool_results", []),
+            run_dir,
+            manifest["run_id"],
+        )
+        manifest["artifacts"].extend(materialized_artifacts)
         _write_text(
             manifest_path,
             json.dumps(manifest, indent=2, sort_keys=True),
@@ -72,7 +78,7 @@ def build_artifact_manifest(state: AgentState) -> Dict[str, Any]:
         for result in state.get("tool_results", [])
         if isinstance(result, dict)
     ]
-    fenics_output = _latest_tool_output(tool_results, "fenics_forward_solve")
+    fenics_output = _latest_fenics_tool_output(tool_results)
     fenics_result = (
         fenics_output.get("fenics_result", {})
         if isinstance(fenics_output, dict)
@@ -102,6 +108,14 @@ def build_artifact_manifest(state: AgentState) -> Dict[str, Any]:
     }
 
 
+def _latest_fenics_tool_output(tool_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    for tool_name in ("fenics_code_solve", "fenics_forward_solve"):
+        output = _latest_tool_output(tool_results, tool_name)
+        if output:
+            return output
+    return {}
+
+
 def _latest_tool_output(
     tool_results: List[Dict[str, Any]],
     tool_name: str,
@@ -112,6 +126,61 @@ def _latest_tool_output(
         output = result.get("output") or {}
         return output if isinstance(output, dict) else {}
     return {}
+
+
+def _materialize_inline_artifacts(
+    tool_results: List[Dict[str, Any]],
+    run_dir: Path,
+    run_id: str,
+) -> List[Dict[str, Any]]:
+    materialized = []
+    for result in tool_results:
+        if not isinstance(result, dict):
+            continue
+        output = result.get("output") or {}
+        if not isinstance(output, dict):
+            continue
+        generated_files = output.get("generated_files") or []
+        if not isinstance(generated_files, list):
+            continue
+        for generated_file in generated_files:
+            if not isinstance(generated_file, dict):
+                continue
+            name = _safe_artifact_filename(str(generated_file.get("name", "")))
+            content = generated_file.get("content")
+            if not name or not isinstance(content, str):
+                continue
+            target = run_dir / name
+            _write_text(target, content)
+            materialized.append(
+                {
+                    "name": name,
+                    "kind": str(generated_file.get("kind", "artifact")),
+                    "status": "stored",
+                    "uri": f"aes://artifacts/{run_id}/{name}",
+                    "storage": "aes_artifact_store",
+                    "media_type": str(
+                        generated_file.get("media_type", "application/octet-stream")
+                    ),
+                    "producer": {
+                        "provider": str(result.get("provider", "")),
+                        "tool_name": str(result.get("tool_name", "")),
+                    },
+                    "metadata": {
+                        "path": str(target),
+                    },
+                }
+            )
+    return materialized
+
+
+def _safe_artifact_filename(value: str) -> str:
+    name = Path(value).name.strip()
+    if not name or name in {".", ".."}:
+        return ""
+    if re.search(r"[^A-Za-z0-9_.-]", name):
+        return ""
+    return name
 
 
 def _collect_artifact_references(fenics_result: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -218,7 +287,7 @@ def _manifest_status(
         if isinstance(fenics_result, dict)
         else ""
     )
-    if fenics_status in {"completed", "planned", "unverified", "failed"}:
+    if fenics_status in {"completed", "generated", "planned", "unverified", "failed"}:
         return fenics_status
 
     return "stored"
