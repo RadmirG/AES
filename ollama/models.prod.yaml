@@ -6,9 +6,8 @@
 # - Default production context in compose: OLLAMA_CONTEXT_LENGTH=8192
 #
 # This profile assumes materially stronger hardware than the laptop dev setup.
-# The intended production AES runtime model is gemma4:26b. Keep smaller models
-# available as fallback/smoke-test options, but do not let the runtime default
-# drift away from the production target.
+# Keep the production pull set deliberately narrow: one default runtime model,
+# one smaller fallback, and one larger quality comparison model.
 production_profile:
   name: gpu_server_prod
   runtime: ollama
@@ -20,71 +19,54 @@ production_profile:
     - Use this manifest for production/server pulls, not for laptop iteration.
     - Keep OLLAMA_CONTEXT_LENGTH=8192 until latency and memory behavior are measured.
     - Use gemma4:26b as the default AES production model.
-    - Keep smaller models available for fallback, smoke tests, and emergency operation.
-    - Treat 70B+ models as frontier/large-server options, not baseline AES production.
+    - Pull only qwen3:8b, gemma4:26b, and gemma4:31b by default.
+    - Use OLLAMA_NUM_PARALLEL=1 and OLLAMA_MAX_LOADED_MODELS=1 to avoid VRAM splitting.
+    - Increase the model set only after measured latency and memory checks.
 
 defaults:
   aes_ollama_model: gemma4:26b
-  production_reasoning_model: gemma4:12b
-  production_coding_model: qwen2.5-coder:14b
-  production_agent_model: qwen3:14b
-  deep_reasoning_model: deepseek-r1:14b
+  production_reasoning_model: gemma4:26b
+  production_coding_model: qwen3:8b
+  production_agent_model: gemma4:26b
+  fallback_model: qwen3:8b
   high_capacity_reasoning_model: gemma4:31b
 
 pull_groups:
-  baseline:
-    description: Production runtime model plus smaller fallback/smoke-test models.
+  runtime:
+    description: Complete AES production model set.
     models:
-      - gemma4:26b
-      - gemma4:e4b
       - qwen3:8b
-      - qwen2.5-coder:7b
-
-  recommended:
-    description: Stronger AES production set for reasoning, coding, and tool workflows.
-    models:
-      - gemma4:12b
-      - qwen3:14b
-      - qwen2.5-coder:14b
-      - deepseek-r1:14b
-
-  high_capacity:
-    description: Use when the production server has enough GPU memory and latency budget.
-    models:
       - gemma4:26b
       - gemma4:31b
-      - qwen3:30b
-      - qwen3:32b
-      - qwen2.5-coder:32b
-      - deepseek-r1:32b
 
-  frontier_optional:
-    description: Large-server or cloud-sized checks, not normal AES baseline deployment.
+  baseline:
+    description: Alias for the complete AES production model set.
     models:
-      - llama3.3:70b
-      - deepseek-r1:70b
+      - qwen3:8b
+      - gemma4:26b
+      - gemma4:31b
 
-  not_for_prod_default:
-    description: Useful for smoke tests, but too small for the production answer quality target.
+  high_capacity:
+    description: Alias kept for existing commands; no additional models are pulled.
     models:
-      - gemma4:e2b
-      - qwen3:0.6b
-      - qwen3:1.7b
-      - qwen2.5-coder:0.5b
-      - qwen2.5-coder:1.5b
-      - llama3.2:1b
-      - smollm2:360m
+      - qwen3:8b
+      - gemma4:26b
+      - gemma4:31b
 
 runtime:
   recommended_ollama_num_ctx: 8192
   max_planned_ollama_num_ctx: 32768
   recommended_env:
     AES_OLLAMA_MODEL: gemma4:26b
+    OLLAMA_CONTEXT_LENGTH: "8192"
+    OLLAMA_KEEP_ALIVE: 60m
+    OLLAMA_NUM_PARALLEL: "1"
+    OLLAMA_MAX_LOADED_MODELS: "1"
 
 automation:
   puller_script: pull_models.py
   compose_profile: models
-  default_pull_group: baseline
+  default_pull_group: runtime
   pulls_runtime_model: true
   runtime_selector_env: AES_OLLAMA_MODEL
   runtime_selector_default: gemma4:26b
@@ -92,24 +74,9 @@ automation:
 
 models:
   default: gemma4:26b
-  reasoning:
-    - gemma4:26b
-    - gemma4:e4b
-    - gemma4:12b
-    - qwen3:14b
-    - deepseek-r1:14b
-  coding:
-    - qwen2.5-coder:7b
-    - qwen2.5-coder:14b
-  high_capacity:
+  runtime:
+    - qwen3:8b
     - gemma4:26b
     - gemma4:31b
-    - qwen3:30b
-    - qwen3:32b
-    - qwen2.5-coder:32b
-    - deepseek-r1:32b
-  frontier_optional:
-    - llama3.3:70b
-    - deepseek-r1:70b
 
 

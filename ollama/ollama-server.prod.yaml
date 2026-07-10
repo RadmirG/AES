@@ -9,6 +9,10 @@
       - ./data:/root/.ollama
     environment:
       - OLLAMA_CONTEXT_LENGTH=8192
+      - OLLAMA_KEEP_ALIVE=60m
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - OLLAMA_LOAD_TIMEOUT=15m
     deploy:
       resources:
         reservations:
@@ -36,7 +40,7 @@
       - --file
       - ollama/models.prod.yaml
       - --group
-      - "${AES_OLLAMA_PULL_GROUP:-baseline}"
+      - "${AES_OLLAMA_PULL_GROUP:-runtime}"
       - --include-default
       - --model
       - "${AES_OLLAMA_MODEL:-gemma4:26b}"

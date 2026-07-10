@@ -5,10 +5,8 @@
 # - GPU: Intel HD Graphics 630 + NVIDIA Quadro M2200
 # - RAM: 64 GB
 #
-# This is a CPU-first / small-GPU development profile. The RAM is generous,
-# but the CPU and mobile workstation GPU make 7B/8B models noticeably slower.
-# Keep normal AES development on 0.5B-4B models and use the 7B/8B group only
-# when quality checks matter more than iteration speed.
+# Keep the dev setup intentionally small. The pull automation should install
+# only the runtime model needed to test the AES graph, API, and MCP routing.
 hardware_profile:
   name: laptop_i7_7820hq_64gb_quadro_m2200
   cpu: Intel Core i7-7820HQ @ 2.90GHz
@@ -20,67 +18,48 @@ hardware_profile:
     - CT2000P3PSSD8
     - SAMSUNG MZVLB1T0HALR-000L7
   runtime_notes:
-    - Prefer CPU-friendly models between 0.5B and 4B parameters.
+    - Prefer one CPU-friendly model for normal graph development.
     - Use a 4096-token context for graph development and local tests.
-    - Raise context to 8192 only for selected debugging sessions.
-    - Treat 7B/8B models as optional slow checks, not default dev models.
-    - Avoid 14B+ models for normal laptop development.
+    - Avoid pulling optional models into the default dev environment.
+    - Use stronger models only through the production manifest.
 
 defaults:
   aes_ollama_model: qwen3:4b
-  fast_smoke_model: qwen2.5-coder:1.5b
-  coding_model: qwen2.5-coder:3b
-  reasoning_model: phi4-mini:3.8b
-  general_model: llama3.2:3b
+  fast_smoke_model: qwen3:4b
+  coding_model: qwen3:4b
+  reasoning_model: qwen3:4b
+  general_model: qwen3:4b
 
 pull_groups:
-  minimal:
-    description: Smallest useful set for graph/API smoke tests.
-    models:
-      - qwen2.5-coder:1.5b
-      - qwen3:1.7b
-
-  recommended:
-    description: Best local AES dev set for this laptop.
+  runtime:
+    description: Single local AES development model.
     models:
       - qwen3:4b
-      - qwen2.5-coder:3b
-      - phi4-mini:3.8b
-      - llama3.2:3b
 
-  ultra_fast_optional:
-    description: Very small models for rapid endpoint and routing checks.
+  minimal:
+    description: Alias for the single local AES development model.
     models:
-      - qwen2.5-coder:0.5b
-      - qwen3:0.6b
-      - llama3.2:1b
-      - smollm2:360m
-      - smollm2:1.7b
+      - qwen3:4b
 
-  slow_optional:
-    description: Try only when laptop latency is acceptable.
+  recommended:
+    description: Alias kept for existing commands; still pulls only the dev runtime model.
     models:
-      - qwen2.5-coder:7b
-      - qwen3:8b
-
-  not_for_dev_default:
-    description: Fits poorly into the local iteration loop; use on stronger hardware.
-    models:
-      - qwen3:14b
-      - qwen3:30b
-      - qwen2.5-coder:14b
-      - qwen2.5-coder:32b
+      - qwen3:4b
 
 runtime:
   recommended_ollama_num_ctx: 4096
   max_laptop_ollama_num_ctx: 8192
   recommended_env:
     AES_OLLAMA_MODEL: qwen3:4b
+    OLLAMA_CONTEXT_LENGTH: "4096"
+    OLLAMA_KEEP_ALIVE: 60m
+    OLLAMA_NUM_PARALLEL: "1"
+    OLLAMA_MAX_LOADED_MODELS: "1"
 
 automation:
   puller_script: pull_models.py
   compose_profile: models
-  default_pull_group: recommended
+  default_pull_group: runtime
   pulls_runtime_model: true
   runtime_selector_env: AES_OLLAMA_MODEL
   runtime_selector_default: qwen3:4b
@@ -88,17 +67,7 @@ automation:
 
 models:
   default: qwen3:4b
-  fast:
-    - qwen2.5-coder:1.5b
-    - qwen3:1.7b
-    - llama3.2:1b
-  balanced:
+  runtime:
     - qwen3:4b
-    - qwen2.5-coder:3b
-    - phi4-mini:3.8b
-    - llama3.2:3b
-  optional_slow:
-    - qwen2.5-coder:7b
-    - qwen3:8b
 
 
