@@ -20,6 +20,51 @@ print(json.dumps({"ok": True}))
 """
 
 
+class _FakeCodeRunnerClient:
+    def list_tools(self):
+        return [{"name": "run_python_script"}]
+
+    def call_tool(self, name, arguments=None):
+        return {
+            "status": "completed",
+            "message": "ok",
+            "diagnostics": {
+                "return_code": 0,
+                "artifact_count": 2,
+            },
+            "artifacts": [
+                {
+                    "name": "solve.py",
+                    "kind": "source_code",
+                    "status": "available",
+                    "uri": "mcp://fenics-code-runner/workspace/code-runs/test/solve.py",
+                    "storage": "provider_workspace",
+                    "media_type": "text/x-python",
+                    "producer": {
+                        "provider": "mcp:fenics-code-runner",
+                        "tool_name": name,
+                    },
+                    "metadata": {},
+                },
+                {
+                    "name": "solution.xdmf",
+                    "kind": "solution",
+                    "status": "available",
+                    "uri": "mcp://fenics-code-runner/workspace/code-runs/test/solution.xdmf",
+                    "storage": "provider_workspace",
+                    "media_type": "application/x-xdmf",
+                    "producer": {
+                        "provider": "mcp:fenics-code-runner",
+                        "tool_name": name,
+                    },
+                    "metadata": {},
+                },
+            ],
+            "errors": [],
+            "warnings": [],
+        }
+
+
 class FenicsCodeTests(unittest.TestCase):
     def test_static_safety_rejects_subprocess_import(self):
         result = validate_python_code_safety(
@@ -96,6 +141,42 @@ class FenicsCodeTests(unittest.TestCase):
 
         self.assertEqual(output["execution_mode"], "blocked")
         self.assertTrue(output["errors"])
+
+    @patch(
+        "aes_agent.fenics_code.ollama_json",
+        return_value={
+            "summary": "Generated test code.",
+            "python_code": SAFE_CODE,
+            "expected_artifacts": ["solution.xdmf"],
+        },
+    )
+    def test_execution_request_with_script_runner_executes(self, _ollama_json):
+        output = execute_fenics_code_solve(
+            {
+                "raw_user_input": "Execute this solve.",
+                "solution_mode": "execute_generated_fenics_code",
+                "numerical_recipe": {
+                    "provider": "local:fenics_code",
+                    "workflow": "llm_generated_dolfinx_script_v1",
+                    "execution_requested": True,
+                },
+            },
+            client=_FakeCodeRunnerClient(),
+            execute=True,
+        )
+
+        self.assertEqual(output["execution_mode"], "executed")
+        self.assertEqual(output["errors"], [])
+        self.assertEqual(output["fenics_result"]["status"], "completed")
+        self.assertEqual(
+            output["fenics_result"]["diagnostics"]["return_code"],
+            0,
+        )
+        artifact_names = [
+            artifact["name"]
+            for artifact in output["fenics_result"]["artifacts"]
+        ]
+        self.assertEqual(artifact_names, ["solve.py", "solution.xdmf"])
 
     @patch(
         "aes_agent.fenics_code.ollama_json",

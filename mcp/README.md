@@ -68,14 +68,22 @@ DOLFINX_MCP_EXECUTE=true
 DOLFINX_MCP_URL=http://dolfinx-mcp:8000/mcp
 ```
 
+Generated-code execution uses a separate FEniCS code-runner provider:
+
+```text
+DOLFINX_CODE_EXECUTE=true
+DOLFINX_CODE_MCP_URL=http://fenics-code-runner:8000/mcp
+```
+
 Production defaults to live FEniCS execution and should be started with the
 `fenics` profile. Development defaults to planning mode unless
 `DOLFINX_MCP_EXECUTE=true` is exported.
 
 ## First Provider
 
-The first concrete provider is `fenics`, backed by the external
-`dolfinx-mcp` image built from:
+The first concrete provider is `fenics`. It contains the external
+`dolfinx-mcp` workflow service plus an AES-owned `fenics-code-runner` service.
+The external base image is built from:
 
 ```text
 https://github.com/ekstanley/ccFenics-plugin
@@ -94,6 +102,10 @@ Then start the AES MCP providers:
 ```bash
 docker compose -f mcp/compose.mcp.yaml --profile fenics up -d
 ```
+
+The `fenics-code-runner` image is built by Compose from
+`mcp/providers/fenics/code_runner/Dockerfile` and uses `dolfinx-mcp:latest` as
+its base image.
 
 ## Provider Lifecycle
 

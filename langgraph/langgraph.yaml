@@ -18,6 +18,7 @@ services:
       - DOLFINX_MCP_TIMEOUT=120
       # Keep generated-code execution disabled in dev unless explicitly
       # enabled for a sandbox/script-runner smoke test.
+      - DOLFINX_CODE_MCP_URL=http://fenics-code-runner:8000/mcp
       - DOLFINX_CODE_EXECUTE=${DOLFINX_CODE_EXECUTE:-false}
       - DOLFINX_CODE_TIMEOUT=${DOLFINX_CODE_TIMEOUT:-300}
       - AES_ARTIFACT_ROOT=/artifacts

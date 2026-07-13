@@ -1,14 +1,16 @@
 # FEniCS/DOLFINx MCP Integration
 
-AES integrates FEniCS through one high-level AES tool:
+AES integrates FEniCS through high-level AES tools:
 
 ```text
 fenics_forward_solve
+fenics_code_solve
 ```
 
-The tool maps a validated AES numerical recipe to an allowlisted DOLFINx MCP
-workflow. The LLM should not call low-level DOLFINx tools directly and should
-not generate arbitrary FEniCS Python code.
+`fenics_forward_solve` maps a validated AES numerical recipe to an allowlisted
+DOLFINx MCP workflow. `fenics_code_solve` generates or accepts a checked
+`solve.py` script and executes it through a separate provider script-runner. The
+LLM should not call low-level DOLFINx tools directly.
 
 FEniCS execution is followed by the AES-owned `artifact_store` tool. The MCP
 provider may create temporary provider workspace files, but the agent records
@@ -65,22 +67,21 @@ The flexible generated-code path has a separate execution flag:
 
 ```text
 DOLFINX_CODE_EXECUTE=true
+DOLFINX_CODE_MCP_URL=http://fenics-code-runner:8000/mcp
 DOLFINX_CODE_TIMEOUT=300
 ```
 
 Production enables this flag by default. This only tells AES to attempt
-execution of checked generated/user-provided `solve.py` code. The provider must
-still expose a safe script-runner MCP tool, currently expected under one of
-these names:
+execution of checked generated/user-provided `solve.py` code. The AES Compose
+stack now provides a separate `fenics-code-runner` service that exposes the
+safe script-runner tool:
 
 ```text
 run_python_script
-execute_python_script
-run_script
 ```
 
-If no such provider tool exists, AES should report a blocked tool result rather
-than a completed numerical solve.
+If `DOLFINX_CODE_MCP_URL` points to a provider without this tool, AES reports a
+blocked tool result rather than a completed numerical solve.
 
 The external server can be built from:
 
@@ -100,7 +101,13 @@ The first AES wrapper allowlists only workflow tools such as mesh creation,
 function-space setup, variational-form definition, solving, export, plotting,
 and reporting.
 
-`run_custom_code` is intentionally not allowlisted in the first version.
+`run_custom_code` remains blocked on the external `dolfinx-mcp` workflow
+provider. Generated/user-provided scripts run only through the separate
+`fenics-code-runner` service after AES static safety checks.
+
+The runner writes each script into `/workspace/code-runs/<run_id>/`, runs it
+with a timeout, captures stdout/stderr, and returns provider artifact
+references for files produced in that run directory.
 
 ## Current Limitation
 

@@ -289,6 +289,12 @@ FEniCS/Dolfin logs:
 docker compose -f deploy/compose.dev.yaml --profile models logs -f dolfinx-mcp
 ```
 
+FEniCS generated-code runner logs:
+
+```bash
+docker compose -f deploy/compose.dev.yaml --profile models --profile fenics logs -f fenics-code-runner
+```
+
 
 ### Prod System 
 Show all logs:
@@ -307,6 +313,9 @@ docker compose -f deploy/compose.prod.yaml --profile models logs -f openwebui
 ```
 ```bash
 docker compose -f deploy/compose.prod.yaml --profile models logs -f dolfinx-mcp
+```
+```bash
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f fenics-code-runner
 ```
 
 ## 10. Dev Stack Smoke Tests
@@ -513,11 +522,12 @@ Production also enables generated-code execution attempts by default:
 
 ```text
 DOLFINX_CODE_EXECUTE=true
+DOLFINX_CODE_MCP_URL=http://fenics-code-runner:8000/mcp
 ```
 
-That flag removes the "DOLFINX_CODE_EXECUTE is not enabled" block. Actual code
-execution still requires the FEniCS MCP provider to expose a safe script-runner
-tool such as `run_python_script`.
+That flag removes the "DOLFINX_CODE_EXECUTE is not enabled" block. The
+`fenics-code-runner` service provides the safe script-runner tool
+`run_python_script` for generated/user-provided `solve.py` execution.
 
 ```bash
 cd ~/projects/AES
@@ -547,6 +557,12 @@ Check the generated-code execution flag inside LangGraph:
 docker exec langgraph printenv DOLFINX_CODE_EXECUTE
 ```
 
+Check the generated-code runner URL inside LangGraph:
+
+```bash
+docker exec langgraph printenv DOLFINX_CODE_MCP_URL
+```
+
 Stop production services:
 
 ```bash
@@ -568,6 +584,10 @@ git clone https://github.com/ekstanley/ccFenics-plugin.git
 cd ccFenics-plugin
 docker build -t dolfinx-mcp:latest .
 ```
+
+The AES-owned generated-code runner image is built automatically by Compose
+from `mcp/providers/fenics/code_runner/Dockerfile`. It uses
+`dolfinx-mcp:latest` as its base image, so build `dolfinx-mcp:latest` first.
 
 Start the dev stack with FEniCS:
 
@@ -597,6 +617,26 @@ FEniCS MCP endpoint:
 
 ```text
 http://127.0.0.1:8003/mcp
+```
+
+FEniCS generated-code runner endpoint:
+
+```text
+http://127.0.0.1:8006/mcp
+```
+
+Smoke-test the generated-code runner tool list:
+
+```bash
+curl -s -X POST http://127.0.0.1:8006/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":1,
+    "method":"tools/list",
+    "params":{}
+  }' | jq .
 ```
 
 ## 16. Optional MCP Provider Profiles

@@ -1,5 +1,7 @@
 provider: fenics
-server: dolfinx-mcp
+servers:
+  workflow: dolfinx-mcp
+  code_runner: fenics-code-runner
 mode: allowlist
 allowed_tools:
   - reset_session
@@ -19,9 +21,11 @@ allowed_tools:
   - generate_report
   - list_workspace_files
   - bundle_workspace_files
+allowed_code_runner_tools:
+  - run_python_script
 blocked_tools:
   - run_custom_code
 notes:
   - Low-level tools are called only by AES wrapper logic, not directly by the LLM.
-  - Keep run_custom_code blocked until there is a separate sandbox and review policy.
-
+  - Keep run_custom_code blocked on the external dolfinx-mcp workflow provider.
+  - Generated/user-provided code may run only through the separate fenics-code-runner service after AES static safety checks.

@@ -17,7 +17,25 @@ services:
     networks:
       - ai-stack-net
 
+  fenics-code-runner:
+    build:
+      context: ./code_runner
+    image: aes-fenics-code-runner:latest
+    container_name: fenics-code-runner
+    restart: unless-stopped
+    profiles:
+      - fenics
+    ports:
+      - "127.0.0.1:8006:8000"
+    volumes:
+      - ./workspace:/workspace
+    environment:
+      - FENICS_RUNNER_WORKSPACE=/workspace
+      - FENICS_RUNNER_DEFAULT_TIMEOUT=300
+      - FENICS_RUNNER_MAX_TIMEOUT=900
+    networks:
+      - ai-stack-net
+
 networks:
   ai-stack-net:
     external: true
-

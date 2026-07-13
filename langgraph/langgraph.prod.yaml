@@ -17,6 +17,7 @@ services:
       - DOLFINX_MCP_TIMEOUT=300
       # Enables the flexible generated-code path. The MCP provider must expose
       # a safe script-runner tool such as run_python_script.
+      - DOLFINX_CODE_MCP_URL=http://fenics-code-runner:8000/mcp
       - DOLFINX_CODE_EXECUTE=${DOLFINX_CODE_EXECUTE:-true}
       - DOLFINX_CODE_TIMEOUT=${DOLFINX_CODE_TIMEOUT:-300}
       - AES_ARTIFACT_ROOT=/artifacts

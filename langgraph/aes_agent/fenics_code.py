@@ -215,8 +215,8 @@ def execute_fenics_code_solve(
             status="failed",
             errors=[
                 "Generated-code execution was requested, but no MCP script-runner "
-                "endpoint is configured. Set DOLFINX_MCP_URL and provide a provider "
-                "tool such as run_python_script."
+                "endpoint is configured. Set DOLFINX_CODE_MCP_URL and provide a "
+                "provider tool such as run_python_script."
             ],
             warnings=generation["warnings"],
         )
@@ -571,13 +571,21 @@ def _should_execute_live() -> bool:
 
 
 def _default_code_execution_client() -> MCPCodeExecutionClient | None:
-    url = os.getenv("DOLFINX_MCP_URL", "").strip()
+    url = (
+        os.getenv("DOLFINX_CODE_MCP_URL", "").strip()
+        or os.getenv("DOLFINX_MCP_URL", "").strip()
+    )
     if not url:
         return None
 
     from aes_agent.mcp_client import StreamableHTTPMCPClient
 
-    timeout = int(os.getenv("DOLFINX_MCP_TIMEOUT", "120"))
+    timeout = int(
+        os.getenv(
+            "DOLFINX_CODE_MCP_TIMEOUT",
+            os.getenv("DOLFINX_CODE_TIMEOUT", os.getenv("DOLFINX_MCP_TIMEOUT", "120")),
+        )
+    )
     protocol_version = os.getenv("DOLFINX_MCP_PROTOCOL", "2025-06-18")
     return StreamableHTTPMCPClient(
         url,
@@ -629,6 +637,11 @@ def _execute_code_via_mcp(
 def _mcp_errors_from_result(result: Dict[str, Any]) -> List[str]:
     if not isinstance(result, dict):
         return ["MCP script execution returned a non-object result."]
+    raw_errors = result.get("errors")
+    if isinstance(raw_errors, list) and raw_errors:
+        return [str(error) for error in raw_errors if str(error).strip()]
+    if raw_errors:
+        return [str(raw_errors)]
     if result.get("isError") is True or result.get("is_error") is True:
         return [str(result.get("message") or result.get("error") or result)]
     if result.get("error"):
@@ -651,10 +664,22 @@ def _build_output(
     execution: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     execution = execution or {}
+    execution_result = (
+        execution.get("result", {})
+        if isinstance(execution.get("result", {}), dict)
+        else {}
+    )
+    execution_artifacts = execution_result.get("artifacts")
     artifacts = _artifact_refs(
         generation["expected_artifacts"],
         status="available" if status in {"generated", "completed"} else "blocked",
     )
+    if isinstance(execution_artifacts, list) and execution_artifacts:
+        artifacts = [
+            artifact
+            for artifact in execution_artifacts
+            if isinstance(artifact, dict)
+        ]
     return {
         "schema_version": "1.0",
         "provider": FENICS_CODE_PROVIDER,
@@ -682,7 +707,7 @@ def _build_output(
             "problem_type": recipe.get("problem_type", ""),
             "artifacts": artifacts,
             "requested_artifacts": [],
-            "diagnostics": execution.get("diagnostics", {}),
+            "diagnostics": execution.get("diagnostics", {}) or execution_result.get("diagnostics", {}),
             "errors": errors,
             "warnings": warnings + safety["warnings"],
         },
