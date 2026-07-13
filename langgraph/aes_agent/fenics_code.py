@@ -267,7 +267,10 @@ def generate_dolfinx_script(
             "did not return usable code."
         )
         expected_artifacts = ["solve.py", "solution.xdmf", "diagnostics.json"]
-        warnings.append("LLM code generation returned no usable python_code.")
+        warnings.append(
+            "LLM code generation returned no usable python_code; AES used "
+            "its deterministic fallback DOLFINx template."
+        )
 
     if not expected_artifacts:
         expected_artifacts = ["solve.py", "solution.xdmf", "diagnostics.json"]
@@ -450,20 +453,42 @@ problem = LinearProblem(
     petsc_options={{"ksp_type": "cg", "pc_type": "hypre"}},
 )
 
-for step in range(num_steps):
+time_series = []
+sample_interval = max(1, num_steps // 10)
+
+
+def solution_stats(function, step, time_value):
+    values = function.x.array
+    return {{
+        "step": int(step),
+        "time": float(time_value),
+        "min": float(np.min(values)),
+        "max": float(np.max(values)),
+        "mean": float(np.mean(values)),
+    }}
+
+
+for step in range(1, num_steps + 1):
     problem.solve()
     u_n.x.array[:] = u_sol.x.array
+    if step == 1 or step % sample_interval == 0 or step == num_steps:
+        time_series.append(solution_stats(u_sol, step, step * dt))
 
 with io.XDMFFile(msh.comm, "solution.xdmf", "w") as xdmf:
     xdmf.write_mesh(msh)
     xdmf.write_function(u_sol, T)
 
+final_stats = solution_stats(u_sol, num_steps, T)
 diagnostics = {{
     "problem": "transient_heat_equation",
     "num_steps": num_steps,
     "dt": dt,
     "final_time": T,
     "num_dofs": V.dofmap.index_map.size_global * V.dofmap.index_map_bs,
+    "solution_min": final_stats["min"],
+    "solution_max": final_stats["max"],
+    "solution_mean": final_stats["mean"],
+    "time_series": time_series,
 }}
 Path("diagnostics.json").write_text(json.dumps(diagnostics, indent=2), encoding="utf-8")
 print(json.dumps(diagnostics, indent=2))
@@ -523,9 +548,13 @@ with io.XDMFFile(msh.comm, "solution.xdmf", "w") as xdmf:
     xdmf.write_mesh(msh)
     xdmf.write_function(u_sol)
 
+values = u_sol.x.array
 diagnostics = {{
     "problem": "stationary_diffusion_equation",
     "num_dofs": V.dofmap.index_map.size_global * V.dofmap.index_map_bs,
+    "solution_min": float(np.min(values)),
+    "solution_max": float(np.max(values)),
+    "solution_mean": float(np.mean(values)),
 }}
 Path("diagnostics.json").write_text(json.dumps(diagnostics, indent=2), encoding="utf-8")
 print(json.dumps(diagnostics, indent=2))
@@ -682,20 +711,18 @@ def _build_output(
             for artifact in execution_artifacts
             if isinstance(artifact, dict)
         ]
+    generated_files = _materialized_generated_files(
+        code=generation["python_code"],
+        safety_status=safety["status"],
+        execution_result=execution_result,
+    )
     return {
         "schema_version": "1.0",
         "provider": FENICS_CODE_PROVIDER,
         "execution_mode": execution_mode,
         "recipe": recipe,
-        "generated_file_names": [DEFAULT_SCRIPT_NAME],
-        "generated_files": [
-            {
-                "name": DEFAULT_SCRIPT_NAME,
-                "kind": "source_code",
-                "media_type": "text/x-python",
-                "content": generation["python_code"],
-            }
-        ] if status in {"generated", "completed", "blocked"} else [],
+        "generated_file_names": [file["name"] for file in generated_files],
+        "generated_files": generated_files,
         "code_summary": generation["summary"],
         "safety_status": safety["status"],
         "safety_warnings": safety["warnings"],
@@ -716,6 +743,60 @@ def _build_output(
         "errors": errors,
         "warnings": warnings + safety["warnings"],
     }
+
+
+def _materialized_generated_files(
+    *,
+    code: str,
+    safety_status: str,
+    execution_result: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    if safety_status != "safe":
+        return []
+
+    files: List[Dict[str, Any]] = [
+        {
+            "name": DEFAULT_SCRIPT_NAME,
+            "kind": "source_code",
+            "media_type": "text/x-python",
+            "content": code,
+        }
+    ]
+
+    diagnostics = execution_result.get("diagnostics")
+    if isinstance(diagnostics, dict) and diagnostics:
+        files.append(
+            {
+                "name": "diagnostics.json",
+                "kind": "diagnostics",
+                "media_type": "application/json",
+                "content": json.dumps(diagnostics, indent=2, sort_keys=True),
+            }
+        )
+
+    stdout = str(execution_result.get("stdout") or "").strip()
+    if stdout:
+        files.append(
+            {
+                "name": "stdout.txt",
+                "kind": "execution_log",
+                "media_type": "text/plain",
+                "content": stdout + "\n",
+            }
+        )
+
+    stderr = str(execution_result.get("stderr") or "").strip()
+    if stderr:
+        files.append(
+            {
+                "name": "stderr.txt",
+                "kind": "execution_log",
+                "media_type": "text/plain",
+                "content": stderr + "\n",
+            }
+        )
+
+    return files
 
 
 def _artifact_refs(names: List[str], *, status: str) -> List[Dict[str, Any]]:

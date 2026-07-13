@@ -29,9 +29,22 @@ class _FakeCodeRunnerClient:
         return {
             "status": "completed",
             "message": "ok",
+            "stdout": '{"problem": "test"}\n',
+            "stderr": "",
             "diagnostics": {
                 "return_code": 0,
                 "artifact_count": 2,
+                "elapsed_seconds": 1.25,
+                "script": {
+                    "problem": "transient_heat_equation",
+                    "num_steps": 100,
+                    "dt": 0.01,
+                    "final_time": 1.0,
+                    "num_dofs": 1089,
+                    "solution_min": 0.0,
+                    "solution_max": 0.12,
+                    "solution_mean": 0.04,
+                },
             },
             "artifacts": [
                 {
@@ -172,6 +185,14 @@ class FenicsCodeTests(unittest.TestCase):
         self.assertEqual(
             output["fenics_result"]["diagnostics"]["return_code"],
             0,
+        )
+        self.assertIn(
+            "diagnostics.json",
+            [file["name"] for file in output["generated_files"]],
+        )
+        self.assertIn(
+            "stdout.txt",
+            [file["name"] for file in output["generated_files"]],
         )
         artifact_names = [
             artifact["name"]

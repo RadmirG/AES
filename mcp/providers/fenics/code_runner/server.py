@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -223,6 +224,8 @@ def _run_python_script(arguments: dict[str, Any]) -> dict[str, Any]:
     env.setdefault("MPLBACKEND", "Agg")
     env.setdefault("PYTHONUNBUFFERED", "1")
 
+    started_at = time.perf_counter()
+
     try:
         completed = subprocess.run(
             [sys.executable, filename],
@@ -233,9 +236,11 @@ def _run_python_script(arguments: dict[str, Any]) -> dict[str, Any]:
             timeout=timeout_seconds,
             check=False,
         )
+        elapsed_seconds = time.perf_counter() - started_at
         stdout = _truncate(completed.stdout)
         stderr = _truncate(completed.stderr)
         artifacts = _collect_artifacts(run_dir, run_id)
+        script_diagnostics = _read_json_file(run_dir / "diagnostics.json")
         diagnostics = {
             "return_code": completed.returncode,
             "timeout_seconds": timeout_seconds,
@@ -243,7 +248,10 @@ def _run_python_script(arguments: dict[str, Any]) -> dict[str, Any]:
             "run_id": run_id,
             "run_dir": str(run_dir),
             "artifact_count": len(artifacts),
+            "elapsed_seconds": round(elapsed_seconds, 6),
         }
+        if script_diagnostics:
+            diagnostics["script"] = script_diagnostics
         if completed.returncode == 0:
             return {
                 "schema_version": "1.0",
@@ -276,6 +284,7 @@ def _run_python_script(arguments: dict[str, Any]) -> dict[str, Any]:
             "warnings": [],
         }
     except subprocess.TimeoutExpired as exc:
+        elapsed_seconds = time.perf_counter() - started_at
         stdout = _truncate(exc.stdout or "")
         stderr = _truncate(exc.stderr or "")
         artifacts = _collect_artifacts(run_dir, run_id)
@@ -294,6 +303,7 @@ def _run_python_script(arguments: dict[str, Any]) -> dict[str, Any]:
                 "run_id": run_id,
                 "run_dir": str(run_dir),
                 "artifact_count": len(artifacts),
+                "elapsed_seconds": round(elapsed_seconds, 6),
             },
             "artifacts": artifacts,
             "errors": [f"Python script timed out after {timeout_seconds} seconds."],
@@ -384,6 +394,16 @@ def _collect_artifacts(run_dir: Path, run_id: str) -> list[dict[str, Any]]:
         if len(artifacts) >= max_files:
             break
     return artifacts
+
+
+def _read_json_file(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _artifact_kind(name: str) -> str:

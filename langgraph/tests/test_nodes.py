@@ -393,6 +393,112 @@ class ArtifactNodeTests(unittest.TestCase):
             "sin(pi\\*x)\\*sin(pi\\*y)",
         )
 
+    def test_final_artifact_includes_fenics_code_execution_review(self):
+        result = nodes.generate_artifact(
+            {
+                "problem_class": "forward_problem",
+                "pde_info": "time_dependent_heat_equation",
+                "domain_info": "unit_square",
+                "coefficient_info": "1",
+                "source_info": "1",
+                "bc_info": "dirichlet_boundary_condition",
+                "initial_condition_info": "sin(pi*x)*sin(pi*y)",
+                "time_info": "T=1, dt=0.01",
+                "selected_formulation": "fem_problem_setup",
+                "solution_mode": "execute_generated_fenics_code",
+                "validation_status": "valid",
+                "numerical_recipe_status": "ready",
+                "numerical_recipe": {
+                    "provider": "local:fenics_code",
+                    "workflow": "llm_generated_dolfinx_script_v1",
+                    "problem_type": "time_dependent_heat_equation",
+                },
+                "selected_tools": ["fenics_code_solve", "artifact_store"],
+                "tool_execution_status": "completed",
+                "tool_results": [
+                    {
+                        "tool_name": "fenics_code_solve",
+                        "provider": "local:fenics_code",
+                        "status": "completed",
+                        "output": {
+                            "execution_mode": "executed",
+                            "generated_file_names": ["solve.py", "diagnostics.json"],
+                            "safety_status": "safe",
+                            "code_summary": "Generated fallback code.",
+                            "execution": {
+                                "result": {
+                                    "stdout": "{}",
+                                    "diagnostics": {
+                                        "return_code": 0,
+                                        "run_id": "provider-run",
+                                        "elapsed_seconds": 1.25,
+                                        "timeout_seconds": 300,
+                                        "artifact_count": 3,
+                                        "script": {
+                                            "problem": "transient_heat_equation",
+                                            "num_steps": 100,
+                                            "dt": 0.01,
+                                            "final_time": 1.0,
+                                            "num_dofs": 1089,
+                                            "solution_min": 0.0,
+                                            "solution_max": 0.12,
+                                            "solution_mean": 0.04,
+                                            "time_series": [
+                                                {"time": 0.01, "max": 0.01, "mean": 0.004},
+                                                {"time": 1.0, "max": 0.12, "mean": 0.04},
+                                            ],
+                                        },
+                                    },
+                                }
+                            },
+                            "fenics_result": {
+                                "status": "completed",
+                                "diagnostics": {
+                                    "return_code": 0,
+                                    "run_id": "provider-run",
+                                    "elapsed_seconds": 1.25,
+                                    "timeout_seconds": 300,
+                                    "artifact_count": 3,
+                                    "script": {
+                                        "problem": "transient_heat_equation",
+                                        "num_steps": 100,
+                                        "dt": 0.01,
+                                        "final_time": 1.0,
+                                        "num_dofs": 1089,
+                                        "solution_min": 0.0,
+                                        "solution_max": 0.12,
+                                        "solution_mean": 0.04,
+                                        "time_series": [
+                                            {"time": 0.01, "max": 0.01, "mean": 0.004},
+                                            {"time": 1.0, "max": 0.12, "mean": 0.04},
+                                        ],
+                                    },
+                                },
+                                "artifacts": [
+                                    {
+                                        "name": "solution.xdmf",
+                                        "kind": "solution",
+                                        "storage": "provider_workspace",
+                                        "uri": "mcp://fenics-code-runner/workspace/code-runs/provider-run/solution.xdmf",
+                                    }
+                                ],
+                            },
+                        },
+                        "error": "",
+                    }
+                ],
+                "tool_errors": [],
+            }
+        )
+
+        artifact = result["generated_artifact"]
+        self.assertIn("Result review", artifact)
+        self.assertIn("Runtime: 1.25 s", artifact)
+        self.assertIn("DOFs=1089", artifact)
+        self.assertIn("Final solution stats", artifact)
+        self.assertIn("Time samples", artifact)
+        self.assertIn("solution.xdmf", artifact)
+
 
 class ExtractionFallbackTests(unittest.TestCase):
     STATIONARY_HEAT_REQUEST = (

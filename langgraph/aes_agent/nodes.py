@@ -785,6 +785,10 @@ def _append_tool_result_section(
         if safety_status:
             lines.append(f"  Safety status: {_artifact_value(safety_status)}")
 
+        code_summary = output.get("code_summary")
+        if code_summary:
+            lines.append(f"  Code summary: {_artifact_value(code_summary, limit=320)}")
+
         endpoint = output.get("mcp_endpoint")
         if endpoint:
             lines.append(f"  MCP endpoint: {_artifact_value(endpoint)}")
@@ -799,6 +803,7 @@ def _append_tool_result_section(
             lines.append(f"  Artifact run: {_artifact_value(manifest.get('run_id'))}")
             lines.append(f"  Artifact manifest status: {_artifact_value(manifest.get('status'))}")
             lines.append(f"  Artifact reference count: {_artifact_value(artifact_count)}")
+            _append_artifact_reference_summary(lines, manifest.get("artifacts") or [])
 
         manifest_path = output.get("manifest_path")
         if manifest_path:
@@ -850,6 +855,164 @@ def _append_tool_result_section(
 
         if results:
             lines.append(f"  MCP result count: {len(results)}")
+
+        _append_fenics_code_review(lines, output)
+
+
+def _append_fenics_code_review(lines: list[str], output: dict[str, Any]) -> None:
+    fenics_result = output.get("fenics_result")
+    if not isinstance(fenics_result, dict):
+        return
+
+    execution = output.get("execution") if isinstance(output.get("execution"), dict) else {}
+    execution_result = (
+        execution.get("result", {})
+        if isinstance(execution.get("result", {}), dict)
+        else {}
+    )
+    diagnostics = fenics_result.get("diagnostics") or execution_result.get("diagnostics")
+    artifacts = fenics_result.get("artifacts") or execution_result.get("artifacts") or []
+
+    if not diagnostics and not artifacts:
+        return
+
+    lines.append("  Result review:")
+    if isinstance(diagnostics, dict) and diagnostics:
+        _append_diagnostic_value(lines, "Provider run id", diagnostics.get("run_id"))
+        _append_diagnostic_value(lines, "Return code", diagnostics.get("return_code"))
+        _append_runtime_value(lines, diagnostics.get("elapsed_seconds"))
+        _append_diagnostic_value(lines, "Timeout", diagnostics.get("timeout_seconds"), suffix=" s")
+        _append_diagnostic_value(lines, "Artifact count", diagnostics.get("artifact_count"))
+
+        script = diagnostics.get("script")
+        if isinstance(script, dict) and script:
+            _append_script_diagnostics(lines, script)
+
+    stdout = str(execution_result.get("stdout") or "").strip()
+    if stdout and not (
+        isinstance(diagnostics, dict) and isinstance(diagnostics.get("script"), dict)
+    ):
+        lines.append(f"  Stdout preview: {_artifact_value(stdout, limit=360)}")
+
+    _append_artifact_reference_summary(lines, artifacts)
+
+
+def _append_script_diagnostics(lines: list[str], script: dict[str, Any]) -> None:
+    problem = script.get("problem")
+    num_dofs = script.get("num_dofs")
+    num_steps = script.get("num_steps")
+    dt = script.get("dt")
+    final_time = script.get("final_time")
+
+    summary_parts = []
+    if problem:
+        summary_parts.append(f"problem={_plain_value(problem)}")
+    if num_dofs is not None:
+        summary_parts.append(f"DOFs={_plain_value(num_dofs)}")
+    if num_steps is not None:
+        summary_parts.append(f"steps={_plain_value(num_steps)}")
+    if dt is not None:
+        summary_parts.append(f"dt={_plain_value(dt)}")
+    if final_time is not None:
+        summary_parts.append(f"T={_plain_value(final_time)}")
+    if summary_parts:
+        lines.append(f"  Simulation: {_artifact_value(', '.join(summary_parts), limit=360)}")
+
+    solution_stats = _solution_stat_summary(script)
+    if solution_stats:
+        lines.append(f"  Final solution stats: {_artifact_value(solution_stats, limit=360)}")
+
+    time_series = script.get("time_series")
+    if isinstance(time_series, list) and time_series:
+        samples = _time_series_summary(time_series)
+        if samples:
+            lines.append(f"  Time samples: {_artifact_value(samples, limit=520)}")
+
+
+def _solution_stat_summary(script: dict[str, Any]) -> str:
+    parts = []
+    for key, label in (
+        ("solution_min", "min"),
+        ("solution_max", "max"),
+        ("solution_mean", "mean"),
+    ):
+        value = script.get(key)
+        if value is not None:
+            parts.append(f"{label}={_format_number(value)}")
+    return ", ".join(parts)
+
+
+def _time_series_summary(values: list[Any]) -> str:
+    rows = [row for row in values if isinstance(row, dict)]
+    if not rows:
+        return ""
+    if len(rows) > 6:
+        rows = [*rows[:3], *rows[-3:]]
+    samples = []
+    for row in rows:
+        time_value = _format_number(row.get("time"))
+        max_value = _format_number(row.get("max"))
+        mean_value = _format_number(row.get("mean"))
+        samples.append(f"t={time_value}: max={max_value}, mean={mean_value}")
+    return "; ".join(samples)
+
+
+def _append_artifact_reference_summary(
+    lines: list[str],
+    artifacts: Any,
+) -> None:
+    if not isinstance(artifacts, list) or not artifacts:
+        return
+
+    summaries = []
+    for artifact in artifacts[:8]:
+        if not isinstance(artifact, dict):
+            continue
+        kind = _plain_value(artifact.get("kind") or "artifact")
+        name = _plain_value(artifact.get("name") or "")
+        storage = _plain_value(artifact.get("storage") or "")
+        uri = _plain_value(artifact.get("uri") or "")
+        if not name:
+            continue
+        summaries.append(f"{kind} {name} ({storage}) {uri}".strip())
+    if len(artifacts) > 8:
+        summaries.append(f"... {len(artifacts) - 8} more")
+    if summaries:
+        lines.append(f"  Artifacts: {_artifact_list(summaries, limit=760)}")
+
+
+def _append_diagnostic_value(
+    lines: list[str],
+    label: str,
+    value: Any,
+    *,
+    suffix: str = "",
+) -> None:
+    if value is None or value == "":
+        return
+    lines.append(f"  {label}: {_artifact_value(str(value) + suffix)}")
+
+
+def _append_runtime_value(lines: list[str], value: Any) -> None:
+    if value is None or value == "":
+        return
+    lines.append(f"  Runtime: {_artifact_value(_format_number(value) + ' s')}")
+
+
+def _format_number(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return _plain_value(value)
+    if number == 0:
+        return "0"
+    if abs(number) >= 1000 or abs(number) < 0.001:
+        return f"{number:.4e}"
+    return f"{number:.6g}"
+
+
+def _plain_value(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value)).strip()
 
 
 def _append_terminal_artifact_summary(

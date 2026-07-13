@@ -130,7 +130,8 @@ flowchart TD
     N --> H
     O --> H
 
-    H --> Z["Final AES response"]
+    H --> Y["Result review renderer"]
+    Y --> Z["Final AES response"]
 ```
 
 The OpenAI-compatible adapter deliberately does not merge arbitrary chat
@@ -173,6 +174,30 @@ execution diagnostics, solver files, an error report, or a rejected unsafe-code
 report. In other words, artifact storage means traceability of the AES workflow,
 not only successful numerical solver output.
 
+### Result Review In Open WebUI
+
+Successful generated-code execution should not stop at `Next action:
+review_tool_results`. AES renders a compact result review directly into the
+Open WebUI answer from structured tool output:
+
+- provider run id and return code,
+- provider wall-clock runtime,
+- timeout and artifact count,
+- parsed script diagnostics from `diagnostics.json`,
+- simulation parameters such as DOF count, time step count, `dt`, and final
+  physical time,
+- final solution statistics such as min, max, and mean,
+- selected time samples for transient simulations,
+- artifact references for `solve.py`, `diagnostics.json`, stdout/stderr logs,
+  and solver outputs such as `solution.xdmf` / `solution.h5`.
+
+The current text response can show diagnostics and artifact references. Rich
+browser previews require additional artifact serving or preview artifacts. For
+example, a future post-processing step can generate PNG snapshots, MP4/GIF time
+animations, or signed HTTP links from AES-owned artifact storage. Until that
+exists, provider-owned `mcp://...` URIs identify where the files live, while
+AES-owned files are stored under `AES_ARTIFACT_ROOT`.
+
 ## Artifact Store
 
 Providers return structured results and artifact references. AES owns the final
@@ -186,6 +211,9 @@ The first implementation writes:
 Both files are written below `AES_ARTIFACT_ROOT`, mounted as `/artifacts` in the
 LangGraph containers. Provider workspaces, such as the FEniCS `/workspace`, are
 treated as scratch or provider-owned storage, not as final AES output locations.
+For generated-code runs, AES also materializes inline artifacts returned by
+`fenics_code_solve`, currently including the checked `solve.py`, captured
+`diagnostics.json`, and stdout/stderr logs when available.
 
 ## MCP Provider Layer
 
