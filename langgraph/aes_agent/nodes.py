@@ -1191,7 +1191,10 @@ def _has_stationary_marker(text: str) -> bool:
 def _classify_problem_from_text(user_text: str) -> dict[str, str]:
     problem_class = (
         "forward_problem"
-        if _has_any(user_text, ["solve", "compute", "simulate", "find "])
+        if _has_any(
+            user_text,
+            ["solve", "compute", "simulate", "execute", "run ", "find "],
+        )
         else "unknown_problem"
     )
 

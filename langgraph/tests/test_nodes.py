@@ -455,6 +455,30 @@ class ExtractionFallbackTests(unittest.TestCase):
         self.assertEqual(result["problem_class"], "forward_problem")
         self.assertEqual(result["pde_info"], "stationary_diffusion_equation")
 
+    @patch.object(
+        nodes,
+        "ollama_json",
+        side_effect=AssertionError("execution follow-up must classify deterministically"),
+    )
+    def test_reconstructed_execution_followup_classifies_as_forward_problem(
+        self,
+        _ollama_json,
+    ):
+        result = nodes.classify_problem(
+            {
+                "raw_user_input": (
+                    "Consider the stationary heat equation -div(a grad u)=f "
+                    "on a 2D rectangle in R^2 with Dirichlet boundary conditions. "
+                    "The source is f = 1. "
+                    "Requested AES output: execute the generated DOLFINx/FEniCS "
+                    "solve and store result artifacts."
+                )
+            }
+        )
+
+        self.assertEqual(result["problem_class"], "forward_problem")
+        self.assertEqual(result["pde_info"], "stationary_diffusion_equation")
+
     @patch.object(nodes, "ollama_json", return_value={})
     def test_structure_fallback_extracts_unit_square_source_and_bc(
         self,

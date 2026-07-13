@@ -68,24 +68,171 @@ def extract_text_from_content(content: Union[str, List[Dict[str, Any]]]) -> str:
 
 def build_user_text_from_messages(messages: List[ChatMessage]) -> str:
     """
-    Extract the latest user turn as the active AES request.
+    Extract the active AES request from OpenAI-style chat history.
 
     OpenAI-compatible clients send the full chat history. Folding all user
     turns into one problem statement can make a new deployment/log command
     inherit an older PDE request and accidentally trigger the solver workflow.
-    Until AES has checkpoint-backed multi-turn resume, the latest user message
-    is the only active request.
-    """
-    user_texts = [
-        extract_text_from_content(msg.content).strip()
-        for msg in messages
-        if msg.role == "user"
-    ]
-    user_texts = [text for text in user_texts if text]
 
-    if not user_texts:
+    The one safe exception is AES's own requested-output clarification. If the
+    latest user turn only selects an output mode, rebuild the active request
+    from the previous PDE turn plus that selected output mode.
+    """
+    turns = [
+        {
+            "role": msg.role,
+            "text": extract_text_from_content(msg.content).strip(),
+        }
+        for msg in messages
+    ]
+    turns = [turn for turn in turns if turn["text"]]
+
+    user_turn_indices = [
+        index for index, turn in enumerate(turns) if turn["role"] == "user"
+    ]
+    if not user_turn_indices:
         return ""
-    return user_texts[-1]
+
+    latest_user_index = user_turn_indices[-1]
+    latest_user_text = turns[latest_user_index]["text"]
+
+    if _is_requested_output_reply(latest_user_text) and _previous_assistant_asked_for_output(
+        turns,
+        latest_user_index,
+    ):
+        previous_problem = _previous_user_problem_text(turns, latest_user_index)
+        requested_output = _normalize_requested_output_reply(latest_user_text)
+        if previous_problem and requested_output:
+            return "\n\n".join(
+                [
+                    previous_problem,
+                    f"Requested AES output: {requested_output}",
+                ]
+            )
+
+    return latest_user_text
+
+
+def _previous_user_problem_text(
+    turns: List[Dict[str, str]],
+    before_index: int,
+) -> str:
+    for index in range(before_index - 1, -1, -1):
+        turn = turns[index]
+        if turn["role"] == "user" and _looks_like_pde_problem_text(turn["text"]):
+            return turn["text"]
+    return ""
+
+
+def _previous_assistant_asked_for_output(
+    turns: List[Dict[str, str]],
+    before_index: int,
+) -> bool:
+    for index in range(before_index - 1, -1, -1):
+        turn = turns[index]
+        text = turn["text"].lower()
+        if turn["role"] == "user":
+            return False
+        if turn["role"] != "assistant":
+            continue
+        if (
+            "requested output is not" in text
+            or "what output do you want from aes" in text
+            or "select_requested_output" in text
+        ):
+            return True
+    return False
+
+
+def _is_requested_output_reply(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+
+    output_markers = [
+        "formulation summary",
+        "summary",
+        "generated dolfinx",
+        "generated fenics",
+        "python file",
+        "fenics file",
+        "dolfinx file",
+        "execute",
+        "execution",
+        "stored result",
+        "result artifacts",
+        "run it",
+        "compute",
+        "plot",
+    ]
+    pde_markers = [
+        "heat equation",
+        "poisson",
+        "-div",
+        "grad",
+        "dirichlet",
+        "neumann",
+        "boundary condition",
+    ]
+    return (
+        len(lowered) <= 180
+        and any(marker in lowered for marker in output_markers)
+        and not any(marker in lowered for marker in pde_markers)
+    )
+
+
+def _normalize_requested_output_reply(text: str) -> str:
+    lowered = text.strip().lower()
+    if any(
+        marker in lowered
+        for marker in [
+            "execute",
+            "execution",
+            "stored result",
+            "result artifacts",
+            "run it",
+            "compute",
+            "plot",
+        ]
+    ):
+        return (
+            "execute the generated DOLFINx/FEniCS solve and store result "
+            "artifacts"
+        )
+    if any(
+        marker in lowered
+        for marker in [
+            "python file",
+            "fenics file",
+            "dolfinx file",
+            "generated dolfinx",
+            "generated fenics",
+            "code",
+        ]
+    ):
+        return "generate a DOLFINx/FEniCS Python file"
+    if "formulation" in lowered or "summary" in lowered:
+        return "formulation summary"
+    return text.strip()
+
+
+def _looks_like_pde_problem_text(text: str) -> bool:
+    lowered = text.lower()
+    markers = [
+        "heat equation",
+        "poisson",
+        "laplace",
+        "diffusion",
+        "pde",
+        "-div",
+        "grad",
+        "dirichlet",
+        "neumann",
+        "boundary condition",
+        "weak form",
+        "finite element",
+    ]
+    return any(marker in lowered for marker in markers)
 
 
 def run_aes_agent(user_text: str) -> Dict[str, Any]:

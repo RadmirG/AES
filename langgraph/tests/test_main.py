@@ -81,6 +81,35 @@ class ChatHistoryInputTests(unittest.TestCase):
         )
         self.assertNotIn("Solve a steady heat equation.", text)
 
+    def test_requested_output_reply_resumes_previous_pde_context(self):
+        text = build_user_text_from_messages(
+            [
+                ChatMessage(
+                    role="user",
+                    content=(
+                        "Consider the stationary heat equation -div(a grad u)=f "
+                        "on a 2D rectangle with Dirichlet boundary conditions."
+                    ),
+                ),
+                ChatMessage(
+                    role="assistant",
+                    content=(
+                        "What output do you want from AES: a formulation summary, "
+                        "a generated DOLFINx/FEniCS Python file, or execution with "
+                        "stored result artifacts?"
+                    ),
+                ),
+                ChatMessage(
+                    role="user",
+                    content="execution with stored result artifacts",
+                ),
+            ]
+        )
+
+        self.assertIn("stationary heat equation", text)
+        self.assertIn("Requested AES output", text)
+        self.assertIn("execute the generated", text)
+
     def test_duplicate_request_reuses_cached_result(self):
         fake_graph = _FakeGraph()
         main._RESULT_CACHE.clear()

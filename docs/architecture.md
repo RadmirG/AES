@@ -91,7 +91,11 @@ intent before selecting tools.
 
 ```mermaid
 flowchart TD
-    A["Latest user message"] --> B["Detect engineering intent"]
+    A["OpenAI chat history"] --> A1{"Latest user turn \n is output-mode reply?"}
+    A1 -->|no| A2["Use latest user message as active request"]
+    A1 -->|yes, AES asked for output| A3["Rebuild active request from previous PDE + selected output mode"]
+    A2 --> B["Detect engineering intent"]
+    A3 --> B
     B --> C["Detect input/output mode"]
 
     C -->|PDE text only| D["Ask requested output"]
@@ -119,6 +123,23 @@ flowchart TD
 
     H --> Z["Final AES response"]
 ```
+
+The OpenAI-compatible adapter deliberately does not merge arbitrary chat
+history into every AES request. This prevents a new operational message, such
+as a Docker command, from inheriting an older PDE and accidentally triggering a
+solver workflow. The controlled exception is AES's own requested-output
+clarification: if AES asked what output the user wants and the next user turn is
+a short reply such as `execution with stored result artifacts`, the adapter
+rebuilds the active request as:
+
+```text
+previous PDE problem
+
+Requested AES output: execute the generated DOLFINx/FEniCS solve and store result artifacts
+```
+
+This is a temporary lightweight resume rule until checkpoint-backed
+conversation state is introduced.
 
 Planned solution modes:
 
