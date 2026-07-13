@@ -2,7 +2,7 @@ name: aes-dev
 
 include:
   - ../ollama/ollama-server.dev.yaml
-  - ../open-webui/open-webui.yaml
+  - ../web-ui/web-ui.yaml
   - ../mcp/compose.mcp.yaml
   - ../langgraph/langgraph.yaml
 

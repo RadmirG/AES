@@ -1,10 +1,10 @@
 # AES Web UI
 
-`web-ui` is the future AES Workbench prototype: one browser window with chat on
-the left and numerical results on the right.
+`web-ui` is the default AES Workbench: one browser window with chat on the left
+and numerical results on the right.
 
-Open WebUI remains the current deployment chat client. This project implements
-an AES-native chat panel against the same OpenAI-compatible AES endpoint:
+It implements an AES-native chat panel against the OpenAI-compatible AES
+endpoint:
 
 ```text
 POST /v1/chat/completions
@@ -27,10 +27,20 @@ Useful environment variables:
 
 ```text
 VITE_AES_API_BASE_URL=http://127.0.0.1:8002
-VITE_OPEN_WEBUI_URL=http://127.0.0.1:3001
 ```
 
-If `VITE_OPEN_WEBUI_URL` is set, the left panel can show an experimental iframe
-mode. Open WebUI may block iframe embedding depending on its headers and auth
-settings, so the reliable default is the native AES chat panel.
+The variable is optional in container deployment because Nginx proxies `/v1/`
+and `/artifacts/` from the same origin.
 
+## Container Deployment
+
+The default dev/prod Compose entrypoints include `web-ui/web-ui.yaml`. The
+container joins `ai-stack-net`, publishes `http://127.0.0.1:3000`, and proxies:
+
+```text
+/v1/*        -> http://langgraph:8001/v1/*
+/artifacts/* -> http://langgraph:8001/artifacts/*
+```
+
+Because the browser talks to the same origin, `VITE_AES_API_BASE_URL` can stay
+empty in container deployment.

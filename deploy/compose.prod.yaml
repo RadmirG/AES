@@ -2,6 +2,6 @@ name: aes-prod
 
 include:
   - ../ollama/ollama-server.prod.yaml
-  - ../open-webui/open-webui.yaml
+  - ../web-ui/web-ui.yaml
   - ../mcp/compose.mcp.yaml
   - ../langgraph/langgraph.prod.yaml

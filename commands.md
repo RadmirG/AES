@@ -115,7 +115,6 @@ rsync -a \
   --exclude '.idea/' \
   --exclude '**/__pycache__/' \
   --exclude 'ollama/data/' \
-  --exclude 'open-webui/data/' \
   /mnt/c/Users/<windows-user>/<path-to-AES>/ \
   ~/projects/AES/
 cd ~/projects/AES
@@ -154,7 +153,6 @@ That file includes the subproject requirement files:
 langgraph/requirements.txt
 mcp/requirements.txt
 ollama/requirements.txt
-open-webui/requirements.txt
 ```
 
 Create the WSL test environment named `aes_test_env`:
@@ -256,6 +254,16 @@ Check running services:
 docker compose -f deploy/compose.dev.yaml --profile models ps
 ```
 
+Clean rebuild/restart of the full dev stack after service-layout changes:
+
+```bash
+cd ~/projects/AES
+export AES_OLLAMA_MODEL=qwen3:4b
+export AES_OLLAMA_PULL_GROUP=minimal
+docker compose -f deploy/compose.dev.yaml --profile models --profile fenics down --remove-orphans
+docker compose -f deploy/compose.dev.yaml --profile models --profile fenics up -d --build --force-recreate
+```
+
 ## 9. Stack Logs
 
 ### Dev System 
@@ -277,16 +285,16 @@ Show LangGraph/AES logs:
 docker compose -f deploy/compose.dev.yaml --profile models logs -f langgraph
 ```
 
-Show Open WebUI logs:
+Show AES Web UI logs:
 
 ```bash
-docker compose -f deploy/compose.dev.yaml --profile models logs -f openwebui
+docker compose -f deploy/compose.dev.yaml --profile models logs -f web-ui
 ```
 
 FEniCS/Dolfin logs:
 
 ```bash
-docker compose -f deploy/compose.dev.yaml --profile models logs -f dolfinx-mcp
+docker compose -f deploy/compose.dev.yaml --profile models --profile fenics logs -f dolfinx-mcp
 ```
 
 FEniCS generated-code runner logs:
@@ -309,10 +317,10 @@ docker compose -f deploy/compose.prod.yaml --profile models logs -f ollama
 docker compose -f deploy/compose.prod.yaml --profile models logs -f langgraph
 ```
 ```bash
-docker compose -f deploy/compose.prod.yaml --profile models logs -f openwebui
+docker compose -f deploy/compose.prod.yaml --profile models logs -f web-ui
 ```
 ```bash
-docker compose -f deploy/compose.prod.yaml --profile models logs -f dolfinx-mcp
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f dolfinx-mcp
 ```
 ```bash
 docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f fenics-code-runner
@@ -394,14 +402,20 @@ Do not mix the word `steady` with a time derivative such as `du/dt` or
 `partial u / partial t`. That describes a transient formulation and AES will ask
 which problem type should be solved.
 
-Open WebUI locally:
+AES Workbench locally:
 
 ```text
 http://127.0.0.1:3000
 ```
 
-If `aes-agent` is not visible in Open WebUI, first verify that AES exposes the
-model:
+The workbench calls AES through its same-origin proxy. Verify the model through
+the workbench port:
+
+```bash
+curl -s http://127.0.0.1:3000/v1/models | jq .
+```
+
+If needed, verify the direct LangGraph endpoint too:
 
 ```bash
 curl -s http://127.0.0.1:8002/v1/models | jq .
@@ -423,28 +437,16 @@ Expected result:
 }
 ```
 
-Open WebUI runs inside a container, so its OpenAI-compatible base URL for AES is
-the Docker-internal service URL:
+The `web-ui` container runs Nginx and proxies these paths to LangGraph over
+`ai-stack-net`:
 
 ```text
-http://langgraph:8001/v1
+/v1/*        -> http://langgraph:8001/v1/*
+/artifacts/* -> http://langgraph:8001/artifacts/*
 ```
 
-Do not configure Open WebUI with `http://127.0.0.1:8002/v1` from inside the
-container. That address points back to the Open WebUI container itself, not the
-LangGraph container.
-
-The compose file sets these Open WebUI variables:
-
-```text
-ENABLE_OPENAI_API=True
-OPENAI_API_BASE_URL=http://langgraph:8001/v1
-OPENAI_API_KEY=aes-dev-no-auth
-DEFAULT_MODELS=aes-agent
-```
-
-`aes-agent` is the wrapper model exposed by AES to Open WebUI. The real LLM used
-inside AES is selected by `AES_OLLAMA_MODEL`, which Compose passes into the
+`aes-agent` is the wrapper model exposed by AES to the workbench. The real LLM
+used inside AES is selected by `AES_OLLAMA_MODEL`, which Compose passes into the
 LangGraph container as `OLLAMA_MODEL`.
 
 Current dev binding:
@@ -459,10 +461,8 @@ Check the running LangGraph container:
 docker exec langgraph printenv OLLAMA_MODEL
 ```
 
-Open WebUI persists some settings in its database after first startup. If you
-started Open WebUI before these variables existed and `aes-agent` still does not
-appear, configure the same OpenAI-compatible connection in the Open WebUI admin
-settings or recreate the local Open WebUI data directory.
+If an old UI container is still running after the switch, use the
+`down --remove-orphans` command in the production or development section once.
 
 ## 12. Stop The Dev Stack
 
@@ -534,6 +534,16 @@ cd ~/projects/AES
 export AES_OLLAMA_MODEL=gemma4:26b
 export AES_OLLAMA_PULL_GROUP=baseline
 docker compose -f deploy/compose.prod.yaml --profile models --profile fenics up -d --build
+```
+
+Clean rebuild/restart of the full production stack after service-layout changes:
+
+```bash
+cd ~/projects/AES
+export AES_OLLAMA_MODEL=gemma4:26b
+export AES_OLLAMA_PULL_GROUP=baseline
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics down --remove-orphans
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics up -d --build --force-recreate
 ```
 
 For stronger production/server models:
@@ -672,11 +682,15 @@ Start prod Ollama only:
 docker compose -f ollama/ollama-server.prod.yaml up -d
 ```
 
-Start Open WebUI only:
+Start AES Web UI only:
 
 ```bash
-docker compose -f open-webui/open-webui.yaml up -d
+docker compose -f web-ui/web-ui.yaml up -d --build
 ```
+
+The Web UI service expects `langgraph` to be reachable on `ai-stack-net`.
+Normally start it through `deploy/compose.dev.yaml` or
+`deploy/compose.prod.yaml` instead of this isolated command.
 
 Start LangGraph only for development defaults:
 
@@ -769,7 +783,7 @@ docker compose -f deploy/compose.dev.yaml --profile models logs -f
 docker compose -f deploy/compose.dev.yaml --profile models logs -f ollama
 ```
 
-## 19. Remote Access To Open WebUI
+## 19. Remote Access To AES Workbench
 
 Optional SSH tunnel template. Replace the placeholders locally and do not commit
 real usernames, hostnames, IP addresses, or credentials:
@@ -784,9 +798,9 @@ Local browser URL:
 http://127.0.0.1:3000
 ```
 
-Do not commit real Open WebUI usernames, email addresses, or passwords. Keep
-test accounts and credentials in a local password manager or ignored `.env`
-files only.
+Do not commit real usernames, email addresses, passwords, hostnames, IP
+addresses, or SSH details. Keep test accounts and credentials in a local
+password manager or ignored `.env` files only.
 
 ## 20. Useful Cleanup Commands
 
@@ -809,5 +823,5 @@ volumes:
 docker system prune
 ```
 
-Be careful with volume deletion commands because Ollama models and Open WebUI
-data live in mounted data directories/volumes.
+Be careful with volume deletion commands because Ollama models and generated
+AES artifacts live in mounted data directories/volumes.

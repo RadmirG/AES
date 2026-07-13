@@ -10,4 +10,3 @@
 -r langgraph/requirements.txt
 -r mcp/requirements.txt
 -r ollama/requirements.txt
--r open-webui/requirements.txt

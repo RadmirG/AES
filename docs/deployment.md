@@ -15,7 +15,7 @@ Each subproject owns its own service definition:
 ```bash
 docker compose -f ollama/ollama-server.dev.yaml up -d
 docker compose -f ollama/ollama-server.prod.yaml up -d
-docker compose -f open-webui/open-webui.yaml up -d
+docker compose -f web-ui/web-ui.yaml up -d --build
 docker compose -f mcp/compose.mcp.yaml --profile fenics up -d
 docker compose -f langgraph/langgraph.yaml up -d --build
 docker compose -f langgraph/langgraph.prod.yaml up -d --build
@@ -43,6 +43,14 @@ Production/server stack with model pull automation:
 
 ```bash
 AES_OLLAMA_MODEL=gemma4:26b docker compose -f deploy/compose.prod.yaml --profile models --profile fenics up -d --build
+```
+
+When upgrading after service-layout changes, remove orphaned containers once
+before starting the new stack:
+
+```bash
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics down --remove-orphans
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics up -d --build --force-recreate
 ```
 
 Production enables live FEniCS MCP execution by default through
@@ -107,13 +115,20 @@ $env:AES_OLLAMA_MODEL = "qwen3:4b"
 docker compose -f deploy/compose.dev.yaml --profile models up -d --build
 ```
 
-## Open WebUI AES Connection
+## AES Web UI Connection
 
-Open WebUI is connected to two backends:
+`web-ui` is the default browser-facing AES workbench. It is published on:
 
 ```text
-Ollama: http://ollama-server:11434
-AES:    http://langgraph:8001/v1
+http://127.0.0.1:3000
+```
+
+The container joins `ai-stack-net` and uses Nginx as a same-origin proxy:
+
+```text
+Browser -> web-ui:3000
+web-ui /v1/*        -> http://langgraph:8001/v1/*
+web-ui /artifacts/* -> http://langgraph:8001/artifacts/*
 ```
 
 The AES endpoint is OpenAI-compatible and exposes model `aes-agent` through:
@@ -123,9 +138,10 @@ GET /v1/models
 POST /v1/chat/completions
 ```
 
-`aes-agent` is the public wrapper model name shown to Open WebUI. It is not the
-raw LLM. Inside the LangGraph service, AES calls Ollama with the environment
-variable `OLLAMA_MODEL`, which is set by Compose from `AES_OLLAMA_MODEL`:
+`aes-agent` is the public wrapper model used by the AES workbench. It is not
+the raw LLM. Inside the LangGraph service, AES calls Ollama with the
+environment variable `OLLAMA_MODEL`, which is set by Compose from
+`AES_OLLAMA_MODEL`:
 
 ```text
 AES_OLLAMA_MODEL -> OLLAMA_MODEL -> Ollama /api/generate payload model
@@ -143,23 +159,25 @@ For production the documented default is:
 AES_OLLAMA_MODEL=gemma4:26b
 ```
 
-From the host or WSL, test AES through the published port:
+From the host or WSL, test AES through the direct LangGraph port:
 
 ```bash
 curl -s http://127.0.0.1:8002/v1/models | jq .
 ```
 
-From inside the Open WebUI container, use the Docker service URL:
+From the browser-facing workbench, the same request is available through the
+web UI proxy:
 
-```text
-http://langgraph:8001/v1
+```bash
+curl -s http://127.0.0.1:3000/v1/models | jq .
 ```
 
-Open WebUI persists some settings in its database. If Open WebUI was started
-before the AES OpenAI-compatible environment variables were added, the new
-variables may not appear automatically in the UI. Configure the AES OpenAI
-connection in the Open WebUI admin settings or recreate the local Open WebUI
-data directory for a fresh dev setup.
+Final answer artifact links use `AES_PUBLIC_BASE_URL`. Dev and prod default it
+to `http://127.0.0.1:3000`, so generated links go through the workbench's
+`/artifacts/` proxy and work through a single browser port or SSH tunnel.
+
+The AES Workbench is the only browser UI included by default in
+`deploy/compose.dev.yaml` and `deploy/compose.prod.yaml`.
 
 ## Ollama Model Manifests and Pull Automation
 
