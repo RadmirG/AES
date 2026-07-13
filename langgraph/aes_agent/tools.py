@@ -263,7 +263,10 @@ def _tool_output_errors(output: Dict[str, Any]) -> List[str]:
     else:
         errors = [str(raw_errors)] if str(raw_errors).strip() else []
 
-    if output.get("execution_mode") == "failed" and not errors:
+    execution_mode = output.get("execution_mode")
+    if execution_mode == "failed" and not errors:
         errors.append("Tool execution failed.")
+    elif execution_mode == "blocked" and not errors:
+        errors.append("Tool execution is blocked by configuration or provider policy.")
 
     return errors

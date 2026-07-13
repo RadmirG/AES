@@ -479,6 +479,44 @@ class ExtractionFallbackTests(unittest.TestCase):
         self.assertEqual(result["problem_class"], "forward_problem")
         self.assertEqual(result["pde_info"], "stationary_diffusion_equation")
 
+    @patch.object(
+        nodes,
+        "ollama_json",
+        side_effect=AssertionError("complete PDE-only request must not call Ollama"),
+    )
+    def test_consider_stationary_rectangle_request_reaches_output_question(
+        self,
+        _ollama_json,
+    ):
+        state = {
+            "raw_user_input": (
+                "Consider the stationary heat equation -div(a grad u)=f on a "
+                "2D rectangle in R^2 with follow dims [0, 1]x[0, 1], "
+                "Dirichlet boundary conditions u=g on the boundary. "
+                "The specific coefficient is a = 1. "
+                "Cube has dims of 1 in all directions. "
+                "The source is f = 1. "
+                "g = 1 constant on each bound."
+            )
+        }
+
+        state.update(nodes.classify_problem(state))
+        state.update(nodes.extract_mathematical_structure(state))
+        state.update(nodes.check_problem_completeness(state))
+        state.update(nodes.select_formulation(state))
+        state.update(nodes.validate_formulation(state))
+        state.update(nodes.select_solution_mode(state))
+
+        self.assertEqual(state["problem_class"], "forward_problem")
+        self.assertEqual(state["pde_info"], "stationary_diffusion_equation")
+        self.assertEqual(state["domain_info"], "rectangular_domain")
+        self.assertEqual(state["coefficient_info"], "1")
+        self.assertEqual(state["source_info"], "1")
+        self.assertEqual(state["bc_info"], "dirichlet_boundary_condition")
+        self.assertEqual(state["missing_information"], [])
+        self.assertEqual(state["validation_status"], "valid")
+        self.assertEqual(state["solution_mode"], "needs_output_intent")
+
     @patch.object(nodes, "ollama_json", return_value={})
     def test_structure_fallback_extracts_unit_square_source_and_bc(
         self,

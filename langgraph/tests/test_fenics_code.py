@@ -97,6 +97,41 @@ class FenicsCodeTests(unittest.TestCase):
         self.assertEqual(output["execution_mode"], "blocked")
         self.assertTrue(output["errors"])
 
+    @patch(
+        "aes_agent.fenics_code.ollama_json",
+        return_value={
+            "summary": "Generated test code.",
+            "python_code": SAFE_CODE,
+            "expected_artifacts": ["solution.xdmf"],
+        },
+    )
+    def test_execution_request_with_execution_disabled_is_blocked_but_keeps_code(
+        self,
+        _ollama_json,
+    ):
+        output = execute_fenics_code_solve(
+            {
+                "raw_user_input": "Execute this solve.",
+                "solution_mode": "execute_generated_fenics_code",
+                "numerical_recipe": {
+                    "provider": "local:fenics_code",
+                    "workflow": "llm_generated_dolfinx_script_v1",
+                    "execution_requested": True,
+                },
+            },
+            execute=False,
+        )
+
+        self.assertEqual(output["execution_mode"], "blocked")
+        self.assertTrue(output["errors"])
+        self.assertEqual(output["generated_files"][0]["name"], "solve.py")
+        artifact_statuses = {
+            artifact["name"]: artifact["status"]
+            for artifact in output["fenics_result"]["artifacts"]
+        }
+        self.assertEqual(artifact_statuses["solve.py"], "available")
+        self.assertEqual(artifact_statuses["solution.xdmf"], "blocked")
+
     def test_user_code_path_uses_user_code_without_llm(self):
         output = execute_fenics_code_solve(
             {
@@ -117,7 +152,7 @@ class FenicsCodeTests(unittest.TestCase):
             execute=False,
         )
 
-        self.assertEqual(output["execution_mode"], "generated")
+        self.assertEqual(output["execution_mode"], "blocked")
         self.assertEqual(output["safety_status"], "safe")
         self.assertIn("from dolfinx", output["generated_files"][0]["content"])
 

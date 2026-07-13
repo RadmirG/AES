@@ -61,6 +61,27 @@ The production stack is configured this way by default in
 `langgraph/langgraph.prod.yaml`. Start production with the `fenics` Compose
 profile so the `dolfinx-mcp` container is available.
 
+The flexible generated-code path has a separate execution flag:
+
+```text
+DOLFINX_CODE_EXECUTE=true
+DOLFINX_CODE_TIMEOUT=300
+```
+
+Production enables this flag by default. This only tells AES to attempt
+execution of checked generated/user-provided `solve.py` code. The provider must
+still expose a safe script-runner MCP tool, currently expected under one of
+these names:
+
+```text
+run_python_script
+execute_python_script
+run_script
+```
+
+If no such provider tool exists, AES should report a blocked tool result rather
+than a completed numerical solve.
+
 The external server can be built from:
 
 ```text

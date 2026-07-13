@@ -81,6 +81,13 @@ Live execution requires a FEniCS MCP script-runner contract, for example
 `run_python_script`, because the existing `dolfinx-mcp` allowlist intentionally
 blocks arbitrary `run_custom_code`.
 
+If the selected mode requests execution but generated-code execution is disabled
+or no provider script-runner is configured, AES should report a blocked tool
+result. Production sets `DOLFINX_CODE_EXECUTE=true` by default so AES attempts
+the provider execution path, while dev keeps it overrideable and disabled by
+default. The checked `solve.py` may still be stored as an artifact, but the run
+must not be reported as a completed numerical execution.
+
 ### Requested Output And Input Modes
 
 AES should not assume that every PDE description is a request for generated

@@ -509,6 +509,16 @@ Production enables live FEniCS MCP execution by default, so start it with the
 LangGraph does not use a hard Compose `depends_on` on `dolfinx-mcp`, because
 that would make commands using only `--profile models` invalid.
 
+Production also enables generated-code execution attempts by default:
+
+```text
+DOLFINX_CODE_EXECUTE=true
+```
+
+That flag removes the "DOLFINX_CODE_EXECUTE is not enabled" block. Actual code
+execution still requires the FEniCS MCP provider to expose a safe script-runner
+tool such as `run_python_script`.
+
 ```bash
 cd ~/projects/AES
 export AES_OLLAMA_MODEL=gemma4:26b
@@ -529,6 +539,12 @@ Check production services:
 
 ```bash
 docker compose -f deploy/compose.prod.yaml --profile models --profile fenics ps
+```
+
+Check the generated-code execution flag inside LangGraph:
+
+```bash
+docker exec langgraph printenv DOLFINX_CODE_EXECUTE
 ```
 
 Stop production services:

@@ -1189,19 +1189,48 @@ def _has_stationary_marker(text: str) -> bool:
 
 
 def _classify_problem_from_text(user_text: str) -> dict[str, str]:
+    lowered = _lower_text(user_text)
+    pde_markers = [
+        "heat equation",
+        "poisson",
+        "laplace",
+        "diffusion",
+        "pde",
+        "partial differential",
+        "-div",
+        "grad",
+        "boundary condition",
+        "dirichlet",
+        "neumann",
+    ]
+    forward_markers = [
+        "solve",
+        "compute",
+        "simulate",
+        "execute",
+        "run ",
+        "find ",
+        "consider",
+        "given",
+        "source",
+        "boundary condition",
+        "dirichlet",
+        "neumann",
+    ]
     problem_class = (
         "forward_problem"
         if _has_any(
             user_text,
-            ["solve", "compute", "simulate", "execute", "run ", "find "],
+            forward_markers,
         )
+        and _has_any(user_text, pde_markers)
         else "unknown_problem"
     )
 
-    lowered = _lower_text(user_text)
     if (
         "poisson" in lowered
         or "stationary_diffusion" in lowered
+        or "-div" in lowered
         or (_has_stationary_marker(user_text) and "heat" in lowered)
     ):
         pde_info = "stationary_diffusion_equation"
@@ -1283,6 +1312,12 @@ def _extract_expression_from_text(text: str, patterns: list[str]) -> str:
 
 def _clean_extracted_expression(value: str) -> str:
     cleaned = value.strip().strip("`$ ")
+    cleaned = re.sub(
+        r"^[a-zA-Z_]\w*\s*=\s*",
+        "",
+        cleaned,
+        count=1,
+    )
     parts = re.split(
         r"\s+(?:and|with)\s+"
         r"(?:diffusion\s+coefficient|coefficient|alpha|boundary|initial|time|source|f\s*=|k\s*=)\b",

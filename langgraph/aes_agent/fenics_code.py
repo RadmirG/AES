@@ -179,9 +179,19 @@ def execute_fenics_code_solve(
     if not should_execute:
         warnings = list(generation["warnings"])
         if execution_requested:
-            warnings.append(
+            error = (
                 "Execution was requested, but DOLFINX_CODE_EXECUTE is not enabled; "
                 "AES generated/stored the checked solve.py without running it."
+            )
+            warnings.append(error)
+            return _build_output(
+                recipe=recipe,
+                generation=generation,
+                safety=safety,
+                execution_mode="blocked",
+                status="blocked",
+                errors=[error],
+                warnings=warnings,
             )
         return _build_output(
             recipe=recipe,
@@ -658,7 +668,7 @@ def _build_output(
                 "media_type": "text/x-python",
                 "content": generation["python_code"],
             }
-        ] if status in {"generated", "completed"} else [],
+        ] if status in {"generated", "completed", "blocked"} else [],
         "code_summary": generation["summary"],
         "safety_status": safety["status"],
         "safety_warnings": safety["warnings"],
@@ -685,11 +695,16 @@ def _artifact_refs(names: List[str], *, status: str) -> List[Dict[str, Any]]:
     refs = []
     for name in names:
         kind, media_type = _artifact_kind(name)
+        artifact_status = (
+            "available"
+            if status == "blocked" and name == DEFAULT_SCRIPT_NAME
+            else status
+        )
         refs.append(
             {
                 "name": name,
                 "kind": kind,
-                "status": status,
+                "status": artifact_status,
                 "uri": f"inline://fenics-code/{name}" if name == DEFAULT_SCRIPT_NAME else f"mcp://dolfinx/workspace/{name}",
                 "storage": "inline" if name == DEFAULT_SCRIPT_NAME else "provider_workspace",
                 "media_type": media_type,
