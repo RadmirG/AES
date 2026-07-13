@@ -25,7 +25,6 @@ export function VtkResultViewer({ manifest }: Props) {
       return;
     }
 
-    let disposed = false;
     const renderWindow = vtkFullScreenRenderWindow.newInstance({
       rootContainer: containerRef.current,
       containerStyle: {
@@ -64,10 +63,6 @@ export function VtkResultViewer({ manifest }: Props) {
     loadDataset();
 
     return () => {
-      disposed = true;
-      if (!disposed) {
-        return;
-      }
       renderWindow.delete();
     };
   }, [dataset]);
@@ -75,9 +70,9 @@ export function VtkResultViewer({ manifest }: Props) {
   if (!dataset) {
     return (
       <div className="viewerPlaceholder">
-        <h2>No browser-fetchable VTK.js dataset yet</h2>
+        <strong>No browser-fetchable VTK.js dataset yet</strong>
         <p>
-          AES generated diagnostics and preview artifacts. Interactive rendering
+          AES has diagnostics and preview artifacts. Interactive FEM rendering
           starts when a `.vtu`, `.vtp`, `.vtk`, or `.vtkjs` artifact is served
           over HTTP.
         </p>

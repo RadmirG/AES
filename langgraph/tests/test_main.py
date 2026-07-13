@@ -7,6 +7,9 @@ class _FastAPIStub:
     def __init__(self, *args, **kwargs):
         pass
 
+    def add_middleware(self, *args, **kwargs):
+        return None
+
     def get(self, *args, **kwargs):
         return lambda func: func
 
@@ -22,6 +25,9 @@ class _BaseModelStub:
 fastapi_stub = types.ModuleType("fastapi")
 fastapi_stub.FastAPI = _FastAPIStub
 fastapi_stub.HTTPException = Exception
+fastapi_middleware_stub = types.ModuleType("fastapi.middleware")
+fastapi_cors_stub = types.ModuleType("fastapi.middleware.cors")
+fastapi_cors_stub.CORSMiddleware = object
 fastapi_responses_stub = types.ModuleType("fastapi.responses")
 fastapi_responses_stub.FileResponse = object
 fastapi_responses_stub.StreamingResponse = object
@@ -31,6 +37,8 @@ graph_stub = types.ModuleType("aes_agent.graph")
 graph_stub.graph = object()
 
 sys.modules.setdefault("fastapi", fastapi_stub)
+sys.modules.setdefault("fastapi.middleware", fastapi_middleware_stub)
+sys.modules.setdefault("fastapi.middleware.cors", fastapi_cors_stub)
 sys.modules.setdefault("fastapi.responses", fastapi_responses_stub)
 sys.modules.setdefault("pydantic", pydantic_stub)
 sys.modules.setdefault("requests", types.ModuleType("requests"))

@@ -821,6 +821,7 @@ def _append_tool_result_section(
             lines.append(f"  Artifact run: {_artifact_value(manifest.get('run_id'))}")
             lines.append(f"  Artifact manifest status: {_artifact_value(manifest.get('status'))}")
             lines.append(f"  Artifact reference count: {_artifact_value(artifact_count)}")
+            _append_primary_artifact_links(lines, manifest.get("artifacts") or [])
             _append_artifact_reference_summary(lines, manifest.get("artifacts") or [])
 
         manifest_path = output.get("manifest_path")
@@ -999,6 +1000,56 @@ def _append_artifact_reference_summary(
         summaries.append(f"... {len(artifacts) - 8} more")
     if summaries:
         lines.append(f"  Artifacts: {_artifact_list(summaries, limit=760)}")
+
+
+def _append_primary_artifact_links(
+    lines: list[str],
+    artifacts: Any,
+) -> None:
+    if not isinstance(artifacts, list) or not artifacts:
+        return
+
+    preferred_names = [
+        "viewer.html",
+        "preview.svg",
+        "viewer_manifest.json",
+        "diagnostics.json",
+        "solve.py",
+        "stdout.txt",
+    ]
+    by_name = {
+        str(artifact.get("name", "")): artifact
+        for artifact in artifacts
+        if isinstance(artifact, dict)
+        and str(artifact.get("storage", "")) == "aes_artifact_store"
+    }
+
+    rendered = []
+    for name in preferred_names:
+        artifact = by_name.get(name)
+        if not artifact:
+            continue
+        url = aes_artifact_uri_to_public_url(str(artifact.get("uri", "")))
+        if not url:
+            continue
+        label = _artifact_link_label(name)
+        rendered.append(f"  - [{label}]({url})")
+
+    if rendered:
+        lines.append("  Result links:")
+        lines.extend(rendered)
+
+
+def _artifact_link_label(name: str) -> str:
+    labels = {
+        "viewer.html": "Open interactive result viewer",
+        "preview.svg": "Open static preview",
+        "viewer_manifest.json": "Open viewer manifest",
+        "diagnostics.json": "Open diagnostics JSON",
+        "solve.py": "Open generated solve.py",
+        "stdout.txt": "Open execution stdout",
+    }
+    return labels.get(name, name)
 
 
 def _append_diagnostic_value(

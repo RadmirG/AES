@@ -21,6 +21,7 @@ AES/
   mcp/           # MCP provider infrastructure
   ollama/        # model runtime compose file and data
   open-webui/    # user interface compose file and data
+  web-ui/        # AES Workbench prototype: chat + result viewer
   deploy/        # dev/prod deployment entrypoints
   docs/          # architecture and operation docs
 ```
@@ -197,9 +198,9 @@ preview artifacts before final artifact storage.
 
 ### Visualization UI With OpenUI And VTK.js
 
-The visualization layer is deliberately separate from Open WebUI. Open WebUI is
-the chat client for `aes-agent`; `visualization-ui/` is the dedicated scientific
-viewer frontend. OpenUI is used as a development/prototyping tool for the
+The visualization layer is evolving into the AES web workbench. Open WebUI is
+the current chat client for `aes-agent`; `web-ui/` is the dedicated AES
+workbench frontend. OpenUI is used as a development/prototyping tool for the
 dashboard shell, while VTK.js is the browser rendering engine for FEM datasets.
 
 ```mermaid
@@ -227,7 +228,7 @@ flowchart TD
 
     L --> M["AES artifact HTTP API"]
     M --> N["Open WebUI answer links"]
-    M --> O["visualization-ui React app"]
+    M --> O["web-ui React app"]
     O --> P["VTK.js render viewport"]
     O --> Q["Diagnostics and artifact panels"]
 ```
@@ -243,8 +244,9 @@ Implemented pieces:
   `/artifacts/{run_id}/{filename}`.
 - `AES_PUBLIC_BASE_URL` controls the browser-facing base URL used in final
   artifact links; dev/prod Compose defaults it to `http://127.0.0.1:8002`.
-- `visualization-ui/` is a Vite/React/TypeScript scaffold with a VTK.js viewer
-  component, diagnostics panel, artifact panel, and an `openui_prompt.md` for
+- `web-ui/` is a Vite/React/TypeScript scaffold with a left-side AES chat panel,
+  optional Open WebUI iframe mode, result links, preview panel, diagnostics
+  panel, artifact panel, VTK.js viewer component, and an `openui_prompt.md` for
   refining the UI shell in OpenUI.
 
 Current limitation: provider-owned `mcp://...` solver outputs such as
@@ -255,6 +257,62 @@ VTK.js viewport becomes active when the manifest contains a browser-fetchable
 diagnostics, SVG preview, and raw artifact references. Later postprocessors can
 add PyVista/Matplotlib PNG snapshots, MP4/GIF transient animations, and actual
 VTK.js dataset conversion.
+
+### Future Unified AES Workbench
+
+The preferred long-term user experience is a single OpenUI-based AES workbench:
+one browser window containing chat, run status, artifacts, diagnostics, and the
+interactive VTK.js result viewer.
+
+This should not require Open WebUI to be embedded directly. Open WebUI is a
+complete chat application with its own routing, state, users, and deployment
+model. Embedding it inside another UI can create iframe, authentication, CORS,
+and styling constraints. The cleaner target is to reuse the protocol boundary
+instead: the AES workbench implements a chat panel that calls the same
+OpenAI-compatible AES endpoint that Open WebUI already uses.
+
+Open WebUI remains useful as the existing chat client during development and as
+a fallback operational UI. The future workbench becomes the integrated product
+UI for AES.
+
+```mermaid
+flowchart TD
+    A["web-ui / AES Workbench / OpenUI"] --> LP["Left pane"]
+    A --> RP["Right pane"]
+
+    LP --> B["Native AES chat panel"]
+    LP --> B2["Optional Open WebUI iframe"]
+    RP --> C["Run status"]
+    RP --> D["Artifact browser"]
+    RP --> E["VTK.js viewer"]
+
+    B --> F["AES OpenAI-compatible API"]
+    B2 -. "only if iframe embedding is allowed" .-> OW["Open WebUI"]
+    OW --> F
+    C --> G["AES run state"]
+    D --> H["AES artifact API"]
+    E --> H
+
+    F --> I["LangGraph"]
+    I --> J["FEniCS runner"]
+    J --> K["Artifact store"]
+    K --> H
+```
+
+Implementation direction:
+
+- Keep Open WebUI as the working chat UI for now.
+- Continue building `web-ui/` as the `aes-workbench` application rather than a
+  viewer-only page.
+- Use the native chat panel that calls `/v1/chat/completions` with model
+  `aes-agent`; keep Open WebUI iframe embedding experimental only.
+- Add a run panel that reads the latest `aes_result` and artifact manifest.
+- Add artifact and visualization panels driven by `viewer_manifest.json`.
+- CORS is configured through `AES_CORS_ORIGINS`; dev/prod defaults allow
+  `http://127.0.0.1:5173` and `http://localhost:5173` for the Vite workbench.
+- Later decide whether Open WebUI should be reverse-proxied or iframe-embedded
+  only if its account/admin/chat-history features are required inside the same
+  window.
 
 ## Artifact Store
 

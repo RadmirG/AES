@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Union
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -24,6 +25,22 @@ logging.basicConfig(
 
 app = FastAPI(title="LangGraph Service")
 logger = logging.getLogger("aes_agent")
+
+_cors_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "AES_CORS_ORIGINS",
+        "http://127.0.0.1:5173,http://localhost:5173",
+    ).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 AES_MODEL_ID = "aes-agent"
 AES_RESULT_CACHE_TTL_SECONDS = 10.0

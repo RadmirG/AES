@@ -19,6 +19,7 @@ venv/
 *.log
 artifacts/*
 !artifacts/.gitkeep
+visualization-ui/
 
 # Generated MCP provider workspaces
 mcp/providers/*/workspace/*

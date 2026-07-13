@@ -10,7 +10,7 @@ export function DiagnosticsPanel({ manifest }: Props) {
 
   return (
     <section className="card">
-      <h2>Diagnostics</h2>
+      <h3>Diagnostics</h3>
       <dl className="kv">
         <dt>Run id</dt>
         <dd>{String(diagnostics.run_id || "not available")}</dd>

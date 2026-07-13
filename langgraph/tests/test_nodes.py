@@ -506,6 +506,56 @@ class ArtifactNodeTests(unittest.TestCase):
         self.assertIn("Time samples", artifact)
         self.assertIn("solution.xdmf", artifact)
 
+    def test_final_artifact_includes_primary_result_links(self):
+        result = nodes.generate_artifact(
+            {
+                "problem_class": "forward_problem",
+                "pde_info": "time_dependent_heat_equation",
+                "domain_info": "unit_square",
+                "selected_formulation": "fem_problem_setup",
+                "solution_mode": "execute_generated_fenics_code",
+                "validation_status": "valid",
+                "numerical_recipe_status": "ready",
+                "selected_tools": ["artifact_store"],
+                "tool_execution_status": "completed",
+                "tool_results": [
+                    {
+                        "tool_name": "artifact_store",
+                        "provider": "local:artifact_store",
+                        "status": "completed",
+                        "output": {
+                            "execution_mode": "stored",
+                            "manifest": {
+                                "run_id": "run-1",
+                                "status": "completed",
+                                "artifacts": [
+                                    {
+                                        "name": "viewer.html",
+                                        "kind": "interactive_viewer",
+                                        "storage": "aes_artifact_store",
+                                        "uri": "aes://artifacts/run-1/viewer.html",
+                                    },
+                                    {
+                                        "name": "preview.svg",
+                                        "kind": "preview",
+                                        "storage": "aes_artifact_store",
+                                        "uri": "aes://artifacts/run-1/preview.svg",
+                                    },
+                                ],
+                            },
+                        },
+                        "error": "",
+                    }
+                ],
+                "tool_errors": [],
+            }
+        )
+
+        artifact = result["generated_artifact"]
+        self.assertIn("Result links:", artifact)
+        self.assertIn("[Open interactive result viewer](/artifacts/run-1/viewer.html)", artifact)
+        self.assertIn("[Open static preview](/artifacts/run-1/preview.svg)", artifact)
+
 
 class ExtractionFallbackTests(unittest.TestCase):
     STATIONARY_HEAT_REQUEST = (
