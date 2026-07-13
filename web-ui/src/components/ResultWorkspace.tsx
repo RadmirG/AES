@@ -27,6 +27,8 @@ export function ResultWorkspace({ result }: Props) {
   const manifestUrl = visualizationManifestUrl(aesResult);
   const artifactStore = latestArtifactStore(aesResult);
   const artifactManifest = manifestFromArtifactStore(artifactStore);
+  const artifactStatus =
+    typeof artifactManifest?.status === "string" ? artifactManifest.status : "no manifest";
 
   useEffect(() => {
     setViewerManifest(null);
@@ -65,7 +67,7 @@ export function ResultWorkspace({ result }: Props) {
             <strong>{aesResult?.next_action || "unknown"}</strong>
           </p>
         </div>
-        <div className="statusBadge">{artifactManifest?.status || "no manifest"}</div>
+        <div className="statusBadge">{artifactStatus}</div>
       </header>
 
       <section className="linkStrip">

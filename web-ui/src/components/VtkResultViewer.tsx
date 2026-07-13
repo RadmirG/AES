@@ -23,6 +23,7 @@ export function VtkResultViewer({ manifest }: Props) {
     if (!containerRef.current || !dataset) {
       return;
     }
+    const activeDataset = dataset;
 
     const renderWindow = vtkFullScreenRenderWindow.newInstance({
       container: containerRef.current,
@@ -36,14 +37,14 @@ export function VtkResultViewer({ manifest }: Props) {
 
     async function loadDataset() {
       try {
-        const response = await fetch(dataset.url);
+        const response = await fetch(activeDataset.url);
         if (!response.ok) {
           throw new Error(`Dataset request failed: ${response.status}`);
         }
         const buffer = await response.arrayBuffer();
-        const reader = readerFor(dataset.artifact.name);
+        const reader = readerFor(activeDataset.artifact.name);
         if (!reader) {
-          throw new Error(`Unsupported VTK.js dataset type: ${dataset.artifact.name}`);
+          throw new Error(`Unsupported VTK.js dataset type: ${activeDataset.artifact.name}`);
         }
         reader.parseAsArrayBuffer(buffer);
 
