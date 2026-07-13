@@ -446,6 +446,7 @@ problem = LinearProblem(
     L,
     bcs=[bc],
     u=u_sol,
+    petsc_options_prefix="aes_heat_",
     petsc_options={{"ksp_type": "cg", "pc_type": "hypre"}},
 )
 
@@ -513,6 +514,7 @@ problem = LinearProblem(
     L,
     bcs=[bc],
     u=u_sol,
+    petsc_options_prefix="aes_poisson_",
     petsc_options={{"ksp_type": "cg", "pc_type": "hypre"}},
 )
 problem.solve()

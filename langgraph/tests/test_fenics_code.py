@@ -6,6 +6,7 @@ from unittest.mock import patch
 sys.modules.setdefault("requests", types.ModuleType("requests"))
 
 from aes_agent.fenics_code import (
+    _fallback_dolfinx_script,
     build_user_code_candidate,
     execute_fenics_code_solve,
     validate_python_code_safety,
@@ -177,6 +178,32 @@ class FenicsCodeTests(unittest.TestCase):
             for artifact in output["fenics_result"]["artifacts"]
         ]
         self.assertEqual(artifact_names, ["solve.py", "solution.xdmf"])
+
+    def test_fallback_heat_script_sets_petsc_options_prefix(self):
+        script = _fallback_dolfinx_script(
+            {
+                "raw_user_input": "Solve transient heat equation with du/dt.",
+                "pde_info": "time_dependent_heat_equation",
+                "coefficient_info": "1",
+                "source_info": "1",
+                "initial_condition_info": "sin(pi*x)*sin(pi*y)",
+                "time_info": "T=1, dt=0.01",
+            }
+        )
+
+        self.assertIn('petsc_options_prefix="aes_heat_"', script)
+
+    def test_fallback_poisson_script_sets_petsc_options_prefix(self):
+        script = _fallback_dolfinx_script(
+            {
+                "raw_user_input": "Solve stationary diffusion equation.",
+                "pde_info": "stationary_diffusion_equation",
+                "coefficient_info": "1",
+                "source_info": "1",
+            }
+        )
+
+        self.assertIn('petsc_options_prefix="aes_poisson_"', script)
 
     @patch(
         "aes_agent.fenics_code.ollama_json",
