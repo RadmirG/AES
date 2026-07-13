@@ -61,7 +61,7 @@ export function ResultWorkspace({ result }: Props) {
         <div>
           <h2>{aesResult?.pde_info || "AES result"}</h2>
           <p>
-            Status: <strong>{aesResult?.agent_status || "unknown"}</strong> · Next:{" "}
+            Status: <strong>{aesResult?.agent_status || "unknown"}</strong> | Next:{" "}
             <strong>{aesResult?.next_action || "unknown"}</strong>
           </p>
         </div>
@@ -119,4 +119,3 @@ function labelFor(name: string) {
   };
   return labels[name] || name;
 }
-

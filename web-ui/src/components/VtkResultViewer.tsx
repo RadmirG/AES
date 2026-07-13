@@ -3,7 +3,6 @@ import vtkActor from "@kitware/vtk.js/Rendering/Core/Actor";
 import vtkMapper from "@kitware/vtk.js/Rendering/Core/Mapper";
 import vtkFullScreenRenderWindow from "@kitware/vtk.js/Rendering/Misc/FullScreenRenderWindow";
 import vtkXMLPolyDataReader from "@kitware/vtk.js/IO/XML/XMLPolyDataReader";
-import vtkXMLUnstructuredGridReader from "@kitware/vtk.js/IO/XML/XMLUnstructuredGridReader";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AesArtifact, AesViewerManifest } from "../types";
 
@@ -26,7 +25,7 @@ export function VtkResultViewer({ manifest }: Props) {
     }
 
     const renderWindow = vtkFullScreenRenderWindow.newInstance({
-      rootContainer: containerRef.current,
+      container: containerRef.current,
       containerStyle: {
         height: "100%",
         width: "100%",
@@ -43,6 +42,9 @@ export function VtkResultViewer({ manifest }: Props) {
         }
         const buffer = await response.arrayBuffer();
         const reader = readerFor(dataset.artifact.name);
+        if (!reader) {
+          throw new Error(`Unsupported VTK.js dataset type: ${dataset.artifact.name}`);
+        }
         reader.parseAsArrayBuffer(buffer);
 
         const mapper = vtkMapper.newInstance();
@@ -73,8 +75,9 @@ export function VtkResultViewer({ manifest }: Props) {
         <strong>No browser-fetchable VTK.js dataset yet</strong>
         <p>
           AES has diagnostics and preview artifacts. Interactive FEM rendering
-          starts when a `.vtu`, `.vtp`, `.vtk`, or `.vtkjs` artifact is served
-          over HTTP.
+          starts when a `.vtp` artifact is served over HTTP. Support for
+          `.vtu` and `.vtkjs` conversion is planned in the next visualization
+          postprocess step.
         </p>
       </div>
     );
@@ -90,6 +93,9 @@ export function VtkResultViewer({ manifest }: Props) {
 
 function firstFetchableDataset(artifacts: AesArtifact[]) {
   for (const artifact of artifacts) {
+    if (!canReadDataset(artifact.name)) {
+      continue;
+    }
     const url = artifact.public_url || fetchableUrl(artifact.uri);
     if (url) {
       return { artifact, url };
@@ -106,10 +112,12 @@ function fetchableUrl(uri: string) {
 }
 
 function readerFor(name: string) {
-  const lowered = name.toLowerCase();
-  if (lowered.endsWith(".vtp")) {
+  if (canReadDataset(name)) {
     return vtkXMLPolyDataReader.newInstance();
   }
-  return vtkXMLUnstructuredGridReader.newInstance();
+  return null;
 }
 
+function canReadDataset(name: string) {
+  return name.toLowerCase().endsWith(".vtp");
+}
