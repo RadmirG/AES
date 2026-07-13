@@ -261,15 +261,16 @@ def generate_dolfinx_script(
     warnings: List[str] = []
 
     if not code:
-        code = _fallback_dolfinx_script(state)
-        summary = (
-            "Generated a conservative DOLFINx fallback script because the LLM "
-            "did not return usable code."
-        )
-        expected_artifacts = ["solve.py", "solution.xdmf", "diagnostics.json"]
-        warnings.append(
-            "LLM code generation returned no usable python_code; AES used "
-            "its deterministic fallback DOLFINx template."
+        generation = _fallback_generation(state)
+        code = generation["python_code"]
+        summary = generation["summary"]
+        expected_artifacts = generation["expected_artifacts"]
+        warnings.extend(
+            [
+                "LLM code generation returned no usable python_code; AES used "
+                "its deterministic fallback DOLFINx template.",
+                *generation["warnings"],
+            ]
         )
 
     if not expected_artifacts:
@@ -393,6 +394,21 @@ def _fallback_dolfinx_script(state: AgentState) -> str:
     if "time_dependent_heat" in text or "transient" in text or "du/dt" in text:
         return _fallback_heat_script(state)
     return _fallback_poisson_script(state)
+
+
+def _fallback_generation(state: AgentState) -> Dict[str, Any]:
+    return {
+        "summary": (
+            "Generated a conservative DOLFINx fallback script because the LLM "
+            "did not return usable code."
+        ),
+        "python_code": _fallback_dolfinx_script(state),
+        "expected_artifacts": ["solve.py", "solution.xdmf", "diagnostics.json"],
+        "warnings": [
+            "AES used its deterministic fallback DOLFINx template only after "
+            "LLM code generation returned no usable python_code."
+        ],
+    }
 
 
 def _fallback_heat_script(state: AgentState) -> str:
@@ -596,9 +612,13 @@ def _extract_float(text: str, pattern: str, default: str) -> str:
     return match.group(1) if match else default
 
 
-def _should_execute_live() -> bool:
-    value = os.getenv("DOLFINX_CODE_EXECUTE", "").strip().lower()
+def _env_flag(name: str) -> bool:
+    value = os.getenv(name, "").strip().lower()
     return value in {"1", "true", "yes", "on"}
+
+
+def _should_execute_live() -> bool:
+    return _env_flag("DOLFINX_CODE_EXECUTE")
 
 
 def _default_code_execution_client() -> MCPCodeExecutionClient | None:

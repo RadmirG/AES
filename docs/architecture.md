@@ -55,7 +55,7 @@ flowchart TD
     A["User PDE request"] --> B["LangGraph intent + problem extraction"]
     B --> C["Requested output?"]
 
-    C -->|executable Python file| D["LLM generate DOLFINx script"]
+    C -->|executable Python file| D["LLM generate DOLFINx solve.py"]
     C -->|execute and solve| D
 
     D --> E["Static code safety check"]
@@ -68,10 +68,13 @@ flowchart TD
     I -->|no| J["LLM repair loop with stderr, max N tries"]
     J --> D
 
+    D -->|no usable code| D1["Conservative deterministic fallback template"]
+    D1 --> E
+
     I -->|yes| K["Artifact store"]
     K --> L["Final AES answer with code + result links"]
 
-    C -->|known simple workflow| M["Optional deterministic MCP recipe path"]
+    C -->|known low-level smoke workflow| M["Optional deterministic MCP recipe path"]
     M --> K
 ```
 
@@ -81,6 +84,10 @@ low-level provider tools remain hidden behind wrapper code. The current
 Live execution requires a FEniCS MCP script-runner contract, for example
 `run_python_script`, because the existing `dolfinx-mcp` allowlist intentionally
 blocks arbitrary `run_custom_code`.
+
+The generated-code path is LLM-first. A conservative deterministic fallback
+template is allowed only when the LLM returns no usable Python code, so common
+smoke tests still produce a checked artifact instead of failing silently.
 
 If the selected mode requests execution but generated-code execution is disabled
 or no provider script-runner is configured, AES should report a blocked tool
@@ -251,6 +258,10 @@ Implemented pieces:
   panel, result links, preview panel, diagnostics panel, artifact panel, VTK.js
   viewer component, and an `openui_prompt.md` for refining the UI shell in
   OpenUI.
+- The `web-ui` Nginx proxy allows long-running `/v1/` requests so the browser
+  can receive the final `aes_result` after FEniCS execution and artifact
+  postprocessing. Without this, LangGraph may finish and store artifacts after
+  the browser has already received a proxy timeout.
 
 Current limitation: provider-owned `mcp://...` solver outputs such as
 `solution.xdmf` and `solution.h5` are still references unless a provider
@@ -289,6 +300,29 @@ flowchart TD
     K --> H
 ```
 
+The first implemented Workbench session model is browser-local:
+
+```mermaid
+flowchart TD
+    A["Load http://127.0.0.1:3000 or tunnel port"] --> B{"Stored Workbench user?"}
+    B -->|no| C["Show login screen"]
+    C --> D["Create local user session"]
+    B -->|yes| D
+    D --> E["Load saved conversations from localStorage"]
+    E --> F["Select active chat"]
+    F --> G["Left pane chat + progress log"]
+    F --> H["Right pane latest result"]
+    G --> I["POST /v1/chat/completions"]
+    I --> J["Visible AES progress steps while request runs"]
+    J --> K["Final response with aes_result"]
+    K --> L["Persist turns, result, artifacts in localStorage"]
+    L --> H
+```
+
+This is not a security boundary yet. It gives the prototype stable browser
+sessions, saved chats, and refresh persistence. A later production account
+system can replace the localStorage layer with a server-side conversation API.
+
 Implementation direction:
 
 - Run `web-ui` as the default UI container on `ai-stack-net`, published on
@@ -297,6 +331,10 @@ Implementation direction:
   viewer-only page.
 - Use the native chat panel that calls `/v1/chat/completions` with model
   `aes-agent`.
+- Show a Workbench-side progress log during long AES requests so users can see
+  the expected flow instead of a frozen chat.
+- Persist per-user local conversations and the latest `aes_result` so refreshes
+  do not clear the chat or result pane.
 - Add a run panel that reads the latest `aes_result` and artifact manifest.
 - Add artifact and visualization panels driven by `viewer_manifest.json`.
 - CORS is configured through `AES_CORS_ORIGINS`; dev/prod defaults allow

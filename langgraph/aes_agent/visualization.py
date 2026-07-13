@@ -168,7 +168,7 @@ def _viewer_manifest(
         "preview": {
             "static": PREVIEW_NAME,
             "interactive": VIEWER_HTML_NAME,
-            "recommended_frontend": "visualization-ui with VTK.js",
+            "recommended_frontend": "web-ui with VTK.js",
         },
         "capabilities": {
             "static_preview": True,
@@ -380,7 +380,7 @@ def _render_viewer_html(manifest: Dict[str, Any]) -> str:
       <h1>AES Visualization Manifest</h1>
       <div class="card">
         <p><strong>Static preview:</strong> <a href="{PREVIEW_NAME}">{PREVIEW_NAME}</a></p>
-        <p><strong>Recommended app:</strong> <code>visualization-ui</code> with VTK.js</p>
+        <p><strong>Recommended app:</strong> <code>web-ui</code> with VTK.js</p>
       </div>
       <div class="card">
         <h2>VTK.js datasets</h2>

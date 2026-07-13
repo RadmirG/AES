@@ -10,6 +10,7 @@ body {
 }
 
 button,
+input,
 textarea {
   font: inherit;
 }
@@ -66,6 +67,31 @@ a:hover {
   font-size: 13px;
 }
 
+.userMenu {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.userMenu button,
+.newChatButton,
+.loginCard button {
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: #111827;
+  color: #e5e7eb;
+  cursor: pointer;
+}
+
+.userMenu button:hover,
+.newChatButton:hover,
+.loginCard button:hover {
+  border-color: #38bdf8;
+}
+
 .composer button {
   border: 1px solid #334155;
   border-radius: 10px;
@@ -83,6 +109,70 @@ a:hover {
 .composer button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.chatShell {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.conversationSidebar {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 12px;
+  min-height: 0;
+  padding: 14px;
+  border-right: 1px solid #1f2937;
+  background: rgba(2, 6, 23, 0.55);
+}
+
+.newChatButton {
+  border-color: #38bdf8;
+  background: #075985;
+}
+
+.conversationList {
+  overflow: auto;
+}
+
+.conversationItem {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  margin-bottom: 8px;
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  padding: 10px;
+  background: #020617;
+  color: #cbd5e1;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversationItem.active {
+  border-color: #38bdf8;
+  background: rgba(7, 89, 133, 0.35);
+}
+
+.conversationItem span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversationItem small {
+  color: #94a3b8;
+}
+
+.deleteConversation {
+  justify-self: start;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #fca5a5;
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .chatPanel {
@@ -151,6 +241,70 @@ a:hover {
   border: 1px solid #f97316;
   border-radius: 10px;
   background: rgba(127, 29, 29, 0.6);
+}
+
+.progressLog {
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid #334155;
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.82);
+}
+
+.progressLog strong {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.progressLog ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.progressStep {
+  display: grid;
+  gap: 3px;
+  padding-left: 18px;
+  position: relative;
+}
+
+.progressStep::before {
+  position: absolute;
+  top: 5px;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #475569;
+  content: "";
+}
+
+.progressStep.done::before {
+  background: #22c55e;
+}
+
+.progressStep.active::before {
+  background: #38bdf8;
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.16);
+}
+
+.progressStep.error::before {
+  background: #f97316;
+}
+
+.progressStep.pending {
+  opacity: 0.55;
+}
+
+.progressStep span {
+  color: #e5e7eb;
+}
+
+.progressStep small {
+  color: #94a3b8;
 }
 
 .emptyState,
@@ -334,6 +488,63 @@ a:hover {
   color: #fde68a;
 }
 
+.loginShell {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(14, 165, 233, 0.22), transparent 34rem),
+    #020617;
+}
+
+.loginCard {
+  display: grid;
+  gap: 18px;
+  width: min(440px, 100%);
+  border: 1px solid #334155;
+  border-radius: 20px;
+  padding: 28px;
+  background: rgba(15, 23, 42, 0.92);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+}
+
+.loginCard h1 {
+  margin: 0;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #38bdf8;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.loginCard label {
+  display: grid;
+  gap: 8px;
+  color: #cbd5e1;
+}
+
+.loginCard input {
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 11px 12px;
+  background: #020617;
+  color: #e5e7eb;
+}
+
+.loginCard .errorBox {
+  margin: 0;
+}
+
+.loginCard button {
+  border-color: #38bdf8;
+  background: #075985;
+}
+
 @media (max-width: 1100px) {
   .workbench {
     grid-template-columns: 1fr;
@@ -346,5 +557,24 @@ a:hover {
 
   .previewGrid {
     grid-template-columns: 1fr;
+  }
+
+  .chatShell {
+    grid-template-columns: 1fr;
+  }
+
+  .conversationSidebar {
+    border-right: 0;
+    border-bottom: 1px solid #1f2937;
+  }
+
+  .conversationList {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+  }
+
+  .conversationItem {
+    min-width: 220px;
   }
 }

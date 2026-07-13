@@ -24,13 +24,21 @@ export function artifactsFromResult(aesResult?: AesResult): AesArtifact[] {
 }
 
 export function publicArtifactUrl(artifact: AesArtifact) {
+  const aesUrl = aesArtifactUrl(artifact.uri || "");
+  if (aesUrl) {
+    return aesUrl;
+  }
   if (artifact.public_url) {
     return artifact.public_url;
   }
   if (artifact.uri?.startsWith("http://") || artifact.uri?.startsWith("https://")) {
     return artifact.uri;
   }
-  const match = artifact.uri?.match(/^aes:\/\/artifacts\/([^/]+)\/(.+)$/);
+  return "";
+}
+
+function aesArtifactUrl(uri: string) {
+  const match = uri.match(/^aes:\/\/artifacts\/([^/]+)\/(.+)$/);
   if (!match) {
     return "";
   }
@@ -70,4 +78,3 @@ export function previewUrl(aesResult?: AesResult) {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
-

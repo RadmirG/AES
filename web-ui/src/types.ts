@@ -3,6 +3,31 @@ export type ChatRole = "user" | "assistant";
 export type ChatTurn = {
   role: ChatRole;
   content: string;
+  createdAt?: string;
+};
+
+export type WorkbenchUser = {
+  username: string;
+  displayName: string;
+  signedInAt: string;
+};
+
+export type Conversation = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  turns: ChatTurn[];
+  result?: WorkbenchResult;
+};
+
+export type ProgressStatus = "pending" | "active" | "done" | "error";
+
+export type ProgressStep = {
+  id: string;
+  label: string;
+  detail: string;
+  status: ProgressStatus;
 };
 
 export type AesArtifact = {
@@ -70,4 +95,3 @@ export type WorkbenchResult = {
   assistantText: string;
   aesResult?: AesResult;
 };
-

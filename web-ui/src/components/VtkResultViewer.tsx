@@ -4,6 +4,7 @@ import vtkMapper from "@kitware/vtk.js/Rendering/Core/Mapper";
 import vtkFullScreenRenderWindow from "@kitware/vtk.js/Rendering/Misc/FullScreenRenderWindow";
 import vtkXMLPolyDataReader from "@kitware/vtk.js/IO/XML/XMLPolyDataReader";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { publicArtifactUrl } from "../artifacts";
 import type { AesArtifact, AesViewerManifest } from "../types";
 
 type Props = {
@@ -97,7 +98,7 @@ function firstFetchableDataset(artifacts: AesArtifact[]) {
     if (!canReadDataset(artifact.name)) {
       continue;
     }
-    const url = artifact.public_url || fetchableUrl(artifact.uri);
+    const url = publicArtifactUrl(artifact) || fetchableUrl(artifact.uri);
     if (url) {
       return { artifact, url };
     }

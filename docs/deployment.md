@@ -131,6 +131,11 @@ web-ui /v1/*        -> http://langgraph:8001/v1/*
 web-ui /artifacts/* -> http://langgraph:8001/artifacts/*
 ```
 
+The `/v1/` proxy is configured for long-running AES requests. This matters for
+first model loads, generated-code runs, FEniCS execution, and visualization
+postprocessing: the browser result workspace updates only after the
+OpenAI-compatible response returns with `aes_result`.
+
 The AES endpoint is OpenAI-compatible and exposes model `aes-agent` through:
 
 ```text
@@ -159,6 +164,9 @@ For production the documented default is:
 AES_OLLAMA_MODEL=gemma4:26b
 ```
 
+The generated-code path is LLM-first. AES only uses its conservative fallback
+DOLFINx template when the configured LLM returns no usable Python code.
+
 From the host or WSL, test AES through the direct LangGraph port:
 
 ```bash
@@ -175,9 +183,22 @@ curl -s http://127.0.0.1:3000/v1/models | jq .
 Final answer artifact links use `AES_PUBLIC_BASE_URL`. Dev and prod default it
 to `http://127.0.0.1:3000`, so generated links go through the workbench's
 `/artifacts/` proxy and work through a single browser port or SSH tunnel.
+Inside `web-ui`, `aes://artifacts/...` URIs are converted to same-origin
+`/artifacts/...` URLs before absolute public URLs are used, which keeps the
+right result pane usable when the browser connects through a different local
+tunnel port such as `3001`.
 
 The AES Workbench is the only browser UI included by default in
 `deploy/compose.dev.yaml` and `deploy/compose.prod.yaml`.
+
+On first load, `web-ui` shows a local Workbench login screen. This login
+separates saved browser-local conversations by user name. It is meant for the
+prototype and does not authenticate against the server yet.
+
+Chats, assistant answers, the latest `aes_result`, and right-pane result state
+are stored in browser `localStorage`. Refreshing the page keeps the active
+conversation and previously generated result links. Clearing browser storage or
+using a different browser profile starts with an empty local history.
 
 ## Ollama Model Manifests and Pull Automation
 
