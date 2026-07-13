@@ -23,6 +23,7 @@ fastapi_stub = types.ModuleType("fastapi")
 fastapi_stub.FastAPI = _FastAPIStub
 fastapi_stub.HTTPException = Exception
 fastapi_responses_stub = types.ModuleType("fastapi.responses")
+fastapi_responses_stub.FileResponse = object
 fastapi_responses_stub.StreamingResponse = object
 pydantic_stub = types.ModuleType("pydantic")
 pydantic_stub.BaseModel = _BaseModelStub

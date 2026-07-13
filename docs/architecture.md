@@ -191,12 +191,70 @@ Open WebUI answer from structured tool output:
 - artifact references for `solve.py`, `diagnostics.json`, stdout/stderr logs,
   and solver outputs such as `solution.xdmf` / `solution.h5`.
 
-The current text response can show diagnostics and artifact references. Rich
-browser previews require additional artifact serving or preview artifacts. For
-example, a future post-processing step can generate PNG snapshots, MP4/GIF time
-animations, or signed HTTP links from AES-owned artifact storage. Until that
-exists, provider-owned `mcp://...` URIs identify where the files live, while
-AES-owned files are stored under `AES_ARTIFACT_ROOT`.
+The current text response shows diagnostics and artifact references. AES now
+also has a first visualization postprocess step that creates browser-facing
+preview artifacts before final artifact storage.
+
+### Visualization UI With OpenUI And VTK.js
+
+The visualization layer is deliberately separate from Open WebUI. Open WebUI is
+the chat client for `aes-agent`; `visualization-ui/` is the dedicated scientific
+viewer frontend. OpenUI is used as a development/prototyping tool for the
+dashboard shell, while VTK.js is the browser rendering engine for FEM datasets.
+
+```mermaid
+flowchart TD
+    A["FEniCS solve completed"] --> B["fenics_code_solve result"]
+    B --> C["visualization_postprocess"]
+
+    C --> D["Read structured diagnostics"]
+    C --> E["Inspect artifact references"]
+
+    D --> F["preview.svg"]
+    D --> G["viewer_manifest.json"]
+    E --> G
+    G --> H["viewer.html shell"]
+
+    E --> I{"VTK.js-readable data?"}
+    I -->|yes: .vtu/.vtp/.vtk/.vtkjs| J["Mark dataset interactive"]
+    I -->|no| K["Show diagnostics + raw artifact links"]
+
+    F --> L["artifact_store"]
+    G --> L
+    H --> L
+    J --> L
+    K --> L
+
+    L --> M["AES artifact HTTP API"]
+    M --> N["Open WebUI answer links"]
+    M --> O["visualization-ui React app"]
+    O --> P["VTK.js render viewport"]
+    O --> Q["Diagnostics and artifact panels"]
+```
+
+Implemented pieces:
+
+- `visualization_postprocess` tool runs after FEniCS solver tools and before
+  `artifact_store`.
+- It generates `preview.svg`, `viewer_manifest.json`, and `viewer.html` as
+  inline AES artifacts.
+- `artifact_store` materializes those files under `AES_ARTIFACT_ROOT`.
+- The LangGraph API exposes stored artifacts through
+  `/artifacts/{run_id}/{filename}`.
+- `AES_PUBLIC_BASE_URL` controls the browser-facing base URL used in final
+  artifact links; dev/prod Compose defaults it to `http://127.0.0.1:8002`.
+- `visualization-ui/` is a Vite/React/TypeScript scaffold with a VTK.js viewer
+  component, diagnostics panel, artifact panel, and an `openui_prompt.md` for
+  refining the UI shell in OpenUI.
+
+Current limitation: provider-owned `mcp://...` solver outputs such as
+`solution.xdmf` and `solution.h5` are still references unless a provider
+resource-read/copy step materializes them into AES-owned `/artifacts`. The
+VTK.js viewport becomes active when the manifest contains a browser-fetchable
+`.vtu`, `.vtp`, `.vtk`, or `.vtkjs` artifact URL. Until then the viewer shows
+diagnostics, SVG preview, and raw artifact references. Later postprocessors can
+add PyVista/Matplotlib PNG snapshots, MP4/GIF transient animations, and actual
+VTK.js dataset conversion.
 
 ## Artifact Store
 
@@ -213,7 +271,8 @@ LangGraph containers. Provider workspaces, such as the FEniCS `/workspace`, are
 treated as scratch or provider-owned storage, not as final AES output locations.
 For generated-code runs, AES also materializes inline artifacts returned by
 `fenics_code_solve`, currently including the checked `solve.py`, captured
-`diagnostics.json`, and stdout/stderr logs when available.
+`diagnostics.json`, stdout/stderr logs, and visualization files from
+`visualization_postprocess` when available.
 
 ## MCP Provider Layer
 

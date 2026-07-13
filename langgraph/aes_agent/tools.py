@@ -7,6 +7,7 @@ from aes_agent.artifact_store import persist_artifacts
 from aes_agent.fenics_code import execute_fenics_code_solve
 from aes_agent.fenics_mcp import execute_fenics_forward_solve
 from aes_agent.state import AgentState
+from aes_agent.visualization import build_visualization_artifacts
 
 
 class ToolResult(TypedDict):
@@ -92,6 +93,10 @@ def store_artifacts(state: AgentState) -> Dict[str, Any]:
     return persist_artifacts(state)
 
 
+def postprocess_visualization(state: AgentState) -> Dict[str, Any]:
+    return build_visualization_artifacts(state)
+
+
 FENICS_FORWARD_SOLVE_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "description": (
@@ -128,6 +133,20 @@ FENICS_CODE_SOLVE_SCHEMA: Dict[str, Any] = {
         "solution_mode",
         "numerical_recipe_status",
         "numerical_recipe",
+    ],
+}
+
+
+VISUALIZATION_POSTPROCESS_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "Consumes FEniCS tool results and creates AES visualization artifacts "
+        "such as preview.svg, viewer_manifest.json, and viewer.html. VTK.js "
+        "datasets are linked when a provider produces .vtu, .vtp, or .vtkjs "
+        "files."
+    ),
+    "required_state": [
+        "tool_results",
     ],
 }
 
@@ -172,6 +191,17 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
         provider="local:fenics_code",
         handler=run_fenics_code_solve,
         input_schema=FENICS_CODE_SOLVE_SCHEMA,
+    ),
+    "visualization_postprocess": ToolDefinition(
+        name="visualization_postprocess",
+        description=(
+            "Build browser-facing visualization artifacts from solver outputs: "
+            "diagnostic preview, viewer manifest, and OpenUI/VTK.js-ready viewer "
+            "shell."
+        ),
+        provider="local:visualization",
+        handler=postprocess_visualization,
+        input_schema=VISUALIZATION_POSTPROCESS_SCHEMA,
     ),
     "artifact_store": ToolDefinition(
         name="artifact_store",

@@ -266,7 +266,11 @@ class ToolNodeTests(unittest.TestCase):
 
         self.assertEqual(
             result["selected_tools"],
-            ["fenics_forward_solve", "artifact_store"],
+            [
+                "fenics_forward_solve",
+                "visualization_postprocess",
+                "artifact_store",
+            ],
         )
 
     @patch(
@@ -285,7 +289,10 @@ class ToolNodeTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(result["selected_tools"], ["fenics_code_solve", "artifact_store"])
+        self.assertEqual(
+            result["selected_tools"],
+            ["fenics_code_solve", "visualization_postprocess", "artifact_store"],
+        )
 
     def test_terminal_paths_select_only_artifact_store(self):
         result = nodes.select_artifact_store({"agent_status": "needs_clarification"})

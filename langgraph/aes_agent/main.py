@@ -4,13 +4,15 @@ import copy
 import hashlib
 import json
 import logging
+import os
 import time
 import threading
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Union
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from aes_agent.graph import graph
@@ -405,6 +407,22 @@ def health():
 def invoke(query: Query):
     logger.info("Direct /invoke request received.")
     return run_aes_agent(query.text)
+
+
+@app.get("/artifacts/{run_id}/{artifact_path:path}")
+def get_artifact(run_id: str, artifact_path: str):
+    root = Path(os.getenv("AES_ARTIFACT_ROOT", "artifacts")).resolve()
+    requested = (root / run_id / artifact_path).resolve()
+
+    try:
+        requested.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Artifact not found.") from exc
+
+    if not requested.is_file():
+        raise HTTPException(status_code=404, detail="Artifact not found.")
+
+    return FileResponse(str(requested))
 
 
 @app.get("/v1/models")

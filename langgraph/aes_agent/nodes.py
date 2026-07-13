@@ -23,6 +23,7 @@ from aes_agent.tools import (
     list_available_tools,
     tool_catalog,
 )
+from aes_agent.visualization import aes_artifact_uri_to_public_url
 
 
 def ingest_problem(state: AgentState) -> Dict[str, Any]:
@@ -505,6 +506,7 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
     }
 
     available_tools = list_available_tools()
+    visualization_available = "visualization_postprocess" in available_tools
     if (
         state.get("numerical_recipe_status") == "ready"
         and (
@@ -518,6 +520,8 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
         and "fenics_code_solve" in available_tools
     ):
         selected_tools = ["fenics_code_solve"]
+        if visualization_available:
+            selected_tools.append("visualization_postprocess")
         if "artifact_store" in available_tools:
             selected_tools.append("artifact_store")
         return {
@@ -529,6 +533,8 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
         and "fenics_forward_solve" in available_tools
     ):
         selected_tools = ["fenics_forward_solve"]
+        if visualization_available:
+            selected_tools.append("visualization_postprocess")
         if "artifact_store" in available_tools:
             selected_tools.append("artifact_store")
         return {
@@ -550,7 +556,19 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
     ):
         selected_tools.append("fenics_forward_solve")
     if (
-        "fenics_forward_solve" in selected_tools
+        (
+            "fenics_forward_solve" in selected_tools
+            or "fenics_code_solve" in selected_tools
+        )
+        and visualization_available
+        and "visualization_postprocess" not in selected_tools
+    ):
+        selected_tools.append("visualization_postprocess")
+    if (
+        (
+            "fenics_forward_solve" in selected_tools
+            or "fenics_code_solve" in selected_tools
+        )
         and "artifact_store" in available_tools
         and "artifact_store" not in selected_tools
     ):
@@ -974,7 +992,9 @@ def _append_artifact_reference_summary(
         uri = _plain_value(artifact.get("uri") or "")
         if not name:
             continue
-        summaries.append(f"{kind} {name} ({storage}) {uri}".strip())
+        public_url = aes_artifact_uri_to_public_url(uri)
+        display_uri = f"{uri} -> {public_url}" if public_url else uri
+        summaries.append(f"{kind} {name} ({storage}) {display_uri}".strip())
     if len(artifacts) > 8:
         summaries.append(f"... {len(artifacts) - 8} more")
     if summaries:

@@ -21,6 +21,7 @@ services:
       - DOLFINX_CODE_EXECUTE=${DOLFINX_CODE_EXECUTE:-true}
       - DOLFINX_CODE_TIMEOUT=${DOLFINX_CODE_TIMEOUT:-300}
       - AES_ARTIFACT_ROOT=/artifacts
+      - AES_PUBLIC_BASE_URL=${AES_PUBLIC_BASE_URL:-http://127.0.0.1:8002}
     volumes:
       - ../artifacts:/artifacts
     networks:
