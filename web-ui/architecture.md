@@ -134,8 +134,8 @@ flowchart TD
 The viewer has two rendering paths:
 
 - sampled-field rendering from `viewer_manifest.datasets.sampled_field`, used
-  for transient solutions such as \(u(x,y,t)\) before full VTK conversion
-  exists;
+  for stationary fields such as \(u(x,y)\) and transient fields such as
+  \(u(x,y,t)\) before full VTK conversion exists;
 - VTK.js rendering when AES serves browser-fetchable `.vtu`, `.vtp`, `.vtk`, or
   `.vtkjs` datasets.
 

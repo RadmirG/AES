@@ -265,8 +265,13 @@ def _sampled_field_from_diagnostics(diagnostics: Dict[str, Any]) -> Dict[str, An
         for value in sample["values"]
     ]
     value_range = field.get("value_range") if isinstance(field.get("value_range"), dict) else {}
+    default_type = (
+        "dof_point_cloud_time_series"
+        if len(cleaned_samples) > 1
+        else "dof_point_cloud"
+    )
     return {
-        "type": str(field.get("type") or "dof_point_cloud_time_series"),
+        "type": str(field.get("type") or default_type),
         "field": str(field.get("field") or "u"),
         "domain": str(field.get("domain") or "unit_square"),
         "space": str(field.get("space") or "P1"),
@@ -367,12 +372,21 @@ def _render_sampled_field_svg(
 
     coordinates = sampled_field.get("coordinates") if isinstance(sampled_field.get("coordinates"), list) else []
     heatmaps = []
+    is_time_dependent = _sampled_field_is_time_dependent(manifest, sampled_field, samples)
+    field_name = str(sampled_field.get("field") or "u")
+    solution_label = f"{field_name}(x,y,t)" if is_time_dependent else f"{field_name}(x,y)"
     for index, sample in enumerate(selected_samples):
         x = 38 + index * 225
         heatmaps.append(
             _render_heatmap_svg_group(
                 coordinates=coordinates,
                 sample=sample,
+                sample_label=_field_sample_label(
+                    sample,
+                    index=index,
+                    sample_count=len(selected_samples),
+                    is_time_dependent=is_time_dependent,
+                ),
                 x=x,
                 y=130,
                 size=190,
@@ -382,10 +396,13 @@ def _render_sampled_field_svg(
         )
 
     stats = _solution_stats(script)
-    subtitle = (
-        f'u(x,y,t) sampled at {len(samples)} time levels; '
-        f'{len(coordinates)} spatial DOF points'
-    )
+    if is_time_dependent:
+        subtitle = (
+            f'{solution_label} sampled at {len(samples)} time levels; '
+            f'{len(coordinates)} spatial DOF points'
+        )
+    else:
+        subtitle = f'{solution_label} sampled at {len(coordinates)} spatial DOF points'
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600">
   <style>
     .bg {{ fill: #f8fafc; }}
@@ -400,7 +417,7 @@ def _render_sampled_field_svg(
   </style>
   <rect class="bg" x="0" y="0" width="960" height="600"/>
   <rect class="panel" x="20" y="20" width="920" height="560" rx="20"/>
-  <text x="38" y="58" class="title">Numerical solution field u(x,y,t)</text>
+  <text x="38" y="58" class="title">Numerical solution field {escape(solution_label)}</text>
   <text x="38" y="86" class="subtitle">{escape(subtitle)}</text>
   <text x="38" y="113" class="label">PDE: <tspan class="value">{escape(str(title))}</tspan></text>
   {''.join(heatmaps)}
@@ -411,9 +428,41 @@ def _render_sampled_field_svg(
   <text x="480" y="505" class="label">dt: <tspan class="value">{escape(str(script.get("dt", "not available")))}</tspan></text>
   <text x="650" y="505" class="label">T: <tspan class="value">{escape(str(script.get("final_time", "not available")))}</tspan></text>
   <text x="38" y="535" class="label">Final stats: <tspan class="value">{escape(stats or "not available")}</tspan></text>
-  <text x="38" y="560" class="legendText">This preview renders sampled FEM DOF values from diagnostics.json. It represents the computed field u(x,y,t), not only scalar diagnostics.</text>
+  <text x="38" y="560" class="legendText">This preview renders sampled FEM DOF values from diagnostics.json. It represents the computed field {escape(solution_label)}, not only scalar diagnostics.</text>
 </svg>
 '''
+
+
+def _sampled_field_is_time_dependent(
+    manifest: Dict[str, Any],
+    sampled_field: Dict[str, Any],
+    samples: List[Any],
+) -> bool:
+    problem = manifest.get("problem") if isinstance(manifest.get("problem"), dict) else {}
+    field_type = str(sampled_field.get("type") or "").lower()
+    pde = str(problem.get("pde") or "").lower()
+    time_info = str(problem.get("time") or "").lower()
+    return (
+        len(samples) > 1
+        or "time" in field_type
+        or "time_dependent" in pde
+        or "transient" in pde
+        or "dt" in time_info
+    )
+
+
+def _field_sample_label(
+    sample: Dict[str, Any],
+    *,
+    index: int,
+    sample_count: int,
+    is_time_dependent: bool,
+) -> str:
+    if is_time_dependent:
+        return f"t = {_format_number(sample.get('time'))}"
+    if sample_count > 1:
+        return f"sample {index + 1}"
+    return "stationary solution"
 
 
 def _select_field_samples(samples: List[Any], *, max_count: int) -> List[Dict[str, Any]]:
@@ -437,6 +486,7 @@ def _render_heatmap_svg_group(
     *,
     coordinates: List[Any],
     sample: Dict[str, Any],
+    sample_label: str,
     x: float,
     y: float,
     size: float,
@@ -464,10 +514,9 @@ def _render_heatmap_svg_group(
         rects.append(
             f'<rect x="{px:.2f}" y="{py:.2f}" width="{cell:.2f}" height="{cell:.2f}" fill="{_heat_color(_float_or_zero(value), vmin, vmax)}"/>'
         )
-    time_value = _format_number(sample.get("time"))
     return f'''
   <g>
-    <text x="{x:.1f}" y="{y - 12:.1f}" class="section">t = {escape(time_value)}</text>
+    <text x="{x:.1f}" y="{y - 12:.1f}" class="section">{escape(sample_label)}</text>
     <rect x="{x:.1f}" y="{y:.1f}" width="{size:.1f}" height="{size:.1f}" fill="#f8fafc" stroke="#d1d5db"/>
     {''.join(rects)}
     <line x1="{x:.1f}" y1="{y + size:.1f}" x2="{x + size:.1f}" y2="{y + size:.1f}" class="axis"/>

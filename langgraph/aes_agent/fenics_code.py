@@ -802,12 +802,31 @@ with io.XDMFFile(msh.comm, "solution.xdmf", "w") as xdmf:
     xdmf.write_function(u_sol)
 
 values = u_sol.x.array
+dof_coordinates = V.tabulate_dof_coordinates()[:, :2]
 diagnostics = {{
     "problem": "stationary_diffusion_equation",
     "num_dofs": V.dofmap.index_map.size_global * V.dofmap.index_map_bs,
     "solution_min": float(np.min(values)),
     "solution_max": float(np.max(values)),
     "solution_mean": float(np.mean(values)),
+    "field_samples": {{
+        "type": "dof_point_cloud",
+        "field": "u",
+        "domain": "unit_square",
+        "space": "P1",
+        "coordinates": dof_coordinates.astype(float).tolist(),
+        "samples": [
+            {{
+                "step": 0,
+                "time": 0.0,
+                "values": values.astype(float).tolist(),
+            }},
+        ],
+        "value_range": {{
+            "min": float(np.min(values)),
+            "max": float(np.max(values)),
+        }},
+    }},
 }}
 Path("diagnostics.json").write_text(json.dumps(diagnostics, indent=2), encoding="utf-8")
 print(json.dumps(diagnostics, indent=2))

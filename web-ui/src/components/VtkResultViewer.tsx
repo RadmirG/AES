@@ -99,12 +99,19 @@ export function VtkResultViewer({ manifest }: Props) {
 
 function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [sampleIndex, setSampleIndex] = useState(field.samples.length - 1);
-  const sample = field.samples[Math.min(sampleIndex, field.samples.length - 1)];
+  const [sampleIndex, setSampleIndex] = useState(Math.max(0, field.samples.length - 1));
+  const safeSampleIndex = Math.min(
+    Math.max(0, sampleIndex),
+    Math.max(0, field.samples.length - 1),
+  );
+  const sample = field.samples[safeSampleIndex];
   const lastSample = field.samples[field.samples.length - 1];
+  const isTimeDependent =
+    field.samples.length > 1 || String(field.type || "").toLowerCase().includes("time");
+  const fieldLabel = `${field.field || "u"}(${isTimeDependent ? "x,y,t" : "x,y"})`;
 
   useEffect(() => {
-    setSampleIndex(field.samples.length - 1);
+    setSampleIndex(Math.max(0, field.samples.length - 1));
   }, [field]);
 
   useEffect(() => {
@@ -119,12 +126,12 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
     <div className="sampledFieldViewer">
       <div className="sampledFieldHeader">
         <div>
-          <strong>Sampled solution field {field.field || "u"}(x,y,t)</strong>
+          <strong>Sampled solution field {fieldLabel}</strong>
           <span>
             {field.space || "FEM"} samples, {field.coordinates.length} spatial points
           </span>
         </div>
-        <span>t = {formatNumber(sample?.time ?? 0)}</span>
+        <span>{isTimeDependent ? `t = ${formatNumber(sample?.time ?? 0)}` : "stationary"}</span>
       </div>
       <canvas
         ref={canvasRef}
@@ -134,16 +141,22 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
         aria-label="Sampled FEM solution field"
       />
       <div className="fieldControls">
-        <input
-          type="range"
-          min={0}
-          max={Math.max(0, field.samples.length - 1)}
-          value={sampleIndex}
-          onChange={(event) => setSampleIndex(Number(event.target.value))}
-        />
-        <span>
-          step {sample?.step ?? 0} of {lastSample?.step ?? field.samples.length - 1}
-        </span>
+        {isTimeDependent ? (
+          <>
+            <input
+              type="range"
+              min={0}
+              max={Math.max(0, field.samples.length - 1)}
+              value={safeSampleIndex}
+              onChange={(event) => setSampleIndex(Number(event.target.value))}
+            />
+            <span>
+              step {sample?.step ?? 0} of {lastSample?.step ?? field.samples.length - 1}
+            </span>
+          </>
+        ) : (
+          <span>stationary solution sample</span>
+        )}
       </div>
     </div>
   );

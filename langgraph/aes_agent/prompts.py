@@ -285,9 +285,10 @@ Code requirements:
 - Use clear variable names and comments where useful.
 - Include basic diagnostics printed to stdout and, if practical, write
   diagnostics.json.
-- For time-dependent problems, include sampled field data for u(x,y,t) in
-  diagnostics.json under `field_samples`: coordinates as [[x,y], ...] and
-  samples as [{{"time": t, "step": n, "values": [...]}}, ...].
+- Include sampled field data for visualization in diagnostics.json under
+  `field_samples`: stationary problems should provide u(x,y), while
+  time-dependent problems should provide u(x,y,t). Use coordinates as
+  [[x,y], ...] and samples as [{{"time": t, "step": n, "values": [...]}}, ...].
 - If plotting is included, save a PNG file instead of opening a GUI window.
 - Keep the code robust for headless container execution.
 """
@@ -335,9 +336,10 @@ Repair rules:
   eval, exec, input, or absolute output paths.
 - Write outputs into the current working directory only.
 - Include diagnostics printed to stdout and, if practical, write diagnostics.json.
-- For time-dependent problems, include sampled field data for u(x,y,t) in
-  diagnostics.json under `field_samples`: coordinates as [[x,y], ...] and
-  samples as [{{"time": t, "step": n, "values": [...]}}, ...].
+- Include sampled field data for visualization in diagnostics.json under
+  `field_samples`: stationary problems should provide u(x,y), while
+  time-dependent problems should provide u(x,y,t). Use coordinates as
+  [[x,y], ...] and samples as [{{"time": t, "step": n, "values": [...]}}, ...].
 - If plotting is included, save a PNG file instead of opening a GUI window.
 - Keep the code robust for headless container execution.
 """

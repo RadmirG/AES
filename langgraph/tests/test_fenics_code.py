@@ -288,6 +288,9 @@ class FenicsCodeTests(unittest.TestCase):
         )
 
         self.assertIn('petsc_options_prefix="aes_poisson_"', script)
+        self.assertIn('"field_samples"', script)
+        self.assertIn('"type": "dof_point_cloud"', script)
+        self.assertIn("V.tabulate_dof_coordinates()", script)
 
     @patch(
         "aes_agent.fenics_code.ollama_json",

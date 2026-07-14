@@ -178,11 +178,11 @@ FEniCS import/call allowlist runs. If bounded static repairs return no usable
 Python for a supported simple heat/Poisson-style problem, AES falls back only at
 that point instead of repeatedly validating the same broken script.
 
-For transient generated-code runs, scripts should write sampled field data for
-the numerical solution \(u(x,y,t)\) into `diagnostics.json` under
-`field_samples`. The visualization layer can then render the actual sampled
-solution field in the Workbench even before a full VTK `.vtu` or `.vtkjs`
-conversion exists.
+For generated-code runs, scripts should write sampled field data for the
+numerical solution into `diagnostics.json` under `field_samples`: stationary
+problems provide \(u(x,y)\), while transient problems provide \(u(x,y,t)\).
+The visualization layer can then render the actual sampled solution field in
+the Workbench even before a full VTK `.vtu` or `.vtkjs` conversion exists.
 
 ## API Boundary
 
