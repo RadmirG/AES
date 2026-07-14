@@ -11,6 +11,11 @@ from aes_agent.prompts import (
     generate_fenics_dolfinx_code_prompt,
     repair_fenics_dolfinx_code_prompt,
 )
+from aes_agent.python_checker import (
+    check_python_syntax,
+    python_code_from_model_result,
+    strip_invalid_python_control_chars,
+)
 from aes_agent.state import AgentState
 
 
@@ -189,6 +194,18 @@ def execute_fenics_code_solve(
                 )
                 continue
 
+            if (
+                not is_user_code
+                and not generation.get("used_fallback_after_repair")
+                and _can_use_deterministic_fallback(state)
+            ):
+                generation = _fallback_generation_after_failed_repairs(
+                    state,
+                    generation,
+                    repair_attempts,
+                )
+                continue
+
             return _build_output(
                 recipe=recipe,
                 generation=generation,
@@ -286,7 +303,7 @@ def generate_dolfinx_script(
 ) -> Dict[str, Any]:
     snapshot = _state_snapshot(state, recipe)
     model_result = ollama_json(generate_fenics_dolfinx_code_prompt(snapshot))
-    code = _extract_code(safe_str(model_result.get("python_code"), ""))
+    code = python_code_from_model_result(model_result)
     summary = safe_str(model_result.get("summary"), "")
     expected_artifacts = safe_list_of_str(model_result.get("expected_artifacts"))
     warnings: List[str] = []
@@ -331,22 +348,15 @@ def validate_python_code_safety(code: str) -> Dict[str, Any]:
     errors: List[str] = []
     warnings: List[str] = []
 
-    if not code.strip():
+    syntax = check_python_syntax(code)
+    if syntax["status"] != "valid":
         return {
             "status": "unsafe",
-            "errors": ["Python code is empty."],
-            "warnings": [],
+            "errors": syntax["errors"],
+            "warnings": syntax["warnings"],
         }
 
-    try:
-        tree = ast.parse(code)
-    except SyntaxError as exc:
-        return {
-            "status": "unsafe",
-            "errors": [f"Generated Python code has a syntax error: {exc}"],
-            "warnings": [],
-        }
-
+    tree = syntax["tree"]
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -394,14 +404,6 @@ def _attribute_name(func: ast.AST) -> str:
     return func.attr if isinstance(func, ast.Attribute) else ""
 
 
-def _extract_code(value: str) -> str:
-    stripped = value.strip()
-    if stripped.startswith("```"):
-        stripped = re.sub(r"^```(?:python)?\s*", "", stripped, flags=re.IGNORECASE)
-        stripped = re.sub(r"\s*```$", "", stripped)
-    return _strip_invalid_python_control_chars(stripped).strip()
-
-
 def _extract_user_python_code(value: str) -> str:
     stripped = value.strip()
     fenced = re.search(
@@ -410,17 +412,12 @@ def _extract_user_python_code(value: str) -> str:
         flags=re.IGNORECASE | re.DOTALL,
     )
     if fenced:
-        return _strip_invalid_python_control_chars(fenced.group(1)).strip()
-    return _strip_invalid_python_control_chars(stripped)
+        return strip_invalid_python_control_chars(fenced.group(1)).strip()
+    return strip_invalid_python_control_chars(stripped)
 
 
 def _strip_invalid_python_control_chars(value: str) -> str:
-    value = value.replace("\u00a0", " ")
-    return "".join(
-        char
-        for char in value
-        if char in {"\n", "\r", "\t"} or (ord(char) >= 32 and ord(char) != 127)
-    )
+    return strip_invalid_python_control_chars(value)
 
 
 def _fallback_dolfinx_script(state: AgentState) -> str:
@@ -476,7 +473,7 @@ def _repair_generation(
             context,
         )
     )
-    repaired_code = _extract_code(safe_str(model_result.get("python_code"), ""))
+    repaired_code = python_code_from_model_result(model_result)
     repair_record = {
         "attempt": attempt_number,
         "failure_type": str(failure_context.get("failure_type", "")),
@@ -519,6 +516,54 @@ def _repair_generation(
         "warnings": _dedupe(warnings),
         "repair_attempts": list(repair_attempts),
     }
+
+
+def _fallback_generation_after_failed_repairs(
+    state: AgentState,
+    generation: Dict[str, Any],
+    repair_attempts: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    fallback = _fallback_generation(state)
+    warnings = [
+        *safe_list_of_str(generation.get("warnings")),
+        (
+            "LLM-generated code failed static validation and bounded repair "
+            "attempts did not return usable Python; AES used its deterministic "
+            "fallback DOLFINx template for this supported simple PDE."
+        ),
+        *fallback["warnings"],
+    ]
+    return {
+        **fallback,
+        "warnings": _dedupe(warnings),
+        "repair_attempts": list(repair_attempts),
+        "used_fallback_after_repair": True,
+    }
+
+
+def _can_use_deterministic_fallback(state: AgentState) -> bool:
+    text = " ".join(
+        str(state.get(field, ""))
+        for field in (
+            "raw_user_input",
+            "pde_info",
+            "domain_info",
+            "bc_info",
+            "time_info",
+        )
+    ).lower()
+    return any(
+        marker in text
+        for marker in (
+            "time_dependent_heat",
+            "transient heat",
+            "du/dt",
+            "stationary_diffusion",
+            "poisson",
+            "-div",
+            "heat equation",
+        )
+    )
 
 
 def _can_repair(

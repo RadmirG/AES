@@ -11,6 +11,11 @@ from aes_agent.fenics_code import (
     execute_fenics_code_solve,
     validate_python_code_safety,
 )
+from aes_agent.python_checker import (
+    check_python_syntax,
+    extract_python_code,
+    python_code_from_model_result,
+)
 
 
 SAFE_CODE = """from dolfinx import fem
@@ -104,6 +109,38 @@ class _FailThenSucceedCodeRunnerClient:
 
 
 class FenicsCodeTests(unittest.TestCase):
+    def test_python_extractor_accepts_fenced_code_with_prose(self):
+        code = extract_python_code(
+            "Here is the script:\n"
+            "```python\n"
+            "from dolfinx import fem\n"
+            "print('ok')\n"
+            "```\n"
+            "Run it as solve.py."
+        )
+
+        self.assertEqual(code, "from dolfinx import fem\nprint('ok')")
+
+    def test_python_model_result_accepts_common_aliases(self):
+        code = python_code_from_model_result(
+            {
+                "files": [
+                    {
+                        "name": "solve.py",
+                        "content": "from dolfinx import fem\nprint('ok')\n",
+                    }
+                ]
+            }
+        )
+
+        self.assertTrue(code.startswith("from dolfinx"))
+
+    def test_python_syntax_checker_reports_indentation_error(self):
+        result = check_python_syntax("def broken():\nprint('bad')\n")
+
+        self.assertEqual(result["status"], "invalid")
+        self.assertTrue(any("syntax error" in error for error in result["errors"]))
+
     def test_static_safety_rejects_subprocess_import(self):
         result = validate_python_code_safety(
             "import subprocess\nsubprocess.run(['echo', 'bad'])\n"
@@ -284,6 +321,54 @@ class FenicsCodeTests(unittest.TestCase):
         self.assertEqual(output["repair_attempt_count"], 1)
         self.assertEqual(output["repair_attempts"][0]["failure_type"], "static_validation")
         self.assertIn("from dolfinx", output["generated_files"][0]["content"])
+
+    @patch(
+        "aes_agent.fenics_code.ollama_json",
+        side_effect=[
+            {
+                "summary": "Generated broken code.",
+                "python_code": "from dolfinx import fem\n\ndef broken():\n",
+                "expected_artifacts": ["solution.xdmf"],
+            },
+            {},
+            {},
+        ],
+    )
+    def test_static_repair_no_usable_code_falls_back_for_supported_problem(
+        self,
+        ollama_json,
+    ):
+        output = execute_fenics_code_solve(
+            {
+                "raw_user_input": (
+                    "Solve the transient heat equation on the unit square. "
+                    "Use du/dt = alpha * Delta(u) + f."
+                ),
+                "solution_mode": "generate_fenics_code",
+                "pde_info": "time_dependent_heat_equation",
+                "coefficient_info": "1",
+                "source_info": "1",
+                "initial_condition_info": "sin(pi*x)*sin(pi*y)",
+                "time_info": "T=1, dt=0.01",
+                "numerical_recipe": {
+                    "provider": "local:fenics_code",
+                    "workflow": "llm_generated_dolfinx_script_v1",
+                    "execution_requested": False,
+                },
+            }
+        )
+
+        self.assertEqual(ollama_json.call_count, 3)
+        self.assertEqual(output["execution_mode"], "generated")
+        self.assertEqual(output["safety_status"], "safe")
+        self.assertEqual(output["repair_attempt_count"], 2)
+        self.assertIn("LinearProblem", output["generated_files"][0]["content"])
+        self.assertTrue(
+            any(
+                "bounded repair attempts did not return usable Python" in warning
+                for warning in output["warnings"]
+            )
+        )
 
     @patch(
         "aes_agent.fenics_code.ollama_json",
