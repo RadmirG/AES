@@ -4,12 +4,17 @@ import type {
   ChatCompletionResponse,
   ChatTurn,
   Conversation,
+  ProgressStep,
   ProgressStatus,
 } from "../types";
 
 type Props = {
   conversation: Conversation;
   onConversationChange: (conversation: Conversation) => void;
+  onConversationUpdate: (
+    conversationId: string,
+    updater: (conversation: Conversation) => Conversation,
+  ) => void;
 };
 
 const starterPrompt = `Solve the transient heat equation on the unit square Omega=[0,1]^2.
@@ -49,40 +54,61 @@ const progressLabels = [
   },
 ];
 
-export function ChatPanel({ conversation, onConversationChange }: Props) {
+const progressTemplate: ProgressStep[] = progressLabels.map((step, index) => ({
+  id: `step-${index}`,
+  label: step.label,
+  detail: step.detail,
+  status: index === 0 ? "active" : "pending",
+}));
+
+export function ChatPanel({
+  conversation,
+  onConversationChange,
+  onConversationUpdate,
+}: Props) {
   const [input, setInput] = useState(starterPrompt);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState("");
-  const [progressIndex, setProgressIndex] = useState(-1);
-  const [progressError, setProgressError] = useState("");
+  const [activeProgressTurnId, setActiveProgressTurnId] = useState("");
 
   const turns = conversation.turns;
 
   const requestMessages = useMemo(
-    () => turns.map((turn) => ({ role: turn.role, content: turn.content })),
+    () =>
+      turns
+        .filter((turn) => turn.role === "user" || turn.role === "assistant")
+        .map((turn) => ({ role: turn.role, content: turn.content })),
     [turns],
   );
 
   useEffect(() => {
     setInput(conversation.turns.length === 0 ? starterPrompt : "");
     setError("");
-    setProgressError("");
-    setProgressIndex(-1);
+    setActiveProgressTurnId("");
   }, [conversation.id]);
 
   useEffect(() => {
-    if (!isRunning) {
+    if (!isRunning || !activeProgressTurnId) {
       return;
     }
 
     const timer = window.setInterval(() => {
-      setProgressIndex((current) =>
-        Math.min(current + 1, progressLabels.length - 1),
+      onConversationUpdate(
+        conversation.id,
+        (currentConversation) =>
+          updateProgressTurn(
+            currentConversation,
+            activeProgressTurnId,
+            advanceProgressSteps(
+              progressStepsForTurn(currentConversation, activeProgressTurnId),
+            ),
+            new Date().toISOString(),
+          ),
       );
     }, 4500);
 
     return () => window.clearInterval(timer);
-  }, [isRunning]);
+  }, [activeProgressTurnId, conversation.id, isRunning, onConversationUpdate]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -92,9 +118,16 @@ export function ChatPanel({ conversation, onConversationChange }: Props) {
     }
 
     const now = new Date().toISOString();
+    const progressTurnId = createId();
     const nextTurns: ChatTurn[] = [
       ...turns,
       { role: "user", content: text, createdAt: now },
+      {
+        role: "progress",
+        content: progressTurnId,
+        createdAt: now,
+        progressSteps: progressTemplate,
+      },
     ];
     const nextConversation = {
       ...conversation,
@@ -106,8 +139,7 @@ export function ChatPanel({ conversation, onConversationChange }: Props) {
     setInput("");
     setIsRunning(true);
     setError("");
-    setProgressError("");
-    setProgressIndex(0);
+    setActiveProgressTurnId(progressTurnId);
 
     try {
       const response = await fetch(`${aesApiBaseUrl}/v1/chat/completions`, {
@@ -125,22 +157,40 @@ export function ChatPanel({ conversation, onConversationChange }: Props) {
       const data = (await response.json()) as ChatCompletionResponse;
       const assistantText = data.choices?.[0]?.message?.content || "";
       const finishedAt = new Date().toISOString();
-      onConversationChange({
-        ...nextConversation,
+      onConversationUpdate(conversation.id, (currentConversation) => ({
+        ...currentConversation,
         turns: [
-          ...nextTurns,
+          ...replaceProgressTurn(
+            currentConversation.turns,
+            progressTurnId,
+            completeProgressSteps(
+              progressStepsForTurn(currentConversation, progressTurnId),
+            ),
+          ),
           { role: "assistant", content: assistantText, createdAt: finishedAt },
         ],
         result: { assistantText, aesResult: data.aes_result },
         updatedAt: finishedAt,
-      });
-      setProgressIndex(progressLabels.length - 1);
+      }));
     } catch (requestError) {
       const message = (requestError as Error).message;
       setError(message);
-      setProgressError(message);
+      onConversationUpdate(
+        conversation.id,
+        (currentConversation) =>
+          updateProgressTurn(
+            currentConversation,
+            progressTurnId,
+            failProgressSteps(
+              progressStepsForTurn(currentConversation, progressTurnId),
+              message,
+            ),
+            new Date().toISOString(),
+          ),
+      );
     } finally {
       setIsRunning(false);
+      setActiveProgressTurnId("");
     }
   }
 
@@ -154,15 +204,9 @@ export function ChatPanel({ conversation, onConversationChange }: Props) {
           </div>
         ) : (
           turns.map((turn, index) => (
-            <article className={`turn ${turn.role}`} key={`${turn.role}-${index}`}>
-              <strong>{turn.role === "user" ? "You" : "aes-agent"}</strong>
-              <pre>{turn.content}</pre>
-            </article>
+            <TurnView turn={turn} index={index} key={`${turn.role}-${index}`} />
           ))
         )}
-        {isRunning || progressIndex >= 0 ? (
-          <ProgressLog activeIndex={progressIndex} error={progressError} />
-        ) : null}
       </div>
 
       {error ? <div className="errorBox">{error}</div> : null}
@@ -181,47 +225,119 @@ export function ChatPanel({ conversation, onConversationChange }: Props) {
   );
 }
 
-function ProgressLog({
-  activeIndex,
-  error,
-}: {
-  activeIndex: number;
-  error: string;
-}) {
+function TurnView({ turn, index }: { turn: ChatTurn; index: number }) {
+  if (turn.role === "progress") {
+    return <ProgressLog steps={turn.progressSteps || progressTemplate} />;
+  }
+
+  return (
+    <article className={`turn ${turn.role}`} key={`${turn.role}-${index}`}>
+      <strong>{turn.role === "user" ? "You" : "aes-agent"}</strong>
+      <pre>{turn.content}</pre>
+    </article>
+  );
+}
+
+function ProgressLog({ steps }: { steps: ProgressStep[] }) {
+  const failedStep = steps.find((step) => step.status === "error");
   return (
     <section className="progressLog">
       <strong>AES progress</strong>
       <ol>
-        {progressLabels.map((step, index) => {
-          const status = statusForStep(index, activeIndex, error);
-          return (
-            <li className={`progressStep ${status}`} key={step.label}>
-              <span>{step.label}</span>
-              <small>{step.detail}</small>
-            </li>
-          );
-        })}
+        {steps.map((step) => (
+          <li className={`progressStep ${step.status}`} key={step.id}>
+            <span>{step.label}</span>
+            <small>{step.detail}</small>
+          </li>
+        ))}
       </ol>
-      {error ? <p className="warning">Request stopped: {error}</p> : null}
+      {failedStep ? <p className="warning">Request stopped: {failedStep.detail}</p> : null}
     </section>
   );
 }
 
-function statusForStep(
-  index: number,
-  activeIndex: number,
-  error: string,
-): ProgressStatus {
-  if (error && index === activeIndex) {
-    return "error";
+function advanceProgressSteps(steps: ProgressStep[]) {
+  const activeIndex = steps.findIndex((step) => step.status === "active");
+  if (activeIndex < 0) {
+    return steps;
   }
-  if (index < activeIndex) {
-    return "done";
+  const nextIndex = Math.min(activeIndex + 1, steps.length - 1);
+  return steps.map((step, index) => {
+    if (index < nextIndex) {
+      return { ...step, status: "done" as ProgressStatus };
+    }
+    if (index === nextIndex) {
+      return { ...step, status: "active" as ProgressStatus };
+    }
+    return step;
+  });
+}
+
+function completeProgressSteps(steps: ProgressStep[]) {
+  return steps.map((step) => ({ ...step, status: "done" as ProgressStatus }));
+}
+
+function failProgressSteps(steps: ProgressStep[], message: string) {
+  const activeIndex = Math.max(
+    steps.findIndex((step) => step.status === "active"),
+    0,
+  );
+  return steps.map((step, index) => {
+    if (index < activeIndex) {
+      return { ...step, status: "done" as ProgressStatus };
+    }
+    if (index === activeIndex) {
+      return {
+        ...step,
+        detail: message,
+        status: "error" as ProgressStatus,
+      };
+    }
+    return step;
+  });
+}
+
+function progressStepsForTurn(conversation: Conversation, turnId: string) {
+  const turn = conversation.turns.find(
+    (candidate) => candidate.role === "progress" && candidate.content === turnId,
+  );
+  return turn?.progressSteps || progressTemplate;
+}
+
+function updateProgressTurn(
+  conversation: Conversation,
+  turnId: string,
+  steps: ProgressStep[],
+  updatedAt: string,
+) {
+  return {
+    ...conversation,
+    updatedAt,
+    turns: replaceProgressTurn(conversation.turns, turnId, steps),
+  };
+}
+
+function replaceProgressTurn(
+  turns: ChatTurn[],
+  turnId: string,
+  steps: ProgressStep[],
+) {
+  return turns.map((turn) => {
+    if (turn.role === "progress" && turn.content === turnId) {
+      return { ...turn, progressSteps: steps };
+    }
+    return turn;
+  });
+}
+
+function createId() {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
   }
-  if (index === activeIndex) {
-    return "active";
-  }
-  return "pending";
+  return `progress-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function titleFromPrompt(prompt: string) {

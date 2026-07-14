@@ -1,9 +1,10 @@
-export type ChatRole = "user" | "assistant";
+export type ChatRole = "user" | "assistant" | "progress";
 
 export type ChatTurn = {
   role: ChatRole;
   content: string;
   createdAt?: string;
+  progressSteps?: ProgressStep[];
 };
 
 export type WorkbenchUser = {

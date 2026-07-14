@@ -78,6 +78,20 @@ export function App() {
     setActiveConversationId(nextConversation.id);
   }
 
+  function handleConversationUpdate(
+    id: string,
+    updater: (conversation: Conversation) => Conversation,
+  ) {
+    setConversations((current) =>
+      current
+        .map((conversation) =>
+          conversation.id === id ? updater(conversation) : conversation,
+        )
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+    );
+    setActiveConversationId(id);
+  }
+
   function handleDeleteConversation(id: string) {
     const remaining = withDefaultConversation(
       conversations.filter((conversation) => conversation.id !== id),
@@ -119,6 +133,7 @@ export function App() {
           <ChatPanel
             conversation={activeConversation}
             onConversationChange={handleConversationChange}
+            onConversationUpdate={handleConversationUpdate}
           />
         </div>
       </section>

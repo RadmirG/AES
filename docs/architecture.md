@@ -318,11 +318,14 @@ flowchart TD
     E --> F["Select active chat"]
     F --> G["Left pane chat + progress log"]
     F --> H["Right pane latest result"]
-    G --> I["POST /v1/chat/completions"]
-    I --> J["Visible AES progress steps while request runs"]
-    J --> K["Final response with aes_result"]
-    K --> L["Persist turns, result, artifacts in localStorage"]
-    L --> H
+    G --> I["User submits PDE request"]
+    I --> J["Append persisted AES progress turn"]
+    J --> K["POST /v1/chat/completions"]
+    K --> L["Update same progress turn while request runs"]
+    L --> M["Final response with aes_result"]
+    M --> N["Mark progress done and append AES answer"]
+    N --> O["Persist turns, result, artifacts in localStorage"]
+    O --> H
 ```
 
 This is not a security boundary yet. It gives the prototype stable browser
@@ -337,10 +340,15 @@ Implementation direction:
   viewer-only page.
 - Use the native chat panel that calls `/v1/chat/completions` with model
   `aes-agent`.
-- Show a Workbench-side progress log during long AES requests so users can see
-  the expected flow instead of a frozen chat.
+- Show AES progress as a persisted chat turn between the user request and the
+  AES answer. The progress turn remains after completion and is saved with the
+  conversation rather than existing only as transient component state.
 - Persist per-user local conversations and the latest `aes_result` so refreshes
   do not clear the chat or result pane.
+- Use a bright ChatGPT-like visual theme with a slightly darker saved-chat
+  history column and independent scroll containers for chat history, chat turns,
+  and the result workspace. The page body itself should not be the normal
+  scroll container.
 - Add a run panel that reads the latest `aes_result` and artifact manifest.
 - Add artifact and visualization panels driven by `viewer_manifest.json`.
 - CORS is configured through `AES_CORS_ORIGINS`; dev/prod defaults allow
