@@ -314,5 +314,15 @@ Live execution requires the `fenics` Compose profile so the `dolfinx-mcp`
 container is running. If the live provider schema changes, compare it against
 `mcp/providers/fenics/tool_schemas.snapshot.json`.
 
+Generated FEniCS code repair is bounded by:
+
+```text
+DOLFINX_CODE_REPAIR_ATTEMPTS=2
+```
+
+The repair loop applies only to LLM-generated code. Static validation failures
+and provider runtime failures are sent back to the LLM with bounded diagnostic
+context. User-provided Python code is checked and either accepted or rejected;
+AES does not auto-rewrite user code.
 
 

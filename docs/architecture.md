@@ -89,6 +89,12 @@ The generated-code path is LLM-first. A conservative deterministic fallback
 template is allowed only when the LLM returns no usable Python code, so common
 smoke tests still produce a checked artifact instead of failing silently.
 
+`fenics_code_solve` implements the repair loop internally. For LLM-generated
+code, AES validates the script, runs it in the FEniCS code-runner when execution
+is enabled, and sends static-validation errors or runtime stdout/stderr back to
+the LLM for a bounded number of repair attempts. User-provided Python code is
+not auto-repaired; unsafe user code is rejected before execution.
+
 If the selected mode requests execution but generated-code execution is disabled
 or no provider script-runner is configured, AES should report a blocked tool
 result. Production sets `DOLFINX_CODE_EXECUTE=true` and

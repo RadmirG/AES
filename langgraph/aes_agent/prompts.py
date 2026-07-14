@@ -290,6 +290,53 @@ Code requirements:
 """
 
 
+def repair_fenics_dolfinx_code_prompt(
+    snapshot: Dict[str, Any],
+    current_code: str,
+    failure_context: Dict[str, Any],
+) -> str:
+    return f"""
+You are a senior numerical software engineer inside AES.
+
+Task:
+Repair the DOLFINx/FEniCSx Python script so it can pass static validation and
+run inside the AES FEniCS code-runner container.
+
+Current AES state:
+{json.dumps(snapshot, indent=2)}
+
+Failure context:
+{json.dumps(failure_context, indent=2)}
+
+Current Python code:
+```python
+{current_code}
+```
+
+Return ONLY a valid JSON object with exactly these keys:
+{{
+  "summary": "...",
+  "python_code": "...",
+  "expected_artifacts": ["solution.xdmf", "diagnostics.json"]
+}}
+
+Repair rules:
+- Return a complete replacement `solve.py`, not a patch or explanation.
+- Use DOLFINx/FEniCSx, not legacy dolfin/fenics.
+- Preserve the mathematical problem from the AES state unless the failure shows
+  a direct implementation bug.
+- Fix the concrete static or runtime error from the failure context.
+- Remove non-code prose, Markdown decorations, hidden control characters, and
+  invalid Python syntax.
+- Do not use network access, shell commands, subprocesses, dynamic imports,
+  eval, exec, input, or absolute output paths.
+- Write outputs into the current working directory only.
+- Include diagnostics printed to stdout and, if practical, write diagnostics.json.
+- If plotting is included, save a PNG file instead of opening a GUI window.
+- Keep the code robust for headless container execution.
+"""
+
+
 def generate_artifact_prompt(snapshot: Dict[str, Any]) -> str:
     return f"""
 You are an orchestration node in an agentic engineering system.

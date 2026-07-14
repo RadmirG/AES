@@ -7,7 +7,10 @@ import re
 from typing import Any, Dict, List, Protocol
 
 from aes_agent.helpers import ollama_json, safe_list_of_str, safe_str
-from aes_agent.prompts import generate_fenics_dolfinx_code_prompt
+from aes_agent.prompts import (
+    generate_fenics_dolfinx_code_prompt,
+    repair_fenics_dolfinx_code_prompt,
+)
 from aes_agent.state import AgentState
 
 
@@ -151,23 +154,14 @@ def execute_fenics_code_solve(
     execute: bool | None = None,
 ) -> Dict[str, Any]:
     recipe = state.get("numerical_recipe") or build_fenics_code_recipe(state)
-    if state.get("solution_mode") == "execute_user_fenics_code":
+    is_user_code = state.get("solution_mode") == "execute_user_fenics_code"
+    if is_user_code:
         generation = build_user_code_candidate(state)
     else:
         generation = generate_dolfinx_script(state, recipe)
-    code = generation["python_code"]
-    safety = validate_python_code_safety(code)
 
-    if safety["status"] != "safe":
-        return _build_output(
-            recipe=recipe,
-            generation=generation,
-            safety=safety,
-            execution_mode="failed",
-            status="failed",
-            errors=safety["errors"],
-            warnings=safety["warnings"],
-        )
+    max_repair_attempts = 0 if is_user_code else _repair_attempt_limit()
+    repair_attempts: List[Dict[str, Any]] = []
 
     execution_requested = bool(recipe.get("execution_requested"))
     should_execute = (
@@ -176,84 +170,121 @@ def execute_fenics_code_solve(
         else bool(execute)
     ) and execution_requested
 
-    if not should_execute:
-        warnings = list(generation["warnings"])
-        if execution_requested:
-            error = (
-                "Execution was requested, but DOLFINX_CODE_EXECUTE is not enabled; "
-                "AES generated/stored the checked solve.py without running it."
+    while True:
+        code = generation["python_code"]
+        safety = validate_python_code_safety(code)
+
+        if safety["status"] != "safe":
+            if _can_repair(repair_attempts, max_repair_attempts):
+                generation = _repair_generation(
+                    state=state,
+                    recipe=recipe,
+                    generation=generation,
+                    failure_context={
+                        "failure_type": "static_validation",
+                        "errors": safety["errors"],
+                        "warnings": safety["warnings"],
+                    },
+                    repair_attempts=repair_attempts,
+                )
+                continue
+
+            return _build_output(
+                recipe=recipe,
+                generation=generation,
+                safety=safety,
+                execution_mode="failed",
+                status="failed",
+                errors=safety["errors"],
+                warnings=generation["warnings"] + safety["warnings"],
             )
-            warnings.append(error)
+
+        if not should_execute:
+            warnings = list(generation["warnings"])
+            if execution_requested:
+                error = (
+                    "Execution was requested, but DOLFINX_CODE_EXECUTE is not enabled; "
+                    "AES generated/stored the checked solve.py without running it."
+                )
+                warnings.append(error)
+                return _build_output(
+                    recipe=recipe,
+                    generation=generation,
+                    safety=safety,
+                    execution_mode="blocked",
+                    status="blocked",
+                    errors=[error],
+                    warnings=warnings,
+                )
+            return _build_output(
+                recipe=recipe,
+                generation=generation,
+                safety=safety,
+                execution_mode="generated",
+                status="generated",
+                errors=[],
+                warnings=warnings,
+            )
+
+        if client is None:
+            client = _default_code_execution_client()
+
+        if client is None:
             return _build_output(
                 recipe=recipe,
                 generation=generation,
                 safety=safety,
                 execution_mode="blocked",
-                status="blocked",
-                errors=[error],
-                warnings=warnings,
+                status="failed",
+                errors=[
+                    "Generated-code execution was requested, but no MCP script-runner "
+                    "endpoint is configured. Set DOLFINX_CODE_MCP_URL and provide a "
+                    "provider tool such as run_python_script."
+                ],
+                warnings=generation["warnings"],
             )
+
+        execution = _execute_code_via_mcp(client, code)
+        errors = execution.get("errors", [])
+        if not errors:
+            return _build_output(
+                recipe=recipe,
+                generation=generation,
+                safety=safety,
+                execution_mode="executed",
+                status="completed",
+                errors=[],
+                warnings=generation["warnings"] + execution.get("warnings", []),
+                execution=execution,
+            )
+
+        if _can_repair(repair_attempts, max_repair_attempts) and _is_repairable_execution_error(execution):
+            generation = _repair_generation(
+                state=state,
+                recipe=recipe,
+                generation=generation,
+                failure_context=_runtime_failure_context(errors, execution),
+                repair_attempts=repair_attempts,
+            )
+            continue
+
         return _build_output(
             recipe=recipe,
             generation=generation,
             safety=safety,
-            execution_mode="generated",
-            status="generated",
-            errors=[],
-            warnings=warnings,
-        )
-
-    if client is None:
-        client = _default_code_execution_client()
-
-    if client is None:
-        return _build_output(
-            recipe=recipe,
-            generation=generation,
-            safety=safety,
-            execution_mode="blocked",
+            execution_mode="failed",
             status="failed",
-            errors=[
-                "Generated-code execution was requested, but no MCP script-runner "
-                "endpoint is configured. Set DOLFINX_CODE_MCP_URL and provide a "
-                "provider tool such as run_python_script."
-            ],
-            warnings=generation["warnings"],
+            errors=errors,
+            warnings=generation["warnings"] + execution.get("warnings", []),
+            execution=execution,
         )
-
-    execution = _execute_code_via_mcp(client, code)
-    errors = execution.get("errors", [])
-    status = "completed" if not errors else "failed"
-    execution_mode = "executed" if not errors else "failed"
-    return _build_output(
-        recipe=recipe,
-        generation=generation,
-        safety=safety,
-        execution_mode=execution_mode,
-        status=status,
-        errors=errors,
-        warnings=generation["warnings"] + execution.get("warnings", []),
-        execution=execution,
-    )
 
 
 def generate_dolfinx_script(
     state: AgentState,
     recipe: Dict[str, Any],
 ) -> Dict[str, Any]:
-    snapshot = {
-        "raw_user_input": state.get("raw_user_input", ""),
-        "problem_class": state.get("problem_class", ""),
-        "pde_info": state.get("pde_info", ""),
-        "domain_info": state.get("domain_info", ""),
-        "coefficient_info": state.get("coefficient_info", ""),
-        "source_info": state.get("source_info", ""),
-        "bc_info": state.get("bc_info", ""),
-        "initial_condition_info": state.get("initial_condition_info", ""),
-        "time_info": state.get("time_info", ""),
-        "selected_formulation": state.get("selected_formulation", ""),
-        "numerical_recipe": recipe,
-    }
+    snapshot = _state_snapshot(state, recipe)
     model_result = ollama_json(generate_fenics_dolfinx_code_prompt(snapshot))
     code = _extract_code(safe_str(model_result.get("python_code"), ""))
     summary = safe_str(model_result.get("summary"), "")
@@ -281,6 +312,7 @@ def generate_dolfinx_script(
         "python_code": code,
         "expected_artifacts": _dedupe(["solve.py", *expected_artifacts]),
         "warnings": warnings,
+        "repair_attempts": [],
     }
 
 
@@ -291,6 +323,7 @@ def build_user_code_candidate(state: AgentState) -> Dict[str, Any]:
         "python_code": code,
         "expected_artifacts": ["solve.py", "diagnostics.json", "solution.xdmf", "solution.png"],
         "warnings": [] if code else ["No Python code block or FEniCS-like Python code was detected."],
+        "repair_attempts": [],
     }
 
 
@@ -366,7 +399,7 @@ def _extract_code(value: str) -> str:
     if stripped.startswith("```"):
         stripped = re.sub(r"^```(?:python)?\s*", "", stripped, flags=re.IGNORECASE)
         stripped = re.sub(r"\s*```$", "", stripped)
-    return stripped.strip()
+    return _strip_invalid_python_control_chars(stripped).strip()
 
 
 def _extract_user_python_code(value: str) -> str:
@@ -377,8 +410,17 @@ def _extract_user_python_code(value: str) -> str:
         flags=re.IGNORECASE | re.DOTALL,
     )
     if fenced:
-        return fenced.group(1).strip()
-    return stripped
+        return _strip_invalid_python_control_chars(fenced.group(1)).strip()
+    return _strip_invalid_python_control_chars(stripped)
+
+
+def _strip_invalid_python_control_chars(value: str) -> str:
+    value = value.replace("\u00a0", " ")
+    return "".join(
+        char
+        for char in value
+        if char in {"\n", "\r", "\t"} or (ord(char) >= 32 and ord(char) != 127)
+    )
 
 
 def _fallback_dolfinx_script(state: AgentState) -> str:
@@ -408,6 +450,121 @@ def _fallback_generation(state: AgentState) -> Dict[str, Any]:
             "AES used its deterministic fallback DOLFINx template only after "
             "LLM code generation returned no usable python_code."
         ],
+        "repair_attempts": [],
+    }
+
+
+def _repair_generation(
+    *,
+    state: AgentState,
+    recipe: Dict[str, Any],
+    generation: Dict[str, Any],
+    failure_context: Dict[str, Any],
+    repair_attempts: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    attempt_number = len(repair_attempts) + 1
+    context = {
+        **failure_context,
+        "attempt": attempt_number,
+        "max_attempts": _repair_attempt_limit(),
+    }
+    current_code = str(generation.get("python_code", ""))
+    model_result = ollama_json(
+        repair_fenics_dolfinx_code_prompt(
+            _state_snapshot(state, recipe),
+            current_code,
+            context,
+        )
+    )
+    repaired_code = _extract_code(safe_str(model_result.get("python_code"), ""))
+    repair_record = {
+        "attempt": attempt_number,
+        "failure_type": str(failure_context.get("failure_type", "")),
+        "errors": safe_list_of_str(failure_context.get("errors")),
+        "status": "repaired" if repaired_code else "no_usable_code",
+    }
+    repair_attempts.append(repair_record)
+
+    warnings = [
+        *safe_list_of_str(generation.get("warnings")),
+        (
+            f"Repair attempt {attempt_number} requested after "
+            f"{repair_record['failure_type']}."
+        ),
+    ]
+    if not repaired_code:
+        warnings.append(
+            f"Repair attempt {attempt_number} returned no usable python_code; "
+            "AES kept the previous generated code."
+        )
+        return {
+            **generation,
+            "warnings": _dedupe(warnings),
+            "repair_attempts": list(repair_attempts),
+        }
+
+    expected_artifacts = safe_list_of_str(model_result.get("expected_artifacts"))
+    if not expected_artifacts:
+        expected_artifacts = safe_list_of_str(generation.get("expected_artifacts"))
+    if not expected_artifacts:
+        expected_artifacts = ["solve.py", "solution.xdmf", "diagnostics.json"]
+
+    return {
+        "summary": safe_str(
+            model_result.get("summary"),
+            f"Repaired generated DOLFINx script on attempt {attempt_number}.",
+        ),
+        "python_code": repaired_code,
+        "expected_artifacts": _dedupe(["solve.py", *expected_artifacts]),
+        "warnings": _dedupe(warnings),
+        "repair_attempts": list(repair_attempts),
+    }
+
+
+def _can_repair(
+    repair_attempts: List[Dict[str, Any]],
+    max_repair_attempts: int,
+) -> bool:
+    return len(repair_attempts) < max(0, max_repair_attempts)
+
+
+def _is_repairable_execution_error(execution: Dict[str, Any]) -> bool:
+    if not execution.get("tool_name"):
+        return False
+    result = execution.get("result", {})
+    return isinstance(result, dict)
+
+
+def _runtime_failure_context(
+    errors: List[str],
+    execution: Dict[str, Any],
+) -> Dict[str, Any]:
+    result = execution.get("result", {})
+    result = result if isinstance(result, dict) else {}
+    return {
+        "failure_type": "runtime_execution",
+        "errors": errors,
+        "tool_name": execution.get("tool_name", ""),
+        "stdout": _truncate(str(result.get("stdout") or ""), limit=1200),
+        "stderr": _truncate(str(result.get("stderr") or ""), limit=2400),
+        "diagnostics": result.get("diagnostics", {}),
+        "return_code": result.get("return_code", ""),
+    }
+
+
+def _state_snapshot(state: AgentState, recipe: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "raw_user_input": state.get("raw_user_input", ""),
+        "problem_class": state.get("problem_class", ""),
+        "pde_info": state.get("pde_info", ""),
+        "domain_info": state.get("domain_info", ""),
+        "coefficient_info": state.get("coefficient_info", ""),
+        "source_info": state.get("source_info", ""),
+        "bc_info": state.get("bc_info", ""),
+        "initial_condition_info": state.get("initial_condition_info", ""),
+        "time_info": state.get("time_info", ""),
+        "selected_formulation": state.get("selected_formulation", ""),
+        "numerical_recipe": recipe,
     }
 
 
@@ -617,6 +774,14 @@ def _env_flag(name: str) -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
+def _repair_attempt_limit() -> int:
+    raw_value = os.getenv("DOLFINX_CODE_REPAIR_ATTEMPTS", "2").strip()
+    try:
+        return max(0, int(raw_value))
+    except ValueError:
+        return 2
+
+
 def _should_execute_live() -> bool:
     return _env_flag("DOLFINX_CODE_EXECUTE")
 
@@ -700,7 +865,27 @@ def _mcp_errors_from_result(result: Dict[str, Any]) -> List[str]:
     status = str(result.get("status", "")).lower()
     if status in {"error", "failed", "failure"}:
         return [str(result.get("message") or result)]
+    return_code = _result_return_code(result)
+    if return_code not in {None, 0}:
+        message = (
+            str(result.get("stderr") or result.get("message") or "").strip()
+            or f"Script execution failed with return code {return_code}."
+        )
+        return [message]
     return []
+
+
+def _result_return_code(result: Dict[str, Any]) -> int | None:
+    raw_code = result.get("return_code")
+    diagnostics = result.get("diagnostics")
+    if raw_code is None and isinstance(diagnostics, dict):
+        raw_code = diagnostics.get("return_code")
+    if raw_code is None:
+        return None
+    try:
+        return int(raw_code)
+    except (TypeError, ValueError):
+        return None
 
 
 def _build_output(
@@ -736,6 +921,11 @@ def _build_output(
         safety_status=safety["status"],
         execution_result=execution_result,
     )
+    repair_attempts = [
+        attempt
+        for attempt in generation.get("repair_attempts", [])
+        if isinstance(attempt, dict)
+    ]
     return {
         "schema_version": "1.0",
         "provider": FENICS_CODE_PROVIDER,
@@ -746,6 +936,8 @@ def _build_output(
         "code_summary": generation["summary"],
         "safety_status": safety["status"],
         "safety_warnings": safety["warnings"],
+        "repair_attempt_count": len(repair_attempts),
+        "repair_attempts": repair_attempts,
         "execution": execution,
         "fenics_result": {
             "schema_version": "1.0",

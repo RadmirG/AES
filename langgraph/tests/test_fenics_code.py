@@ -79,6 +79,30 @@ class _FakeCodeRunnerClient:
         }
 
 
+class _FailThenSucceedCodeRunnerClient:
+    def __init__(self):
+        self.calls = 0
+
+    def list_tools(self):
+        return [{"name": "run_python_script"}]
+
+    def call_tool(self, name, arguments=None):
+        self.calls += 1
+        if self.calls == 1:
+            return {
+                "status": "failed",
+                "stdout": "",
+                "stderr": "NameError: name 'bad_symbol' is not defined",
+                "errors": ["NameError: name 'bad_symbol' is not defined"],
+                "diagnostics": {
+                    "return_code": 1,
+                    "artifact_count": 1,
+                    "elapsed_seconds": 0.2,
+                },
+            }
+        return _FakeCodeRunnerClient().call_tool(name, arguments)
+
+
 class FenicsCodeTests(unittest.TestCase):
     def test_static_safety_rejects_subprocess_import(self):
         result = validate_python_code_safety(
@@ -225,6 +249,79 @@ class FenicsCodeTests(unittest.TestCase):
         )
 
         self.assertIn('petsc_options_prefix="aes_poisson_"', script)
+
+    @patch(
+        "aes_agent.fenics_code.ollama_json",
+        side_effect=[
+            {
+                "summary": "Generated broken code.",
+                "python_code": "from dolfinx import fem\nbad = \b\n",
+                "expected_artifacts": ["solution.xdmf"],
+            },
+            {
+                "summary": "Repaired syntax.",
+                "python_code": SAFE_CODE,
+                "expected_artifacts": ["solution.xdmf"],
+            },
+        ],
+    )
+    def test_static_syntax_error_triggers_repair(self, ollama_json):
+        output = execute_fenics_code_solve(
+            {
+                "raw_user_input": "As a solution I need a FEniCS executable python file.",
+                "solution_mode": "generate_fenics_code",
+                "numerical_recipe": {
+                    "provider": "local:fenics_code",
+                    "workflow": "llm_generated_dolfinx_script_v1",
+                    "execution_requested": False,
+                },
+            }
+        )
+
+        self.assertEqual(ollama_json.call_count, 2)
+        self.assertEqual(output["execution_mode"], "generated")
+        self.assertEqual(output["safety_status"], "safe")
+        self.assertEqual(output["repair_attempt_count"], 1)
+        self.assertEqual(output["repair_attempts"][0]["failure_type"], "static_validation")
+        self.assertIn("from dolfinx", output["generated_files"][0]["content"])
+
+    @patch(
+        "aes_agent.fenics_code.ollama_json",
+        side_effect=[
+            {
+                "summary": "Generated runtime-broken code.",
+                "python_code": SAFE_CODE,
+                "expected_artifacts": ["solution.xdmf"],
+            },
+            {
+                "summary": "Repaired runtime error.",
+                "python_code": SAFE_CODE,
+                "expected_artifacts": ["solution.xdmf"],
+            },
+        ],
+    )
+    def test_runtime_execution_error_triggers_repair(self, ollama_json):
+        client = _FailThenSucceedCodeRunnerClient()
+        output = execute_fenics_code_solve(
+            {
+                "raw_user_input": "Execute this solve.",
+                "solution_mode": "execute_generated_fenics_code",
+                "numerical_recipe": {
+                    "provider": "local:fenics_code",
+                    "workflow": "llm_generated_dolfinx_script_v1",
+                    "execution_requested": True,
+                },
+            },
+            client=client,
+            execute=True,
+        )
+
+        self.assertEqual(ollama_json.call_count, 2)
+        self.assertEqual(client.calls, 2)
+        self.assertEqual(output["execution_mode"], "executed")
+        self.assertEqual(output["errors"], [])
+        self.assertEqual(output["repair_attempt_count"], 1)
+        self.assertEqual(output["repair_attempts"][0]["failure_type"], "runtime_execution")
 
     @patch(
         "aes_agent.fenics_code.ollama_json",

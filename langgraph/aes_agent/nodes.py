@@ -896,6 +896,19 @@ def _append_fenics_code_review(lines: list[str], output: dict[str, Any]) -> None
         return
 
     lines.append("  Result review:")
+    repair_attempts = output.get("repair_attempts")
+    if isinstance(repair_attempts, list) and repair_attempts:
+        summaries = []
+        for attempt in repair_attempts[:3]:
+            if not isinstance(attempt, dict):
+                continue
+            number = attempt.get("attempt")
+            failure_type = attempt.get("failure_type")
+            status = attempt.get("status")
+            summaries.append(f"#{number} {failure_type} -> {status}")
+        if summaries:
+            lines.append(f"  Repair attempts: {_artifact_list(summaries, limit=360)}")
+
     if isinstance(diagnostics, dict) and diagnostics:
         _append_diagnostic_value(lines, "Provider run id", diagnostics.get("run_id"))
         _append_diagnostic_value(lines, "Return code", diagnostics.get("return_code"))
