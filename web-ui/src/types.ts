@@ -80,6 +80,7 @@ export type AesViewerManifest = {
   diagnostics: Record<string, unknown>;
   datasets: {
     vtkjs_readable: AesArtifact[];
+    sampled_field?: SampledFieldDataset;
     raw_solution: AesArtifact[];
     all_artifacts: AesArtifact[];
   };
@@ -90,6 +91,23 @@ export type AesViewerManifest = {
   };
   capabilities: Record<string, boolean>;
   warnings: string[];
+};
+
+export type SampledFieldDataset = {
+  type: string;
+  field: string;
+  domain: string;
+  space: string;
+  coordinates: number[][];
+  samples: Array<{
+    step: number;
+    time: number;
+    values: number[];
+  }>;
+  value_range?: {
+    min: number;
+    max: number;
+  };
 };
 
 export type WorkbenchResult = {

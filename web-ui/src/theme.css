@@ -464,6 +464,49 @@ a:hover {
   height: 360px;
 }
 
+.sampledFieldViewer {
+  display: grid;
+  gap: 12px;
+}
+
+.sampledFieldHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.sampledFieldHeader div {
+  display: grid;
+  gap: 3px;
+}
+
+.sampledFieldHeader span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.fieldCanvas {
+  width: 100%;
+  height: 360px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.fieldControls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.fieldControls input {
+  width: 100%;
+}
+
 .viewerPlaceholder {
   display: grid;
   place-content: center;

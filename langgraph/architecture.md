@@ -167,7 +167,7 @@ flowchart TD
     H --> I{"Return code 0?"}
     I -->|no| J["LLM repair with stdout/stderr/diagnostics"]
     J --> B
-    I -->|yes| K["Return code, diagnostics, artifact refs"]
+    I -->|yes| K["Return code, diagnostics, sampled u(x,y,t), artifact refs"]
 ```
 
 Repair attempts are bounded by `DOLFINX_CODE_REPAIR_ATTEMPTS`.
@@ -177,6 +177,12 @@ invalid control characters, and catches syntax errors before the stricter
 FEniCS import/call allowlist runs. If bounded static repairs return no usable
 Python for a supported simple heat/Poisson-style problem, AES falls back only at
 that point instead of repeatedly validating the same broken script.
+
+For transient generated-code runs, scripts should write sampled field data for
+the numerical solution \(u(x,y,t)\) into `diagnostics.json` under
+`field_samples`. The visualization layer can then render the actual sampled
+solution field in the Workbench even before a full VTK `.vtu` or `.vtkjs`
+conversion exists.
 
 ## API Boundary
 

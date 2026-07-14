@@ -131,9 +131,16 @@ flowchart TD
     B --> G["VtkResultViewer"]
 ```
 
-The VTK.js viewport becomes useful when AES serves browser-fetchable `.vtu`,
-`.vtp`, `.vtk`, or `.vtkjs` datasets. Until then, the UI shows diagnostics,
-SVG previews, and raw artifact references.
+The viewer has two rendering paths:
+
+- sampled-field rendering from `viewer_manifest.datasets.sampled_field`, used
+  for transient solutions such as \(u(x,y,t)\) before full VTK conversion
+  exists;
+- VTK.js rendering when AES serves browser-fetchable `.vtu`, `.vtp`, `.vtk`, or
+  `.vtkjs` datasets.
+
+Until at least sampled-field data or a VTK dataset exists, the UI shows
+diagnostics, SVG previews, and raw artifact references.
 
 ## Proxy Boundary
 

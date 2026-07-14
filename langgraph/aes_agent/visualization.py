@@ -137,13 +137,20 @@ def _viewer_manifest(
         for artifact in artifacts
         if _is_raw_solution_artifact(str(artifact.get("name", "")))
     ]
+    sampled_field = _sampled_field_from_diagnostics(diagnostics)
 
     warnings = []
-    if not vtk_datasets:
+    if not vtk_datasets and not sampled_field:
         warnings.append(
             "No VTK.js-readable dataset was produced yet. The viewer will show "
             "diagnostics and artifact links until a .vtu, .vtp, or .vtkjs export "
             "is available."
+        )
+    elif not vtk_datasets and sampled_field:
+        warnings.append(
+            "No VTK.js-readable dataset was produced yet. AES is using sampled "
+            "u(x,y,t) field data from diagnostics.json for preview and browser "
+            "inspection."
         )
 
     return {
@@ -162,6 +169,7 @@ def _viewer_manifest(
         "diagnostics": diagnostics if isinstance(diagnostics, dict) else {},
         "datasets": {
             "vtkjs_readable": vtk_datasets,
+            "sampled_field": sampled_field,
             "raw_solution": raw_solution_artifacts,
             "all_artifacts": [_manifest_artifact(artifact) for artifact in artifacts],
         },
@@ -173,6 +181,7 @@ def _viewer_manifest(
         "capabilities": {
             "static_preview": True,
             "diagnostics_chart": True,
+            "sampled_field_preview": bool(sampled_field),
             "vtkjs_interactive": bool(vtk_datasets),
             "openui_dashboard_scaffold": True,
         },
@@ -202,11 +211,86 @@ def _is_raw_solution_artifact(name: str) -> bool:
     return lowered.endswith((".xdmf", ".h5", ".bp", ".vtu", ".vtp", ".vtk", ".vtkjs"))
 
 
+def _sampled_field_from_diagnostics(diagnostics: Dict[str, Any]) -> Dict[str, Any]:
+    script = diagnostics.get("script") if isinstance(diagnostics, dict) else {}
+    if not isinstance(script, dict):
+        return {}
+
+    field = script.get("field_samples")
+    if not isinstance(field, dict):
+        return {}
+
+    coordinates = field.get("coordinates")
+    samples = field.get("samples")
+    if not isinstance(coordinates, list) or not isinstance(samples, list):
+        return {}
+    if not coordinates or not samples:
+        return {}
+
+    cleaned_coordinates = []
+    for point in coordinates:
+        if not isinstance(point, list) or len(point) < 2:
+            continue
+        try:
+            cleaned_coordinates.append([float(point[0]), float(point[1])])
+        except (TypeError, ValueError):
+            continue
+
+    cleaned_samples = []
+    for sample in samples:
+        if not isinstance(sample, dict) or not isinstance(sample.get("values"), list):
+            continue
+        values = []
+        for value in sample["values"]:
+            try:
+                values.append(float(value))
+            except (TypeError, ValueError):
+                values.append(0.0)
+        if len(values) != len(cleaned_coordinates):
+            continue
+        cleaned_samples.append(
+            {
+                "step": int(_float_or_zero(sample.get("step"))),
+                "time": float(_float_or_zero(sample.get("time"))),
+                "values": values,
+            }
+        )
+
+    if not cleaned_coordinates or not cleaned_samples:
+        return {}
+
+    all_values = [
+        value
+        for sample in cleaned_samples
+        for value in sample["values"]
+    ]
+    value_range = field.get("value_range") if isinstance(field.get("value_range"), dict) else {}
+    return {
+        "type": str(field.get("type") or "dof_point_cloud_time_series"),
+        "field": str(field.get("field") or "u"),
+        "domain": str(field.get("domain") or "unit_square"),
+        "space": str(field.get("space") or "P1"),
+        "coordinates": cleaned_coordinates,
+        "samples": cleaned_samples,
+        "value_range": {
+            "min": _float_or_zero(value_range.get("min")) if value_range else min(all_values),
+            "max": _float_or_zero(value_range.get("max")) if value_range else max(all_values),
+        },
+    }
+
+
 def _render_preview_svg(manifest: Dict[str, Any]) -> str:
     diagnostics = manifest.get("diagnostics") if isinstance(manifest, dict) else {}
     script = diagnostics.get("script") if isinstance(diagnostics, dict) else {}
     if not isinstance(script, dict):
         script = {}
+    sampled_field = (
+        manifest.get("datasets", {}).get("sampled_field")
+        if isinstance(manifest.get("datasets"), dict)
+        else {}
+    )
+    if isinstance(sampled_field, dict) and sampled_field:
+        return _render_sampled_field_svg(manifest, sampled_field, script)
 
     title = manifest.get("problem", {}).get("pde") or "AES simulation result"
     stats = _solution_stats(script)
@@ -261,6 +345,175 @@ def _render_preview_svg(manifest: Dict[str, Any]) -> str:
   {chart}
 </svg>
 '''
+
+
+def _render_sampled_field_svg(
+    manifest: Dict[str, Any],
+    sampled_field: Dict[str, Any],
+    script: Dict[str, Any],
+) -> str:
+    title = manifest.get("problem", {}).get("pde") or "AES simulation result"
+    samples = sampled_field.get("samples") if isinstance(sampled_field.get("samples"), list) else []
+    selected_samples = _select_field_samples(samples, max_count=4)
+    value_range = sampled_field.get("value_range") if isinstance(sampled_field.get("value_range"), dict) else {}
+    vmin = _float_or_zero(value_range.get("min"))
+    vmax = _float_or_zero(value_range.get("max"))
+    if vmax <= vmin:
+        values = [value for sample in selected_samples for value in sample.get("values", [])]
+        vmin = min(values) if values else 0.0
+        vmax = max(values) if values else 1.0
+        if vmax <= vmin:
+            vmax = vmin + 1.0
+
+    coordinates = sampled_field.get("coordinates") if isinstance(sampled_field.get("coordinates"), list) else []
+    heatmaps = []
+    for index, sample in enumerate(selected_samples):
+        x = 38 + index * 225
+        heatmaps.append(
+            _render_heatmap_svg_group(
+                coordinates=coordinates,
+                sample=sample,
+                x=x,
+                y=130,
+                size=190,
+                vmin=vmin,
+                vmax=vmax,
+            )
+        )
+
+    stats = _solution_stats(script)
+    subtitle = (
+        f'u(x,y,t) sampled at {len(samples)} time levels; '
+        f'{len(coordinates)} spatial DOF points'
+    )
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600">
+  <style>
+    .bg {{ fill: #f8fafc; }}
+    .panel {{ fill: #ffffff; stroke: #d9d9e3; stroke-width: 1.5; }}
+    .title {{ fill: #202123; font: 700 26px sans-serif; }}
+    .subtitle {{ fill: #6b7280; font: 15px sans-serif; }}
+    .section {{ fill: #202123; font: 700 16px sans-serif; }}
+    .label {{ fill: #6b7280; font: 13px monospace; }}
+    .value {{ fill: #202123; font-weight: 700; }}
+    .axis {{ stroke: #d1d5db; stroke-width: 1; }}
+    .legendText {{ fill: #6b7280; font: 12px sans-serif; }}
+  </style>
+  <rect class="bg" x="0" y="0" width="960" height="600"/>
+  <rect class="panel" x="20" y="20" width="920" height="560" rx="20"/>
+  <text x="38" y="58" class="title">Numerical solution field u(x,y,t)</text>
+  <text x="38" y="86" class="subtitle">{escape(subtitle)}</text>
+  <text x="38" y="113" class="label">PDE: <tspan class="value">{escape(str(title))}</tspan></text>
+  {''.join(heatmaps)}
+  {_render_color_legend(38, 410, 860, 18, vmin, vmax)}
+  <text x="38" y="475" class="section">Run summary</text>
+  <text x="38" y="505" class="label">DOFs: <tspan class="value">{escape(str(script.get("num_dofs", "not available")))}</tspan></text>
+  <text x="260" y="505" class="label">Steps: <tspan class="value">{escape(str(script.get("num_steps", "not available")))}</tspan></text>
+  <text x="480" y="505" class="label">dt: <tspan class="value">{escape(str(script.get("dt", "not available")))}</tspan></text>
+  <text x="650" y="505" class="label">T: <tspan class="value">{escape(str(script.get("final_time", "not available")))}</tspan></text>
+  <text x="38" y="535" class="label">Final stats: <tspan class="value">{escape(stats or "not available")}</tspan></text>
+  <text x="38" y="560" class="legendText">This preview renders sampled FEM DOF values from diagnostics.json. It represents the computed field u(x,y,t), not only scalar diagnostics.</text>
+</svg>
+'''
+
+
+def _select_field_samples(samples: List[Any], *, max_count: int) -> List[Dict[str, Any]]:
+    rows = [sample for sample in samples if isinstance(sample, dict) and isinstance(sample.get("values"), list)]
+    if len(rows) <= max_count:
+        return rows
+    indices = sorted(
+        {
+            0,
+            len(rows) - 1,
+            *[
+                int(round((len(rows) - 1) * fraction))
+                for fraction in (0.33, 0.66)
+            ],
+        }
+    )
+    return [rows[index] for index in indices[:max_count]]
+
+
+def _render_heatmap_svg_group(
+    *,
+    coordinates: List[Any],
+    sample: Dict[str, Any],
+    x: float,
+    y: float,
+    size: float,
+    vmin: float,
+    vmax: float,
+) -> str:
+    values = sample.get("values") if isinstance(sample.get("values"), list) else []
+    if not coordinates or not values:
+        return ""
+    xs = [float(point[0]) for point in coordinates if isinstance(point, list) and len(point) >= 2]
+    ys = [float(point[1]) for point in coordinates if isinstance(point, list) and len(point) >= 2]
+    if not xs or not ys:
+        return ""
+    xmin, xmax = min(xs), max(xs)
+    ymin, ymax = min(ys), max(ys)
+    xspan = xmax - xmin or 1.0
+    yspan = ymax - ymin or 1.0
+    cell = max(2.2, min(8.0, size / max(1.0, len(coordinates) ** 0.5)))
+    rects = []
+    for point, value in zip(coordinates, values):
+        if not isinstance(point, list) or len(point) < 2:
+            continue
+        px = x + ((float(point[0]) - xmin) / xspan) * (size - cell)
+        py = y + (1.0 - ((float(point[1]) - ymin) / yspan)) * (size - cell)
+        rects.append(
+            f'<rect x="{px:.2f}" y="{py:.2f}" width="{cell:.2f}" height="{cell:.2f}" fill="{_heat_color(_float_or_zero(value), vmin, vmax)}"/>'
+        )
+    time_value = _format_number(sample.get("time"))
+    return f'''
+  <g>
+    <text x="{x:.1f}" y="{y - 12:.1f}" class="section">t = {escape(time_value)}</text>
+    <rect x="{x:.1f}" y="{y:.1f}" width="{size:.1f}" height="{size:.1f}" fill="#f8fafc" stroke="#d1d5db"/>
+    {''.join(rects)}
+    <line x1="{x:.1f}" y1="{y + size:.1f}" x2="{x + size:.1f}" y2="{y + size:.1f}" class="axis"/>
+    <line x1="{x:.1f}" y1="{y:.1f}" x2="{x:.1f}" y2="{y + size:.1f}" class="axis"/>
+    <text x="{x:.1f}" y="{y + size + 22:.1f}" class="label">x</text>
+    <text x="{x - 18:.1f}" y="{y + 12:.1f}" class="label">y</text>
+  </g>
+'''
+
+
+def _render_color_legend(x: float, y: float, width: float, height: float, vmin: float, vmax: float) -> str:
+    steps = 80
+    rect_width = width / steps
+    rects = []
+    for index in range(steps):
+        value = vmin + (vmax - vmin) * (index / max(1, steps - 1))
+        rects.append(
+            f'<rect x="{x + index * rect_width:.2f}" y="{y:.2f}" width="{rect_width + 0.5:.2f}" height="{height:.2f}" fill="{_heat_color(value, vmin, vmax)}"/>'
+        )
+    return f'''
+  <g>
+    {''.join(rects)}
+    <rect x="{x:.1f}" y="{y:.1f}" width="{width:.1f}" height="{height:.1f}" fill="none" stroke="#d1d5db"/>
+    <text x="{x:.1f}" y="{y + height + 20:.1f}" class="legendText">min {escape(_format_number(vmin))}</text>
+    <text x="{x + width - 70:.1f}" y="{y + height + 20:.1f}" class="legendText">max {escape(_format_number(vmax))}</text>
+  </g>
+'''
+
+
+def _heat_color(value: float, vmin: float, vmax: float) -> str:
+    span = vmax - vmin or 1.0
+    t = max(0.0, min(1.0, (value - vmin) / span))
+    stops = (
+        (37, 99, 235),
+        (6, 182, 212),
+        (16, 185, 129),
+        (250, 204, 21),
+        (239, 68, 68),
+    )
+    scaled = t * (len(stops) - 1)
+    index = min(int(scaled), len(stops) - 2)
+    local = scaled - index
+    c0 = stops[index]
+    c1 = stops[index + 1]
+    rgb = tuple(int(c0[channel] + (c1[channel] - c0[channel]) * local) for channel in range(3))
+    return f"rgb({rgb[0]},{rgb[1]},{rgb[2]})"
 
 
 def _solution_stats(script: Dict[str, Any]) -> str:

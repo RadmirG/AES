@@ -29,7 +29,9 @@ class VisualizationPostprocessTests(unittest.TestCase):
             "transient_heat_equation",
         )
         self.assertIn("solution.xdmf", generated["viewer.html"])
-        self.assertIn("AES Result Preview", generated["preview.svg"])
+        self.assertIn("Numerical solution field u(x,y,t)", generated["preview.svg"])
+        self.assertIn("sampled_field", manifest["datasets"])
+        self.assertTrue(manifest["capabilities"]["sampled_field_preview"])
 
     def test_visualization_artifacts_skip_without_completed_solver_result(self):
         output = build_visualization_artifacts({"tool_results": []})
@@ -80,6 +82,31 @@ def _state_with_completed_fenics_code():
                                     {"time": 0.01, "max": 0.01, "mean": 0.004},
                                     {"time": 1.0, "max": 0.12, "mean": 0.04},
                                 ],
+                                "field_samples": {
+                                    "type": "dof_point_cloud_time_series",
+                                    "field": "u",
+                                    "domain": "unit_square",
+                                    "space": "P1",
+                                    "coordinates": [
+                                        [0.0, 0.0],
+                                        [1.0, 0.0],
+                                        [0.0, 1.0],
+                                        [1.0, 1.0],
+                                    ],
+                                    "samples": [
+                                        {
+                                            "step": 0,
+                                            "time": 0.0,
+                                            "values": [0.0, 0.0, 0.0, 0.0],
+                                        },
+                                        {
+                                            "step": 100,
+                                            "time": 1.0,
+                                            "values": [0.0, 0.1, 0.1, 0.0],
+                                        },
+                                    ],
+                                    "value_range": {"min": 0.0, "max": 0.1},
+                                },
                             },
                         },
                         "artifacts": [

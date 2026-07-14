@@ -672,7 +672,15 @@ problem = LinearProblem(
 )
 
 time_series = []
+dof_coordinates = V.tabulate_dof_coordinates()[:, :2]
+field_samples = []
 sample_interval = max(1, num_steps // 10)
+sample_steps = sorted(
+    set(
+        [0, 1, num_steps]
+        + [max(1, int(round(num_steps * fraction))) for fraction in (0.1, 0.2, 0.4, 0.6, 0.8)]
+    )
+)
 
 
 def solution_stats(function, step, time_value):
@@ -686,11 +694,26 @@ def solution_stats(function, step, time_value):
     }}
 
 
+def field_sample(function, step, time_value):
+    return {{
+        "step": int(step),
+        "time": float(time_value),
+        "values": function.x.array.astype(float).tolist(),
+    }}
+
+
+if 0 in sample_steps:
+    time_series.append(solution_stats(u_n, 0, 0.0))
+    field_samples.append(field_sample(u_n, 0, 0.0))
+
+
 for step in range(1, num_steps + 1):
     problem.solve()
     u_n.x.array[:] = u_sol.x.array
     if step == 1 or step % sample_interval == 0 or step == num_steps:
         time_series.append(solution_stats(u_sol, step, step * dt))
+    if step in sample_steps:
+        field_samples.append(field_sample(u_sol, step, step * dt))
 
 with io.XDMFFile(msh.comm, "solution.xdmf", "w") as xdmf:
     xdmf.write_mesh(msh)
@@ -707,6 +730,18 @@ diagnostics = {{
     "solution_max": final_stats["max"],
     "solution_mean": final_stats["mean"],
     "time_series": time_series,
+    "field_samples": {{
+        "type": "dof_point_cloud_time_series",
+        "field": "u",
+        "domain": "unit_square",
+        "space": "P1",
+        "coordinates": dof_coordinates.astype(float).tolist(),
+        "samples": field_samples,
+        "value_range": {{
+            "min": float(min(np.min(np.array(sample["values"])) for sample in field_samples)),
+            "max": float(max(np.max(np.array(sample["values"])) for sample in field_samples)),
+        }},
+    }},
 }}
 Path("diagnostics.json").write_text(json.dumps(diagnostics, indent=2), encoding="utf-8")
 print(json.dumps(diagnostics, indent=2))

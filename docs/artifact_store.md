@@ -59,6 +59,8 @@ An AES run may store:
 - static safety reports,
 - stdout/stderr logs,
 - `diagnostics.json`,
+- sampled solution field data such as \(u(x,y,t)\) inside `diagnostics.json`
+  under `field_samples`,
 - solver outputs,
 - visualization metadata,
 - `preview.svg`,
