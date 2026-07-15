@@ -1,4 +1,4 @@
-﻿# AES Command Guide
+# AES Command Guide
 
 This file collects the practical commands for developing, starting, testing, and
 stopping the AES stack. 
@@ -274,15 +274,46 @@ Check the PostgreSQL and migration startup:
 docker compose -f deploy/compose.dev.yaml --profile models logs aes-postgres aes-database-migrate
 ```
 
-Create the first Workbench user interactively:
+### First Workbench Login
+
+AES does not create a default account or default password. Create the first
+Workbench user interactively after `langgraph` and PostgreSQL are running.
+
+Development:
 
 ```bash
 docker compose -f deploy/compose.dev.yaml exec langgraph \
   python -m aes_agent.create_user --username engineer --display-name "AES Engineer"
 ```
 
-The command prompts for and confirms the password without placing it in shell
-history or the process command line.
+Production:
+
+```bash
+docker compose -f deploy/compose.prod.yaml \
+  --profile models --profile fenics \
+  exec langgraph \
+  python -m aes_agent.create_user --username engineer --display-name "AES Engineer"
+```
+
+The command displays `Password:` and `Confirm password:` prompts. Enter the
+password you want to use for the `engineer` account. Input is intentionally not
+shown and is never placed in shell history or the process command line.
+
+Open the Workbench and sign in with user name `engineer` and that password:
+
+```text
+http://127.0.0.1:3000
+```
+
+For a remote server, create the SSH tunnel locally and open port `3001`:
+
+```bash
+ssh -N -L 3001:127.0.0.1:3000 <user>@<server>
+```
+
+```text
+http://127.0.0.1:3001
+```
 
 Clean rebuild/restart of the full dev stack after service-layout changes:
 
@@ -296,86 +327,171 @@ docker compose -f deploy/compose.dev.yaml --profile models --profile fenics up -
 
 ## 9. Stack Logs
 
-### Dev System 
-Show all logs:
+The complete stack contains these Compose service names:
 
-```bash
-docker compose -f deploy/compose.dev.yaml --profile models logs -f
+```text
+aes-postgres
+aes-database-migrate
+langgraph
+web-ui
+ollama
+ollama-model-puller
+dolfinx-mcp
+fenics-code-runner
 ```
 
-Show Ollama logs:
+`aes-database-migrate` and `ollama-model-puller` are one-shot services. A
+successful `Exited (0)` status is expected after their work completes.
+
+### Dev System
+
+Show logs from every enabled development service:
 
 ```bash
-docker compose -f deploy/compose.dev.yaml --profile models logs -f ollama
+docker compose -f deploy/compose.dev.yaml \
+  --profile models --profile fenics \
+  logs -f --timestamps
 ```
 
-Show LangGraph/AES logs:
+Follow the active runtime services together:
 
 ```bash
-docker compose -f deploy/compose.dev.yaml --profile models logs -f langgraph
+docker compose -f deploy/compose.dev.yaml \
+  --profile models --profile fenics \
+  logs -f langgraph web-ui aes-postgres ollama dolfinx-mcp fenics-code-runner
 ```
 
-Show PostgreSQL and migration logs:
+Show PostgreSQL runtime logs:
 
 ```bash
-docker compose -f deploy/compose.dev.yaml --profile models logs -f aes-postgres aes-database-migrate
+docker compose -f deploy/compose.dev.yaml \
+  --profile models --profile fenics \
+  logs -f aes-postgres
 ```
 
-Show AES Web UI logs:
+Show the database migration history:
 
 ```bash
-docker compose -f deploy/compose.dev.yaml --profile models logs -f web-ui
+docker compose -f deploy/compose.dev.yaml \
+  --profile models --profile fenics \
+  logs aes-database-migrate
 ```
 
-FEniCS/Dolfin logs:
+Show LangGraph/AES and authentication logs:
 
 ```bash
-docker compose -f deploy/compose.dev.yaml --profile models --profile fenics logs -f dolfinx-mcp
+docker compose -f deploy/compose.dev.yaml \
+  --profile models --profile fenics \
+  logs -f langgraph
 ```
 
-FEniCS generated-code runner logs:
+Show AES Workbench/Nginx logs:
 
 ```bash
-docker compose -f deploy/compose.dev.yaml --profile models --profile fenics logs -f fenics-code-runner
+docker compose -f deploy/compose.dev.yaml \
+  --profile models --profile fenics \
+  logs -f web-ui
 ```
 
+Show Ollama runtime logs:
 
-### Prod System 
-Show all logs:
+```bash
+docker compose -f deploy/compose.dev.yaml \
+  --profile models --profile fenics \
+  logs -f ollama
+```
+
+Show model-puller output:
+
+```bash
+docker compose -f deploy/compose.dev.yaml \
+  --profile models --profile fenics \
+  logs ollama-model-puller
+```
+
+Show both FEniCS provider logs:
+
+```bash
+docker compose -f deploy/compose.dev.yaml \
+  --profile models --profile fenics \
+  logs -f dolfinx-mcp fenics-code-runner
+```
+
+### Prod System
+
+Show logs from every enabled production service:
 
 ```bash
 docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f --timestamps
 ```
 
-Show AES-owned logs with richer workflow content previews. Content previews are
-bounded and sanitized; disable them with `AES_LOG_CONTENT=false` and
-`FENICS_RUNNER_LOG_CONTENT=false` before starting the stack.
+Follow the active production runtime services together:
 
 ```bash
-docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f langgraph
-```
-```bash
-docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f web-ui
-```
-```bash
-docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f fenics-code-runner
+docker compose -f deploy/compose.prod.yaml \
+  --profile models --profile fenics \
+  logs -f langgraph web-ui aes-postgres ollama dolfinx-mcp fenics-code-runner
 ```
 
-Show external component logs. These services use their own internal formats, but
-LangGraph logs the AES-side calls to them.
+Show PostgreSQL runtime logs:
 
 ```bash
-docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f ollama-server
-```
-```bash
-docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f dolfinx-mcp
+docker compose -f deploy/compose.prod.yaml \
+  --profile models --profile fenics \
+  logs -f aes-postgres
 ```
 
-Follow the main runtime components together:
+Show database migration output:
 
 ```bash
-docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f langgraph web-ui fenics-code-runner ollama-server dolfinx-mcp
+docker compose -f deploy/compose.prod.yaml \
+  --profile models --profile fenics \
+  logs aes-database-migrate
 ```
+
+Show LangGraph/AES and authentication logs:
+
+```bash
+docker compose -f deploy/compose.prod.yaml \
+  --profile models --profile fenics \
+  logs -f langgraph
+```
+
+Show AES Workbench/Nginx logs:
+
+```bash
+docker compose -f deploy/compose.prod.yaml \
+  --profile models --profile fenics \
+  logs -f web-ui
+```
+
+Show Ollama runtime logs:
+
+```bash
+docker compose -f deploy/compose.prod.yaml \
+  --profile models --profile fenics \
+  logs -f ollama
+```
+
+Show model-puller output:
+
+```bash
+docker compose -f deploy/compose.prod.yaml \
+  --profile models --profile fenics \
+  logs ollama-model-puller
+```
+
+Show both FEniCS provider logs:
+
+```bash
+docker compose -f deploy/compose.prod.yaml \
+  --profile models --profile fenics \
+  logs -f dolfinx-mcp fenics-code-runner
+```
+
+AES-owned content previews are bounded and sanitized. Disable them with
+`AES_LOG_CONTENT=false` and `FENICS_RUNNER_LOG_CONTENT=false` in `deploy/.env`
+before starting the stack when prompt/result previews should not be logged.
 
 ## 10. Dev Stack Smoke Tests
 

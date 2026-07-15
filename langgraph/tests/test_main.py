@@ -1,3 +1,4 @@
+import json
 import sys
 import types
 import unittest
@@ -59,6 +60,7 @@ sys.modules.setdefault("aes_agent.graph", graph_stub)
 from aes_agent import main
 from aes_agent.auth import AuthUser, CookieSettings, LoginResult
 from aes_agent.main import ChatMessage, build_user_text_from_messages
+from aes_agent.response_projection import build_public_aes_result
 
 
 class _FakeGraph:
@@ -270,6 +272,118 @@ class AuthenticationApiTests(unittest.TestCase):
         self.assertEqual(result["status"], "logged_out")
         self.assertEqual(self.service.logged_out_token, "raw-session-token")
         self.assertEqual(response.deleted_cookie["key"], "aes_session")
+
+
+class PublicResponseProjectionTests(unittest.TestCase):
+    def test_projection_keeps_artifact_links_and_removes_inline_payloads(self):
+        result = {
+            "agent_status": "ok",
+            "next_action": "review_tool_results",
+            "tool_results": [
+                {
+                    "tool_name": "visualization_postprocess",
+                    "provider": "local:visualization",
+                    "status": "completed",
+                    "error": "",
+                    "output": {
+                        "execution_mode": "generated",
+                        "generated_files": [
+                            {"name": "preview.svg", "content": "x" * 500_000}
+                        ],
+                        "viewer_manifest": {
+                            "datasets": {"sampled_field": [1] * 100_000}
+                        },
+                    },
+                },
+                {
+                    "tool_name": "artifact_store",
+                    "provider": "local:artifact_store",
+                    "status": "completed",
+                    "error": "",
+                    "output": {
+                        "execution_mode": "stored",
+                        "manifest_path": "/artifacts/run-1/manifest.json",
+                        "manifest": {
+                            "run_id": "run-1",
+                            "status": "completed",
+                            "artifacts": [
+                                {
+                                    "name": "preview.svg",
+                                    "kind": "preview",
+                                    "media_type": "image/svg+xml",
+                                    "uri": "aes://artifacts/run-1/preview.svg",
+                                    "storage": "aes_artifact_store",
+                                    "status": "stored",
+                                    "content": "x" * 500_000,
+                                }
+                            ],
+                        },
+                    },
+                },
+            ],
+        }
+
+        public = build_public_aes_result(result)
+        serialized = json.dumps(public)
+
+        self.assertLess(len(serialized), 20_000)
+        self.assertNotIn("generated_files", serialized)
+        self.assertNotIn("sampled_field", serialized)
+        self.assertNotIn('"content"', serialized)
+        artifact_output = public["tool_results"][1]["output"]
+        self.assertEqual(artifact_output["manifest"]["run_id"], "run-1")
+        self.assertEqual(
+            artifact_output["manifest"]["artifacts"][0]["uri"],
+            "aes://artifacts/run-1/preview.svg",
+        )
+
+    def test_projection_omits_raw_user_input(self):
+        public = build_public_aes_result(
+            {
+                "raw_user_input": "private problem text",
+                "agent_status": "ok",
+                "tool_results": [],
+            }
+        )
+
+        self.assertNotIn("raw_user_input", public)
+        self.assertEqual(public["agent_status"], "ok")
+
+    def test_chat_completion_returns_projected_result(self):
+        internal_result = {
+            "generated_artifact": "completed",
+            "agent_status": "ok",
+            "next_action": "review_tool_results",
+            "tool_results": [
+                {
+                    "tool_name": "visualization_postprocess",
+                    "provider": "local:visualization",
+                    "status": "completed",
+                    "error": "",
+                    "output": {
+                        "generated_files": [
+                            {"name": "viewer.html", "content": "x" * 500_000}
+                        ]
+                    },
+                }
+            ],
+        }
+        request = main.ChatCompletionRequest(
+            model="aes-agent",
+            stream=False,
+            messages=[main.ChatMessage(role="user", content="Solve Poisson.")],
+        )
+
+        with patch.object(main, "auth_enabled", return_value=False), patch.object(
+            main,
+            "run_aes_agent",
+            return_value=internal_result,
+        ):
+            response = main.chat_completions(request, _FakeRequest())
+
+        serialized = json.dumps(response["aes_result"])
+        self.assertNotIn("generated_files", serialized)
+        self.assertLess(len(serialized), 10_000)
 
 
 if __name__ == "__main__":

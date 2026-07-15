@@ -31,6 +31,7 @@ from aes_agent.logging_config import (
     configure_logging,
     log_content_preview,
 )
+from aes_agent.response_projection import build_public_aes_result
 
 configure_logging("langgraph")
 
@@ -645,9 +646,17 @@ def chat_completions(request: ChatCompletionRequest, http_request: Request):
 
     result = run_aes_agent(user_text, cache_scope=user.id)
     assistant_text = build_assistant_text(result)
+    public_result = build_public_aes_result(result)
+    public_result_bytes = len(
+        json.dumps(public_result, ensure_ascii=False).encode("utf-8")
+    )
     logger.info(
-        "OpenAI-compatible chat completion prepared: response_chars=%s status=%s",
+        (
+            "OpenAI-compatible chat completion prepared: response_chars=%s "
+            "aes_result_bytes=%s status=%s"
+        ),
         len(assistant_text),
+        public_result_bytes,
         result.get("agent_status", ""),
     )
     log_content_preview(
@@ -713,7 +722,7 @@ def chat_completions(request: ChatCompletionRequest, http_request: Request):
             "completion_tokens": 0,
             "total_tokens": 0,
         },
-        "aes_result": result,
+        "aes_result": public_result,
     }
 
 

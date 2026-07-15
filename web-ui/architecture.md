@@ -18,6 +18,7 @@ flowchart TD
     G --> H["aes_result"]
     H --> D
     H --> E
+    D --> CACHE["Compact per-user local chat cache"]
     E --> I["/artifacts/..."]
     I --> B
     B --> G
@@ -107,8 +108,20 @@ Saved conversations contain:
 
 - chat turns,
 - persisted progress turns,
-- latest `aes_result`,
+- compact latest `aes_result`,
 - artifact/result links.
+
+The Workbench never persists raw graph/tool payloads, inline generated files,
+or sampled numerical arrays in `localStorage`. The API response projection and
+the browser storage projection both retain only status, answer text, and the
+artifact-store manifest references needed by the result pane. Large viewer
+manifests, diagnostics, previews, and solution data are fetched on demand from
+authenticated `/artifacts/...` URLs. This keeps a single solve from exceeding
+the browser storage quota.
+
+When a page reload interrupts an in-flight request, the restored progress turn
+is marked as interrupted instead of remaining permanently active at `Waiting
+for final response`.
 
 ## Persistent Progress Turns
 
@@ -135,9 +148,10 @@ The right pane reads `aes_result` from the OpenAI-compatible response.
 
 ```mermaid
 flowchart TD
-    A["aes_result"] --> B["ResultWorkspace"]
+    A["compact aes_result"] --> B["ResultWorkspace"]
     B --> C["Status and next action"]
-    B --> D["ArtifactPanel"]
+    B --> D["Artifact manifest references"]
+    D --> H["Authenticated /artifacts fetch"]
     B --> E["DiagnosticsPanel"]
     B --> F["Preview iframe"]
     B --> G["VtkResultViewer"]

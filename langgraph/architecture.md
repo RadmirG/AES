@@ -20,7 +20,8 @@ flowchart TD
     I --> K["Artifact store"]
     J --> K
     K --> L["Deterministic final renderer"]
-    L --> M["OpenAI-compatible response<br/>aes_result included"]
+    L --> P["Public response projection"]
+    P --> M["OpenAI-compatible response<br/>compact aes_result"]
 ```
 
 ## Ownership
@@ -231,6 +232,27 @@ The OpenAI-compatible adapter normally uses the latest user turn as the active
 request. The controlled exception is AES-requested output clarification: when
 AES asks what output the user wants, a short follow-up such as `execution with
 stored result artifacts` is merged with the previous PDE problem.
+
+The graph's internal `AgentState` is not returned directly to browsers. Before
+the non-streaming response is serialized, `response_projection.py` creates a
+bounded public result containing status, interpreted problem fields, concise
+tool summaries, and artifact manifest references. Inline generated files,
+sampled field arrays, raw MCP responses, and execution diagnostics remain in
+the AES artifact store and are fetched through authenticated `/artifacts/...`
+URLs.
+
+```mermaid
+flowchart LR
+    A["Internal AgentState"] --> B["Final answer renderer"]
+    A --> C["Public response projection"]
+    B --> D["Assistant text"]
+    C --> E["Compact aes_result"]
+    E --> F["Artifact metadata + URLs"]
+    D --> G["Chat completion response"]
+    F --> G
+    H["Large diagnostics and visualization files"] --> I["Artifact store"]
+    F -->|"authenticated fetch"| I
+```
 
 ## Tests
 

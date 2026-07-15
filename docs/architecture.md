@@ -123,7 +123,7 @@ sequenceDiagram
     Store-->>LG: AES artifact run id and URLs
     LG->>DB: Store tool/artifact metadata and final run status
     LG->>DB: Store assistant message
-    LG-->>UI: Final answer + aes_result
+    LG-->>UI: Final answer + compact aes_result
     UI->>Store: Load /artifacts links through proxy
 ```
 
@@ -170,6 +170,12 @@ aes-agent
 ```
 
 This is an AES wrapper model, not the raw Ollama model.
+
+The browser receives a compact public `aes_result`, not the complete internal
+`AgentState`. It contains result status and artifact manifest references.
+Inline generated files, sampled field arrays, execution diagnostics, and raw
+MCP payloads remain in the artifact store and are fetched only when the result
+workspace needs them.
 
 ### LangGraph To Ollama
 
@@ -223,6 +229,8 @@ flowchart LR
 - Keep full `AgentState` snapshots in the LangGraph checkpointer while
   projecting queryable run, event, tool, and artifact metadata into dedicated
   tables.
+- Project a bounded browser response from internal `AgentState`; never use an
+  API/chat payload as bulk numerical artifact transport.
 - Keep large numerical artifacts outside PostgreSQL and store only their
   ownership, status, checksum, metadata, and URI in the database.
 - Treat artifact storage as workflow traceability, not only successful solver
