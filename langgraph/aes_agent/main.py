@@ -17,11 +17,12 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from aes_agent.graph import graph
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+from aes_agent.logging_config import (
+    configure_logging,
+    log_content_preview,
 )
+
+configure_logging("langgraph")
 
 app = FastAPI(title="LangGraph Service")
 logger = logging.getLogger("aes_agent")
@@ -261,11 +262,19 @@ def run_aes_agent(user_text: str) -> Dict[str, Any]:
     cache_key = _result_cache_key(user_text)
     cached_result = _get_cached_result(cache_key)
     if cached_result is not None:
-        logger.info("AES graph invocation reused cached result.")
+        logger.info(
+            "AES graph invocation reused cached result: cache_key=%s",
+            cache_key[:12],
+        )
         return cached_result
 
     started_at = time.perf_counter()
-    logger.info("AES graph invocation started.")
+    logger.info(
+        "AES graph invocation started: cache_key=%s input_chars=%s",
+        cache_key[:12],
+        len(user_text),
+    )
+    log_content_preview(logger, "AES graph input", {"raw_user_input": user_text})
     initial_state = {
         "raw_user_input": user_text,
         "request_intent": "",
@@ -298,13 +307,46 @@ def run_aes_agent(user_text: str) -> Dict[str, Any]:
     result = graph.invoke(initial_state)
     elapsed_ms = (time.perf_counter() - started_at) * 1000
     logger.info(
-        "AES graph invocation finished: status=%s next_action=%s elapsed_ms=%.1f",
+        (
+            "AES graph invocation finished: status=%s next_action=%s "
+            "solution_mode=%s tools=%s errors=%s elapsed_ms=%.1f"
+        ),
         result.get("agent_status", ""),
         result.get("next_action", ""),
+        result.get("solution_mode", ""),
+        result.get("selected_tools", []),
+        len(result.get("tool_errors", []) or []),
         elapsed_ms,
+    )
+    log_content_preview(
+        logger,
+        "AES graph result",
+        _summarize_result_for_log(result),
     )
     _set_cached_result(cache_key, result)
     return result
+
+
+def _summarize_result_for_log(result: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "request_intent": result.get("request_intent", ""),
+        "problem_class": result.get("problem_class", ""),
+        "pde_info": result.get("pde_info", ""),
+        "domain_info": result.get("domain_info", ""),
+        "coefficient_info": result.get("coefficient_info", ""),
+        "source_info": result.get("source_info", ""),
+        "bc_info": result.get("bc_info", ""),
+        "initial_condition_info": result.get("initial_condition_info", ""),
+        "time_info": result.get("time_info", ""),
+        "solution_mode": result.get("solution_mode", ""),
+        "validation_status": result.get("validation_status", ""),
+        "numerical_recipe_status": result.get("numerical_recipe_status", ""),
+        "selected_tools": result.get("selected_tools", []),
+        "tool_execution_status": result.get("tool_execution_status", ""),
+        "tool_errors": result.get("tool_errors", []),
+        "agent_status": result.get("agent_status", ""),
+        "next_action": result.get("next_action", ""),
+    }
 
 
 def _result_cache_key(user_text: str) -> str:
@@ -422,12 +464,13 @@ def health():
 
 @app.post("/invoke")
 def invoke(query: Query):
-    logger.info("Direct /invoke request received.")
+    logger.info("Direct /invoke request received: text_chars=%s", len(query.text))
     return run_aes_agent(query.text)
 
 
 @app.get("/artifacts/{run_id}/{artifact_path:path}")
 def get_artifact(run_id: str, artifact_path: str):
+    logger.info("Artifact request received: run_id=%s path=%s", run_id, artifact_path)
     root = Path(os.getenv("AES_ARTIFACT_ROOT", "artifacts")).resolve()
     requested = (root / run_id / artifact_path).resolve()
 
@@ -461,9 +504,13 @@ def list_models():
 @app.post("/v1/chat/completions")
 def chat_completions(request: ChatCompletionRequest):
     logger.info(
-        "OpenAI-compatible chat completion requested: model=%s stream=%s",
+        (
+            "OpenAI-compatible chat completion requested: model=%s stream=%s "
+            "messages=%s"
+        ),
         request.model,
         request.stream,
+        len(request.messages),
     )
     user_text = build_user_text_from_messages(request.messages)
     if not user_text:
@@ -474,6 +521,19 @@ def chat_completions(request: ChatCompletionRequest):
 
     result = run_aes_agent(user_text)
     assistant_text = build_assistant_text(result)
+    logger.info(
+        "OpenAI-compatible chat completion prepared: response_chars=%s status=%s",
+        len(assistant_text),
+        result.get("agent_status", ""),
+    )
+    log_content_preview(
+        logger,
+        "OpenAI-compatible chat completion response",
+        {
+            "assistant_text": assistant_text,
+            "aes_result": _summarize_result_for_log(result),
+        },
+    )
 
     now = int(time.time())
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"

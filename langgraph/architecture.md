@@ -167,6 +167,7 @@ flowchart TD
     H --> I{"Return code 0?"}
     I -->|no| J["LLM repair with stdout/stderr/diagnostics"]
     J --> B
+    I -->|no, repairs exhausted| G
     I -->|yes| K["Return code, diagnostics, sampled u(x,y,t), artifact refs"]
 ```
 
@@ -174,9 +175,10 @@ Repair attempts are bounded by `DOLFINX_CODE_REPAIR_ATTEMPTS`.
 The generic checker lives in `aes_agent/python_checker.py` and is intentionally
 not FEniCS-specific: it extracts Python from common LLM response shapes, strips
 invalid control characters, and catches syntax errors before the stricter
-FEniCS import/call allowlist runs. If bounded static repairs return no usable
-Python for a supported simple heat/Poisson-style problem, AES falls back only at
-that point instead of repeatedly validating the same broken script.
+FEniCS import/call allowlist runs. If bounded static or runtime repairs return
+no usable Python for a supported simple heat/Poisson-style problem, AES falls
+back to the deterministic DOLFINx template instead of repeatedly validating or
+executing the same broken script.
 
 For generated-code runs, scripts should write sampled field data for the
 numerical solution into `diagnostics.json` under `field_samples`: stationary

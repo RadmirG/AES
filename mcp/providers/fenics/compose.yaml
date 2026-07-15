@@ -9,6 +9,8 @@ services:
       - "127.0.0.1:8003:8000"
     volumes:
       - ./workspace:/workspace
+    environment:
+      - PYTHONUNBUFFERED=1
     command:
       - "--transport"
       - "streamable-http"
@@ -33,6 +35,9 @@ services:
       - FENICS_RUNNER_WORKSPACE=/workspace
       - FENICS_RUNNER_DEFAULT_TIMEOUT=300
       - FENICS_RUNNER_MAX_TIMEOUT=900
+      - FENICS_RUNNER_LOG_LEVEL=${FENICS_RUNNER_LOG_LEVEL:-INFO}
+      - FENICS_RUNNER_LOG_CONTENT=${FENICS_RUNNER_LOG_CONTENT:-true}
+      - FENICS_RUNNER_LOG_MAX_CHARS=${FENICS_RUNNER_LOG_MAX_CHARS:-2000}
     networks:
       - ai-stack-net
 

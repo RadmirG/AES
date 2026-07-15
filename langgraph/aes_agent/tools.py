@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, TypedDict
 
 from aes_agent.artifact_store import persist_artifacts
 from aes_agent.fenics_code import execute_fenics_code_solve
 from aes_agent.fenics_mcp import execute_fenics_forward_solve
+from aes_agent.logging_config import log_content_preview
 from aes_agent.state import AgentState
 from aes_agent.visualization import build_visualization_artifacts
+
+
+logger = logging.getLogger("aes_agent.tools")
 
 
 class ToolResult(TypedDict):
@@ -245,6 +251,7 @@ def tool_catalog() -> List[Dict[str, Any]]:
 def execute_tool(tool_name: str, state: AgentState) -> ToolResult:
     definition = TOOL_REGISTRY.get(tool_name)
     if definition is None:
+        logger.warning("Tool execution requested unknown tool: tool=%s", tool_name)
         return {
             "tool_name": tool_name,
             "provider": "",
@@ -253,9 +260,43 @@ def execute_tool(tool_name: str, state: AgentState) -> ToolResult:
             "error": f"Unknown tool: {tool_name}",
         }
 
+    started_at = time.perf_counter()
+    logger.info(
+        "Tool execution started: tool=%s provider=%s",
+        definition.name,
+        definition.provider,
+    )
+    log_content_preview(
+        logger,
+        f"Tool input state: tool={tool_name}",
+        {
+            "problem_class": state.get("problem_class", ""),
+            "pde_info": state.get("pde_info", ""),
+            "domain_info": state.get("domain_info", ""),
+            "solution_mode": state.get("solution_mode", ""),
+            "numerical_recipe_status": state.get("numerical_recipe_status", ""),
+            "selected_tools": state.get("selected_tools", []),
+            "previous_tool_results": [
+                {
+                    "tool_name": result.get("tool_name", ""),
+                    "status": result.get("status", ""),
+                }
+                for result in state.get("tool_results", [])
+                if isinstance(result, dict)
+            ],
+        },
+    )
+
     try:
         output = definition.handler(state)
     except Exception as exc:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        logger.exception(
+            "Tool execution raised exception: tool=%s provider=%s elapsed_ms=%.1f",
+            definition.name,
+            definition.provider,
+            elapsed_ms,
+        )
         return {
             "tool_name": tool_name,
             "provider": definition.provider,
@@ -266,6 +307,15 @@ def execute_tool(tool_name: str, state: AgentState) -> ToolResult:
 
     output_errors = _tool_output_errors(output)
     if output_errors:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        logger.warning(
+            "Tool execution failed: tool=%s provider=%s errors=%s elapsed_ms=%.1f",
+            definition.name,
+            definition.provider,
+            output_errors,
+            elapsed_ms,
+        )
+        log_content_preview(logger, f"Tool failed output: tool={tool_name}", output)
         return {
             "tool_name": tool_name,
             "provider": definition.provider,
@@ -274,6 +324,15 @@ def execute_tool(tool_name: str, state: AgentState) -> ToolResult:
             "error": "; ".join(output_errors),
         }
 
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "Tool execution completed: tool=%s provider=%s execution_mode=%s elapsed_ms=%.1f",
+        definition.name,
+        definition.provider,
+        output.get("execution_mode", ""),
+        elapsed_ms,
+    )
+    log_content_preview(logger, f"Tool completed output: tool={tool_name}", output)
     return {
         "tool_name": tool_name,
         "provider": definition.provider,

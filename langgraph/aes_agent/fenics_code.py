@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import os
 import re
+import time
 from typing import Any, Dict, List, Protocol
 
 from aes_agent.helpers import ollama_json, safe_list_of_str, safe_str
+from aes_agent.logging_config import log_content_preview
 from aes_agent.prompts import (
     generate_fenics_dolfinx_code_prompt,
     repair_fenics_dolfinx_code_prompt,
@@ -23,6 +26,7 @@ FENICS_CODE_TOOL_NAME = "fenics_code_solve"
 FENICS_CODE_PROVIDER = "local:fenics_code"
 FENICS_CODE_WORKFLOW = "llm_generated_dolfinx_script_v1"
 DEFAULT_SCRIPT_NAME = "solve.py"
+logger = logging.getLogger("aes_agent.fenics_code")
 
 ALLOWED_IMPORT_ROOTS = {
     "__future__",
@@ -158,8 +162,20 @@ def execute_fenics_code_solve(
     client: MCPCodeExecutionClient | None = None,
     execute: bool | None = None,
 ) -> Dict[str, Any]:
+    started_at = time.perf_counter()
     recipe = state.get("numerical_recipe") or build_fenics_code_recipe(state)
     is_user_code = state.get("solution_mode") == "execute_user_fenics_code"
+    logger.info(
+        "FEniCS code solve started: solution_mode=%s execution_requested=%s pde=%s",
+        state.get("solution_mode", ""),
+        bool(recipe.get("execution_requested")),
+        state.get("pde_info", ""),
+    )
+    log_content_preview(
+        logger,
+        "FEniCS code solve recipe",
+        recipe,
+    )
     if is_user_code:
         generation = build_user_code_candidate(state)
     else:
@@ -178,6 +194,22 @@ def execute_fenics_code_solve(
     while True:
         code = generation["python_code"]
         safety = validate_python_code_safety(code)
+        logger.info(
+            "FEniCS code safety checked: status=%s code_chars=%s repair_attempts=%s",
+            safety["status"],
+            len(code),
+            len(repair_attempts),
+        )
+        log_content_preview(
+            logger,
+            "FEniCS generated code preview",
+            {
+                "summary": generation.get("summary", ""),
+                "expected_artifacts": generation.get("expected_artifacts", []),
+                "safety": safety,
+                "python_code": code,
+            },
+        )
 
         if safety["status"] != "safe":
             if _can_repair(repair_attempts, max_repair_attempts):
@@ -192,6 +224,19 @@ def execute_fenics_code_solve(
                     },
                     repair_attempts=repair_attempts,
                 )
+                if _can_switch_to_deterministic_fallback(
+                    state=state,
+                    is_user_code=is_user_code,
+                    generation=generation,
+                    repair_attempts=repair_attempts,
+                    max_repair_attempts=max_repair_attempts,
+                ):
+                    generation = _fallback_generation_after_failed_repairs(
+                        state,
+                        generation,
+                        repair_attempts,
+                        failure_type="static_validation",
+                    )
                 continue
 
             if (
@@ -203,6 +248,7 @@ def execute_fenics_code_solve(
                     state,
                     generation,
                     repair_attempts,
+                    failure_type="static_validation",
                 )
                 continue
 
@@ -263,7 +309,18 @@ def execute_fenics_code_solve(
 
         execution = _execute_code_via_mcp(client, code)
         errors = execution.get("errors", [])
+        logger.info(
+            "FEniCS code execution returned: errors=%s tool=%s",
+            len(errors),
+            execution.get("tool_name", ""),
+        )
+        log_content_preview(logger, "FEniCS code execution result", execution)
         if not errors:
+            elapsed_ms = (time.perf_counter() - started_at) * 1000
+            logger.info(
+                "FEniCS code solve completed: execution_mode=executed elapsed_ms=%.1f",
+                elapsed_ms,
+            )
             return _build_output(
                 recipe=recipe,
                 generation=generation,
@@ -282,6 +339,32 @@ def execute_fenics_code_solve(
                 generation=generation,
                 failure_context=_runtime_failure_context(errors, execution),
                 repair_attempts=repair_attempts,
+            )
+            if _can_switch_to_deterministic_fallback(
+                state=state,
+                is_user_code=is_user_code,
+                generation=generation,
+                repair_attempts=repair_attempts,
+                max_repair_attempts=max_repair_attempts,
+            ):
+                generation = _fallback_generation_after_failed_repairs(
+                    state,
+                    generation,
+                    repair_attempts,
+                    failure_type="runtime_execution",
+                )
+            continue
+
+        if (
+            not is_user_code
+            and not generation.get("used_fallback_after_repair")
+            and _can_use_deterministic_fallback(state)
+        ):
+            generation = _fallback_generation_after_failed_repairs(
+                state,
+                generation,
+                repair_attempts,
+                failure_type="runtime_execution",
             )
             continue
 
@@ -302,6 +385,12 @@ def generate_dolfinx_script(
     recipe: Dict[str, Any],
 ) -> Dict[str, Any]:
     snapshot = _state_snapshot(state, recipe)
+    logger.info(
+        "DOLFINx script generation started: pde=%s solution_mode=%s",
+        snapshot.get("pde_info", ""),
+        snapshot.get("numerical_recipe", {}).get("solution_mode", ""),
+    )
+    log_content_preview(logger, "DOLFINx script generation snapshot", snapshot)
     model_result = ollama_json(generate_fenics_dolfinx_code_prompt(snapshot))
     code = python_code_from_model_result(model_result)
     summary = safe_str(model_result.get("summary"), "")
@@ -320,17 +409,28 @@ def generate_dolfinx_script(
                 *generation["warnings"],
             ]
         )
+        logger.warning(
+            "DOLFINx script generation used deterministic fallback: reason=no_usable_llm_code"
+        )
 
     if not expected_artifacts:
         expected_artifacts = ["solve.py", "solution.xdmf", "diagnostics.json"]
 
-    return {
+    generation_result = {
         "summary": summary or "Generated a DOLFINx Python solver script.",
         "python_code": code,
         "expected_artifacts": _dedupe(["solve.py", *expected_artifacts]),
         "warnings": warnings,
         "repair_attempts": [],
     }
+    logger.info(
+        "DOLFINx script generation completed: code_chars=%s expected_artifacts=%s warnings=%s",
+        len(generation_result["python_code"]),
+        generation_result["expected_artifacts"],
+        len(generation_result["warnings"]),
+    )
+    log_content_preview(logger, "DOLFINx script generation output", generation_result)
+    return generation_result
 
 
 def build_user_code_candidate(state: AgentState) -> Dict[str, Any]:
@@ -466,6 +566,13 @@ def _repair_generation(
         "max_attempts": _repair_attempt_limit(),
     }
     current_code = str(generation.get("python_code", ""))
+    logger.info(
+        "DOLFINx script repair requested: attempt=%s failure_type=%s current_code_chars=%s",
+        attempt_number,
+        failure_context.get("failure_type", ""),
+        len(current_code),
+    )
+    log_content_preview(logger, "DOLFINx script repair context", context)
     model_result = ollama_json(
         repair_fenics_dolfinx_code_prompt(
             _state_snapshot(state, recipe),
@@ -490,6 +597,11 @@ def _repair_generation(
         ),
     ]
     if not repaired_code:
+        logger.warning(
+            "DOLFINx script repair returned no usable code: attempt=%s failure_type=%s",
+            attempt_number,
+            repair_record["failure_type"],
+        )
         warnings.append(
             f"Repair attempt {attempt_number} returned no usable python_code; "
             "AES kept the previous generated code."
@@ -506,7 +618,7 @@ def _repair_generation(
     if not expected_artifacts:
         expected_artifacts = ["solve.py", "solution.xdmf", "diagnostics.json"]
 
-    return {
+    repaired_generation = {
         "summary": safe_str(
             model_result.get("summary"),
             f"Repaired generated DOLFINx script on attempt {attempt_number}.",
@@ -516,29 +628,66 @@ def _repair_generation(
         "warnings": _dedupe(warnings),
         "repair_attempts": list(repair_attempts),
     }
+    logger.info(
+        "DOLFINx script repair completed: attempt=%s repaired_code_chars=%s",
+        attempt_number,
+        len(repaired_code),
+    )
+    log_content_preview(logger, "DOLFINx script repair output", repaired_generation)
+    return repaired_generation
 
 
 def _fallback_generation_after_failed_repairs(
     state: AgentState,
     generation: Dict[str, Any],
     repair_attempts: List[Dict[str, Any]],
+    *,
+    failure_type: str,
 ) -> Dict[str, Any]:
     fallback = _fallback_generation(state)
+    failure_message = (
+        "static validation"
+        if failure_type == "static_validation"
+        else "runtime execution"
+    )
     warnings = [
         *safe_list_of_str(generation.get("warnings")),
         (
-            "LLM-generated code failed static validation and bounded repair "
+            f"LLM-generated code failed during {failure_message} and bounded repair "
             "attempts did not return usable Python; AES used its deterministic "
             "fallback DOLFINx template for this supported simple PDE."
         ),
         *fallback["warnings"],
     ]
+    logger.warning(
+        "DOLFINx deterministic fallback selected after failed repairs: failure_type=%s attempts=%s",
+        failure_type,
+        len(repair_attempts),
+    )
     return {
         **fallback,
         "warnings": _dedupe(warnings),
         "repair_attempts": list(repair_attempts),
         "used_fallback_after_repair": True,
     }
+
+
+def _can_switch_to_deterministic_fallback(
+    *,
+    state: AgentState,
+    is_user_code: bool,
+    generation: Dict[str, Any],
+    repair_attempts: List[Dict[str, Any]],
+    max_repair_attempts: int,
+) -> bool:
+    return (
+        not is_user_code
+        and not generation.get("used_fallback_after_repair")
+        and bool(repair_attempts)
+        and repair_attempts[-1].get("status") == "no_usable_code"
+        and not _can_repair(repair_attempts, max_repair_attempts)
+        and _can_use_deterministic_fallback(state)
+    )
 
 
 def _can_use_deterministic_fallback(state: AgentState) -> bool:
@@ -913,6 +1062,7 @@ def _execute_code_via_mcp(
     client: MCPCodeExecutionClient,
     code: str,
 ) -> Dict[str, Any]:
+    logger.info("FEniCS MCP code execution discovery started.")
     available_tools = {
         tool.get("name")
         for tool in client.list_tools()
@@ -922,6 +1072,10 @@ def _execute_code_via_mcp(
     candidates = (preferred_tool, *EXECUTION_TOOL_CANDIDATES) if preferred_tool else EXECUTION_TOOL_CANDIDATES
     tool_name = next((name for name in candidates if name in available_tools), "")
     if not tool_name:
+        logger.warning(
+            "FEniCS MCP code execution unavailable: available_tools=%s",
+            sorted(available_tools),
+        )
         return {
             "errors": [
                 "The configured FEniCS MCP provider does not expose a script "
@@ -932,6 +1086,12 @@ def _execute_code_via_mcp(
             "result": {},
         }
 
+    logger.info(
+        "FEniCS MCP code execution started: tool=%s code_chars=%s timeout=%s",
+        tool_name,
+        len(code),
+        os.getenv("DOLFINX_CODE_TIMEOUT", "300"),
+    )
     result = client.call_tool(
         tool_name,
         {
@@ -941,6 +1101,12 @@ def _execute_code_via_mcp(
         },
     )
     errors = _mcp_errors_from_result(result)
+    logger.info(
+        "FEniCS MCP code execution finished: tool=%s errors=%s status=%s",
+        tool_name,
+        len(errors),
+        result.get("status") if isinstance(result, dict) else "",
+    )
     return {
         "tool_name": tool_name,
         "result": result,

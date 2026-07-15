@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Any, Dict, List
 
 import requests
+
+from aes_agent.logging_config import log_content_preview
 
 
 logger = logging.getLogger("aes_agent.ollama")
@@ -49,6 +52,7 @@ def ollama_json(prompt: str) -> Dict[str, Any]:
     """
     Call Ollama and request a JSON object response.
     """
+    started_at = time.perf_counter()
     payload = {
         "model": OLLAMA_MODEL,
         "prompt": prompt,
@@ -58,6 +62,15 @@ def ollama_json(prompt: str) -> Dict[str, Any]:
             "num_ctx": OLLAMA_NUM_CTX
         }
     }
+    logger.info(
+        "Ollama JSON request started: model=%s endpoint=%s prompt_chars=%s timeout=%s num_ctx=%s",
+        OLLAMA_MODEL,
+        OLLAMA_GENERATE_URL,
+        len(prompt),
+        OLLAMA_TIMEOUT,
+        OLLAMA_NUM_CTX,
+    )
+    log_content_preview(logger, "Ollama JSON prompt", {"prompt": prompt})
 
     try:
         response = requests.post(
@@ -67,13 +80,16 @@ def ollama_json(prompt: str) -> Dict[str, Any]:
         )
         response.raise_for_status()
     except requests.exceptions.Timeout as exc:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
         logger.warning(
-            "Ollama JSON request timed out: model=%s timeout=%s",
+            "Ollama JSON request timed out: model=%s timeout=%s elapsed_ms=%.1f",
             OLLAMA_MODEL,
             OLLAMA_TIMEOUT,
+            elapsed_ms,
         )
         return {}
     except requests.exceptions.HTTPError as exc:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
         status_code = (
             exc.response.status_code
             if exc.response is not None
@@ -85,23 +101,41 @@ def ollama_json(prompt: str) -> Dict[str, Any]:
             else ""
         )
         logger.warning(
-            "Ollama JSON request failed: model=%s status=%s body=%s",
+            "Ollama JSON request failed: model=%s status=%s elapsed_ms=%.1f body=%s",
             OLLAMA_MODEL,
             status_code,
+            elapsed_ms,
             body,
         )
         return {}
     except requests.exceptions.RequestException as exc:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
         logger.warning(
-            "Ollama JSON request failed: model=%s error=%s",
+            "Ollama JSON request failed: model=%s elapsed_ms=%.1f error=%s",
             OLLAMA_MODEL,
+            elapsed_ms,
             exc,
         )
         return {}
 
     data = response.json()
     model_text = data.get("response", "")
-    return extract_json_object(model_text)
+    parsed = extract_json_object(model_text)
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "Ollama JSON request completed: model=%s status=%s response_chars=%s parsed_keys=%s elapsed_ms=%.1f",
+        OLLAMA_MODEL,
+        response.status_code,
+        len(model_text),
+        sorted(parsed.keys()),
+        elapsed_ms,
+    )
+    log_content_preview(
+        logger,
+        "Ollama JSON response",
+        {"raw_response": model_text, "parsed": parsed},
+    )
+    return parsed
 
 
 def safe_str(value: Any, default: str = "") -> str:

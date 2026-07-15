@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import time
 from datetime import datetime, timezone
 from html import escape
 from typing import Any, Dict, List
 
+from aes_agent.logging_config import log_content_preview
 from aes_agent.state import AgentState
 
 
+logger = logging.getLogger("aes_agent.visualization")
 VISUALIZATION_TOOL_NAME = "visualization_postprocess"
 VISUALIZATION_PROVIDER = "local:visualization"
 PREVIEW_NAME = "preview.svg"
@@ -18,8 +22,10 @@ VIEWER_HTML_NAME = "viewer.html"
 
 
 def build_visualization_artifacts(state: AgentState) -> Dict[str, Any]:
+    started_at = time.perf_counter()
     source = _latest_solver_result(state.get("tool_results", []))
     if not source:
+        logger.info("Visualization skipped: no completed FEniCS solver result.")
         return {
             "schema_version": "1.0",
             "provider": VISUALIZATION_PROVIDER,
@@ -63,6 +69,20 @@ def build_visualization_artifacts(state: AgentState) -> Dict[str, Any]:
         },
     ]
 
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        (
+            "Visualization artifacts generated: source_tool=%s files=%s "
+            "vtkjs=%s sampled_field=%s warnings=%s elapsed_ms=%.1f"
+        ),
+        source.get("tool_name", ""),
+        [file["name"] for file in generated_files],
+        len(manifest.get("datasets", {}).get("vtkjs_readable", [])),
+        bool(manifest.get("datasets", {}).get("sampled_field")),
+        len(manifest.get("warnings", [])),
+        elapsed_ms,
+    )
+    log_content_preview(logger, "Visualization manifest", manifest)
     return {
         "schema_version": "1.0",
         "provider": VISUALIZATION_PROVIDER,
@@ -138,6 +158,13 @@ def _viewer_manifest(
         if _is_raw_solution_artifact(str(artifact.get("name", "")))
     ]
     sampled_field = _sampled_field_from_diagnostics(diagnostics)
+    logger.info(
+        "Visualization manifest building: artifacts=%s vtkjs_candidates=%s raw_solution=%s sampled_field=%s",
+        len(artifacts),
+        len(vtk_datasets),
+        len(raw_solution_artifacts),
+        bool(sampled_field),
+    )
 
     warnings = []
     if not vtk_datasets and not sampled_field:

@@ -2,20 +2,25 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aes_agent.logging_config import log_content_preview
 from aes_agent.state import AgentState
 
 
 ARTIFACT_STORE_PROVIDER = "local:artifact_store"
 DEFAULT_ARTIFACT_ROOT = "artifacts"
+logger = logging.getLogger("aes_agent.artifact_store")
 
 
 def persist_artifacts(state: AgentState) -> Dict[str, Any]:
+    started_at = time.perf_counter()
     manifest = build_artifact_manifest(state)
     root = Path(os.getenv("AES_ARTIFACT_ROOT", DEFAULT_ARTIFACT_ROOT))
     run_dir = root / manifest["run_id"]
@@ -39,6 +44,13 @@ def persist_artifacts(state: AgentState) -> Dict[str, Any]:
             _render_summary(manifest),
         )
     except OSError as exc:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        logger.exception(
+            "Artifact persistence failed: run_id=%s root=%s elapsed_ms=%.1f",
+            manifest["run_id"],
+            root,
+            elapsed_ms,
+        )
         return {
             "schema_version": "1.0",
             "provider": ARTIFACT_STORE_PROVIDER,
@@ -51,6 +63,21 @@ def persist_artifacts(state: AgentState) -> Dict[str, Any]:
             "errors": [f"Failed to persist artifact manifest: {exc}"],
         }
 
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        (
+            "Artifact persistence completed: run_id=%s status=%s artifacts=%s "
+            "errors=%s warnings=%s run_dir=%s elapsed_ms=%.1f"
+        ),
+        manifest["run_id"],
+        manifest["status"],
+        len(manifest["artifacts"]),
+        len(manifest["errors"]),
+        len(manifest["warnings"]),
+        run_dir,
+        elapsed_ms,
+    )
+    log_content_preview(logger, "Artifact manifest", manifest)
     return {
         "schema_version": "1.0",
         "provider": ARTIFACT_STORE_PROVIDER,
@@ -88,7 +115,7 @@ def build_artifact_manifest(state: AgentState) -> Dict[str, Any]:
     errors = _collect_errors(tool_results, fenics_result)
     warnings = _collect_warnings(tool_results, fenics_result)
 
-    return {
+    manifest = {
         "schema_version": "1.0",
         "run_id": _build_run_id(state),
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -112,6 +139,14 @@ def build_artifact_manifest(state: AgentState) -> Dict[str, Any]:
         "errors": errors,
         "warnings": warnings,
     }
+    logger.info(
+        "Artifact manifest built: run_id=%s status=%s tool_results=%s artifacts=%s",
+        manifest["run_id"],
+        manifest["status"],
+        len(tool_results),
+        len(artifacts),
+    )
+    return manifest
 
 
 def _latest_fenics_tool_output(tool_results: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -158,6 +193,12 @@ def _materialize_inline_artifacts(
                 continue
             target = run_dir / name
             _write_text(target, content)
+            logger.info(
+                "Inline artifact materialized: run_id=%s name=%s bytes=%s",
+                run_id,
+                name,
+                len(content.encode("utf-8")),
+            )
             materialized.append(
                 {
                     "name": name,

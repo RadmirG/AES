@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from itertools import count
 from typing import Any, Dict, List
+
+from aes_agent.logging_config import log_content_preview
+
+
+logger = logging.getLogger("aes_agent.mcp_client")
 
 
 class MCPClientError(RuntimeError):
@@ -34,6 +41,11 @@ class StreamableHTTPMCPClient:
         self._session_id = ""
 
     def initialize(self) -> Dict[str, Any]:
+        logger.info(
+            "MCP initialize requested: endpoint=%s protocol=%s",
+            self.endpoint,
+            self.protocol_version,
+        )
         result = self._request(
             "initialize",
             {
@@ -47,6 +59,11 @@ class StreamableHTTPMCPClient:
         )
         self._initialized = True
         self._notify("notifications/initialized", {})
+        logger.info(
+            "MCP initialize completed: endpoint=%s session_id=%s",
+            self.endpoint,
+            self._session_id or "none",
+        )
         return result
 
     def list_tools(self) -> List[Dict[str, Any]]:
@@ -55,6 +72,12 @@ class StreamableHTTPMCPClient:
         tools = result.get("tools", [])
         if not isinstance(tools, list):
             raise MCPClientError("MCP tools/list returned a non-list `tools` value.")
+        logger.info(
+            "MCP tools listed: endpoint=%s count=%s names=%s",
+            self.endpoint,
+            len(tools),
+            [tool.get("name", "") for tool in tools if isinstance(tool, dict)],
+        )
         return tools
 
     def call_tool(
@@ -63,6 +86,17 @@ class StreamableHTTPMCPClient:
         arguments: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         self._ensure_initialized()
+        logger.info(
+            "MCP tool call requested: endpoint=%s tool=%s argument_keys=%s",
+            self.endpoint,
+            name,
+            sorted((arguments or {}).keys()),
+        )
+        log_content_preview(
+            logger,
+            f"MCP tool call arguments: tool={name}",
+            arguments or {},
+        )
         return self._request(
             "tools/call",
             {
@@ -80,20 +114,43 @@ class StreamableHTTPMCPClient:
             self.initialize()
 
     def _request(self, method: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        started_at = time.perf_counter()
         payload = {
             "jsonrpc": "2.0",
             "id": next(self._ids),
             "method": method,
             "params": params,
         }
+        logger.info(
+            "MCP JSON-RPC request started: endpoint=%s method=%s id=%s",
+            self.endpoint,
+            method,
+            payload["id"],
+        )
+        log_content_preview(logger, f"MCP JSON-RPC payload: method={method}", payload)
         message = self._post(payload)
 
         if "error" in message:
+            logger.warning(
+                "MCP JSON-RPC request returned error: endpoint=%s method=%s error=%s",
+                self.endpoint,
+                method,
+                message["error"],
+            )
             raise MCPClientError(f"MCP error from {method}: {message['error']}")
 
         result = message.get("result", {})
         if not isinstance(result, dict):
             raise MCPClientError(f"MCP method {method} returned a non-object result.")
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        logger.info(
+            "MCP JSON-RPC request completed: endpoint=%s method=%s result_keys=%s elapsed_ms=%.1f",
+            self.endpoint,
+            method,
+            sorted(result.keys()),
+            elapsed_ms,
+        )
+        log_content_preview(logger, f"MCP JSON-RPC result: method={method}", result)
         return result
 
     def _notify(self, method: str, params: Dict[str, Any]) -> None:
@@ -128,11 +185,25 @@ class StreamableHTTPMCPClient:
             )
             response.raise_for_status()
         except Exception as exc:
+            logger.warning(
+                "MCP HTTP request failed: endpoint=%s method=%s error=%s",
+                self.endpoint,
+                payload.get("method", ""),
+                exc,
+            )
             raise MCPClientError(f"MCP HTTP request failed: {exc}") from exc
 
         session_id = response.headers.get("Mcp-Session-Id")
         if session_id:
             self._session_id = session_id
+        logger.info(
+            "MCP HTTP response received: endpoint=%s method=%s status=%s content_type=%s chars=%s",
+            self.endpoint,
+            payload.get("method", ""),
+            response.status_code,
+            response.headers.get("content-type", ""),
+            len(response.text),
+        )
 
         return parse_mcp_http_response(
             content_type=response.headers.get("content-type", ""),

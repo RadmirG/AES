@@ -308,22 +308,37 @@ docker compose -f deploy/compose.dev.yaml --profile models --profile fenics logs
 Show all logs:
 
 ```bash
-docker compose -f deploy/compose.prod.yaml --profile models logs -f
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f --timestamps
+```
+
+Show AES-owned logs with richer workflow content previews. Content previews are
+bounded and sanitized; disable them with `AES_LOG_CONTENT=false` and
+`FENICS_RUNNER_LOG_CONTENT=false` before starting the stack.
+
+```bash
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f langgraph
 ```
 ```bash
-docker compose -f deploy/compose.prod.yaml --profile models logs -f ollama
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f web-ui
 ```
 ```bash
-docker compose -f deploy/compose.prod.yaml --profile models logs -f langgraph
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f fenics-code-runner
 ```
+
+Show external component logs. These services use their own internal formats, but
+LangGraph logs the AES-side calls to them.
+
 ```bash
-docker compose -f deploy/compose.prod.yaml --profile models logs -f web-ui
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f ollama-server
 ```
 ```bash
 docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f dolfinx-mcp
 ```
+
+Follow the main runtime components together:
+
 ```bash
-docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f fenics-code-runner
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f langgraph web-ui fenics-code-runner ollama-server dolfinx-mcp
 ```
 
 ## 10. Dev Stack Smoke Tests

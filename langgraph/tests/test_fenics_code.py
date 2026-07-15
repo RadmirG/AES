@@ -25,6 +25,12 @@ import json
 print(json.dumps({"ok": True}))
 """
 
+RUNTIME_BAD_DOLFINX_CODE = """from dolfinx.fem.petsc import PETScLinearSolver, LinearProblem
+import json
+
+print(json.dumps({"ok": False}))
+"""
+
 
 class _FakeCodeRunnerClient:
     def list_tools(self):
@@ -106,6 +112,33 @@ class _FailThenSucceedCodeRunnerClient:
                 },
             }
         return _FakeCodeRunnerClient().call_tool(name, arguments)
+
+
+class _RuntimeFailUntilFallbackCodeRunnerClient:
+    def __init__(self):
+        self.calls = 0
+        self.codes = []
+
+    def list_tools(self):
+        return [{"name": "run_python_script"}]
+
+    def call_tool(self, name, arguments=None):
+        self.calls += 1
+        code = (arguments or {}).get("code", "")
+        self.codes.append(code)
+        if "petsc_options_prefix=\"aes_poisson_\"" in code and '"field_samples"' in code:
+            return _FakeCodeRunnerClient().call_tool(name, arguments)
+        return {
+            "status": "failed",
+            "stdout": "",
+            "stderr": "ImportError: cannot import name 'PETScLinearSolver'",
+            "errors": ["ImportError: cannot import name 'PETScLinearSolver'"],
+            "diagnostics": {
+                "return_code": 1,
+                "artifact_count": 1,
+                "elapsed_seconds": 0.4,
+            },
+        }
 
 
 class FenicsCodeTests(unittest.TestCase):
@@ -412,6 +445,60 @@ class FenicsCodeTests(unittest.TestCase):
         self.assertEqual(output["errors"], [])
         self.assertEqual(output["repair_attempt_count"], 1)
         self.assertEqual(output["repair_attempts"][0]["failure_type"], "runtime_execution")
+
+    @patch(
+        "aes_agent.fenics_code.ollama_json",
+        side_effect=[
+            {
+                "summary": "Generated runtime-broken DOLFINx code.",
+                "python_code": RUNTIME_BAD_DOLFINX_CODE,
+                "expected_artifacts": ["solution.xdmf"],
+            },
+            {},
+            {},
+        ],
+    )
+    def test_runtime_repair_no_usable_code_falls_back_for_supported_problem(
+        self,
+        ollama_json,
+    ):
+        client = _RuntimeFailUntilFallbackCodeRunnerClient()
+        output = execute_fenics_code_solve(
+            {
+                "raw_user_input": (
+                    "Solve the stationary heat equation on the unit square "
+                    "with homogeneous Dirichlet boundary conditions and source f=1."
+                ),
+                "solution_mode": "execute_generated_fenics_code",
+                "pde_info": "stationary_diffusion_equation",
+                "domain_info": "unit_square",
+                "coefficient_info": "1",
+                "source_info": "1",
+                "bc_info": "dirichlet_boundary_condition",
+                "numerical_recipe": {
+                    "provider": "local:fenics_code",
+                    "workflow": "llm_generated_dolfinx_script_v1",
+                    "execution_requested": True,
+                },
+            },
+            client=client,
+            execute=True,
+        )
+
+        self.assertEqual(ollama_json.call_count, 3)
+        self.assertEqual(client.calls, 3)
+        self.assertEqual(output["execution_mode"], "executed")
+        self.assertEqual(output["errors"], [])
+        self.assertEqual(output["repair_attempt_count"], 2)
+        self.assertIn('petsc_options_prefix="aes_poisson_"', client.codes[-1])
+        self.assertIn('"field_samples"', client.codes[-1])
+        self.assertTrue(
+            any(
+                "runtime execution" in warning
+                and "deterministic fallback" in warning
+                for warning in output["warnings"]
+            )
+        )
 
     @patch(
         "aes_agent.fenics_code.ollama_json",

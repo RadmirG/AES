@@ -6,6 +6,7 @@ import os
 import re
 from typing import Any, Dict, List, Protocol
 
+from aes_agent.logging_config import log_content_preview
 from aes_agent.state import AgentState
 
 
@@ -275,6 +276,11 @@ def execute_fenics_forward_solve(
         len(calls),
         recipe.get("workflow", ""),
     )
+    log_content_preview(
+        logger,
+        "DOLFINx MCP workflow recipe",
+        {"recipe": recipe, "calls": calls},
+    )
     available_tools = {
         tool.get("name")
         for tool in client.list_tools()
@@ -299,12 +305,23 @@ def execute_fenics_forward_solve(
     for index, call in enumerate(calls, start=1):
         tool_name = call["tool_name"]
         logger.info(
-            "Calling DOLFINx MCP tool %s/%s: %s",
+            "Calling DOLFINx MCP tool %s/%s: %s arguments=%s",
             index,
             len(calls),
             tool_name,
+            list(call["arguments"].keys()),
+        )
+        log_content_preview(
+            logger,
+            f"DOLFINx MCP tool arguments: tool={tool_name}",
+            call["arguments"],
         )
         tool_result = client.call_tool(tool_name, call["arguments"])
+        log_content_preview(
+            logger,
+            f"DOLFINx MCP tool result: tool={tool_name}",
+            tool_result,
+        )
         if not tool_result:
             empty_result_tools.append(tool_name)
         results.append(
@@ -335,6 +352,14 @@ def execute_fenics_forward_solve(
             "solver-side artifacts were produced."
         )
 
+    logger.info(
+        "DOLFINx MCP workflow finished: mode=%s executed=%s non_empty=%s errors=%s warnings=%s",
+        execution_mode,
+        len(results),
+        non_empty_result_count,
+        len(errors),
+        len(warnings),
+    )
     return {
         "schema_version": "1.0",
         "provider": FENICS_PROVIDER,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -18,6 +19,29 @@ SERVER_VERSION = "0.1.0"
 TOOL_NAME = "run_python_script"
 DEFAULT_WORKSPACE = "/workspace"
 DEFAULT_FILENAME = "solve.py"
+LOG_FORMAT = "%(component)s | %(asctime)s | %(levelname)s | %(name)s | %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
+
+
+class ComponentFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.component = "fenics-code-runner"
+        return True
+
+
+def configure_logging() -> None:
+    handler = logging.StreamHandler()
+    handler.addFilter(ComponentFilter())
+    handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
+    logging.basicConfig(
+        level=os.getenv("FENICS_RUNNER_LOG_LEVEL", "INFO").upper(),
+        handlers=[handler],
+        force=True,
+    )
+
+
+configure_logging()
+logger = logging.getLogger("fenics_code_runner")
 
 
 class RpcError(RuntimeError):
@@ -60,6 +84,20 @@ class FenicsCodeRunnerHandler(BaseHTTPRequestHandler):
             request_id = payload.get("id")
             method = str(payload.get("method", ""))
             params = payload.get("params") or {}
+            logger.info(
+                "MCP request received: method=%s id=%s client=%s",
+                method,
+                request_id,
+                self.client_address[0],
+            )
+            _log_content_preview(
+                "MCP request payload",
+                {
+                    "id": request_id,
+                    "method": method,
+                    "params": params,
+                },
+            )
             if not isinstance(params, dict):
                 raise RpcError(-32602, "JSON-RPC params must be an object.")
 
@@ -70,6 +108,13 @@ class FenicsCodeRunnerHandler(BaseHTTPRequestHandler):
                 return
 
             result = _handle_request(method, params)
+            logger.info(
+                "MCP request handled: method=%s id=%s result_keys=%s",
+                method,
+                request_id,
+                sorted(result.keys()),
+            )
+            _log_content_preview("MCP response result", result)
             self._send_json(
                 200,
                 {
@@ -82,6 +127,11 @@ class FenicsCodeRunnerHandler(BaseHTTPRequestHandler):
             request_id = None
             if "payload" in locals() and isinstance(payload, dict):
                 request_id = payload.get("id")
+            logger.warning(
+                "MCP request failed: code=%s message=%s",
+                exc.code,
+                exc.message,
+            )
             self._send_json(
                 200,
                 {
@@ -94,6 +144,7 @@ class FenicsCodeRunnerHandler(BaseHTTPRequestHandler):
                 },
             )
         except Exception as exc:
+            logger.exception("MCP request raised internal runner error.")
             self._send_json(
                 500,
                 {
@@ -107,14 +158,7 @@ class FenicsCodeRunnerHandler(BaseHTTPRequestHandler):
             )
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        sys.stderr.write(
-            "%s [%s] %s\n"
-            % (
-                datetime.now(timezone.utc).isoformat(),
-                self.address_string(),
-                fmt % args,
-            )
-        )
+        logger.info("HTTP access: client=%s message=%s", self.address_string(), fmt % args)
 
     def _read_json(self) -> dict[str, Any]:
         length = int(self.headers.get("content-length", "0"))
@@ -203,6 +247,7 @@ def _handle_request(method: str, params: dict[str, Any]) -> dict[str, Any]:
 def _run_python_script(arguments: dict[str, Any]) -> dict[str, Any]:
     code = str(arguments.get("code", ""))
     if not code.strip():
+        logger.warning("Python script run rejected: empty code.")
         return _failed_result(
             run_id="",
             run_dir="",
@@ -216,9 +261,19 @@ def _run_python_script(arguments: dict[str, Any]) -> dict[str, Any]:
     run_id = _build_run_id()
     run_dir = workspace / "code-runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(
+        "Python script run started: run_id=%s filename=%s code_chars=%s timeout=%s run_dir=%s",
+        run_id,
+        filename,
+        len(code),
+        timeout_seconds,
+        run_dir,
+    )
+    _log_content_preview("Python script code", {"filename": filename, "code": code})
 
     script_path = run_dir / filename
     script_path.write_text(code, encoding="utf-8")
+    logger.info("Python script written: run_id=%s path=%s", run_id, script_path)
 
     env = os.environ.copy()
     env.setdefault("MPLBACKEND", "Agg")
@@ -252,6 +307,27 @@ def _run_python_script(arguments: dict[str, Any]) -> dict[str, Any]:
         }
         if script_diagnostics:
             diagnostics["script"] = script_diagnostics
+        logger.info(
+            (
+                "Python script run finished: run_id=%s return_code=%s "
+                "elapsed_seconds=%s artifacts=%s stdout_chars=%s stderr_chars=%s"
+            ),
+            run_id,
+            completed.returncode,
+            diagnostics["elapsed_seconds"],
+            len(artifacts),
+            len(stdout),
+            len(stderr),
+        )
+        _log_content_preview(
+            "Python script run diagnostics",
+            {
+                "stdout": stdout,
+                "stderr": stderr,
+                "diagnostics": diagnostics,
+                "artifacts": artifacts,
+            },
+        )
         if completed.returncode == 0:
             return {
                 "schema_version": "1.0",
@@ -288,6 +364,13 @@ def _run_python_script(arguments: dict[str, Any]) -> dict[str, Any]:
         stdout = _truncate(exc.stdout or "")
         stderr = _truncate(exc.stderr or "")
         artifacts = _collect_artifacts(run_dir, run_id)
+        logger.warning(
+            "Python script timed out: run_id=%s timeout=%s elapsed_seconds=%.6f artifacts=%s",
+            run_id,
+            timeout_seconds,
+            elapsed_seconds,
+            len(artifacts),
+        )
         return {
             "schema_version": "1.0",
             "status": "failed",
@@ -391,6 +474,12 @@ def _collect_artifacts(run_dir: Path, run_id: str) -> list[dict[str, Any]]:
                 },
             }
         )
+        logger.info(
+            "Python script artifact discovered: run_id=%s name=%s bytes=%s",
+            run_id,
+            rel,
+            path.stat().st_size,
+        )
         if len(artifacts) >= max_files:
             break
     return artifacts
@@ -442,6 +531,49 @@ def _truncate(value: str, limit: int | None = None) -> str:
     return text[: limit - 3] + "..."
 
 
+def _content_logging_enabled() -> bool:
+    return os.getenv("FENICS_RUNNER_LOG_CONTENT", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _log_content_preview(message: str, value: Any) -> None:
+    if not _content_logging_enabled():
+        return
+    limit = int(os.getenv("FENICS_RUNNER_LOG_MAX_CHARS", "2000"))
+    try:
+        text = json.dumps(_sanitize_for_log(value), ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        text = str(value)
+    logger.info("%s content=%s", message, _truncate(text, limit))
+
+
+def _sanitize_for_log(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): (
+                "***redacted***"
+                if _is_sensitive_key(str(key))
+                else _sanitize_for_log(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_sanitize_for_log(item) for item in value]
+    return value
+
+
+def _is_sensitive_key(key: str) -> bool:
+    lowered = key.lower()
+    return any(
+        marker in lowered
+        for marker in ("authorization", "cookie", "password", "secret", "token", "api_key")
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="AES FEniCS code runner MCP server")
     parser.add_argument("--host", default="0.0.0.0")
@@ -449,7 +581,7 @@ def main() -> int:
     args = parser.parse_args()
 
     server = ThreadingHTTPServer((args.host, args.port), FenicsCodeRunnerHandler)
-    print(f"{SERVER_NAME} listening on http://{args.host}:{args.port}/mcp", flush=True)
+    logger.info("%s listening on http://%s:%s/mcp", SERVER_NAME, args.host, args.port)
     server.serve_forever()
     return 0
 

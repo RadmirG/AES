@@ -268,6 +268,22 @@ dev:  recommended
 prod: baseline
 ```
 
+## Logging
+
+AES-owned services emit component-prefixed logs in this shape:
+
+```text
+component-name | date-time | level | logger | message
+```
+
+Live log command:
+
+```bash
+docker compose -f deploy/compose.prod.yaml --profile models --profile fenics logs -f --timestamps
+```
+
+Detailed controls and limitations are documented in [`logging.md`](logging.md).
+
 Override the group with `AES_OLLAMA_PULL_GROUP`:
 
 ```powershell
@@ -324,5 +340,4 @@ The repair loop applies only to LLM-generated code. Static validation failures
 and provider runtime failures are sent back to the LLM with bounded diagnostic
 context. User-provided Python code is checked and either accepted or rejected;
 AES does not auto-rewrite user code.
-
 

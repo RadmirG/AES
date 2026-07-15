@@ -102,6 +102,7 @@ sequenceDiagram
 | `mcp/providers/fenics/` | DOLFINx/FEniCS execution boundary, code runner, deterministic MCP smoke path | [`mcp/providers/fenics/architecture.md`](../mcp/providers/fenics/architecture.md) |
 | `deploy/` | Dev/prod Compose entrypoints and profile composition | [`deploy/architecture.md`](../deploy/architecture.md) |
 | artifact store | AES-owned run manifests, summaries, materialized artifacts, public artifact URLs | [`docs/artifact_store.md`](artifact_store.md) |
+| observability | Component-prefixed logs, content preview controls, live Docker log workflow | [`docs/logging.md`](logging.md) |
 
 ## Integration Contracts
 
