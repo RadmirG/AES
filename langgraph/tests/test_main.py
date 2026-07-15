@@ -296,6 +296,29 @@ class PublicResponseProjectionTests(unittest.TestCase):
                     },
                 },
                 {
+                    "tool_name": "fenics_code_solve",
+                    "provider": "local:fenics_code",
+                    "status": "completed",
+                    "error": "",
+                    "output": {
+                        "execution_mode": "executed",
+                        "code_origin": "llm",
+                        "generation_attempt_count": 1,
+                        "generation_attempts": [
+                            {
+                                "attempt": 1,
+                                "status": "usable_code",
+                                "failure_type": "",
+                            }
+                        ],
+                        "python_code": "print('must not reach the browser')",
+                        "code_candidate": {
+                            "python_code": "print('must not reach the browser')",
+                            "sha256": "abc123",
+                        },
+                    },
+                },
+                {
                     "tool_name": "artifact_store",
                     "provider": "local:artifact_store",
                     "status": "completed",
@@ -330,7 +353,12 @@ class PublicResponseProjectionTests(unittest.TestCase):
         self.assertNotIn("generated_files", serialized)
         self.assertNotIn("sampled_field", serialized)
         self.assertNotIn('"content"', serialized)
-        artifact_output = public["tool_results"][1]["output"]
+        self.assertNotIn("python_code", serialized)
+        self.assertNotIn("code_candidate", serialized)
+        code_output = public["tool_results"][1]["output"]
+        self.assertEqual(code_output["code_origin"], "llm")
+        self.assertEqual(code_output["generation_attempt_count"], 1)
+        artifact_output = public["tool_results"][2]["output"]
         self.assertEqual(artifact_output["manifest"]["run_id"], "run-1")
         self.assertEqual(
             artifact_output["manifest"]["artifacts"][0]["uri"],

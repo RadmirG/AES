@@ -247,16 +247,22 @@ flowchart LR
 flowchart TD
     A["User PDE request"] --> B["LangGraph intent + problem extraction"]
     B --> C["Requested output mode"]
-    C --> D["LLM generate DOLFINx solve.py"]
-    D --> E["Static code safety check"]
-    E -->|safe| F["Run in fenics-code-runner"]
-    E -->|unsafe| G["Repair generated code or reject"]
-    F --> H{"Run successful?"}
-    H -->|no| I["LLM repair loop with stderr"]
-    I --> D
-    H -->|yes| J["Visualization postprocess"]
-    J --> K["Artifact store"]
-    K --> L["Final AES response + result links"]
+    C --> D["LLM generate raw DOLFINx solve.py"]
+    D --> E["Normalize and extract Python"]
+    E --> F{"Usable source?"}
+    F -->|"no, retry available"| D
+    F -->|"no, retries exhausted"| G["Supported deterministic fallback"]
+    F -->|yes| H["Syntax + safety validation"]
+    G --> H
+    H -->|unsafe| I["Bounded LLM repair"]
+    I --> E
+    H -->|safe| J["AES builds code candidate contract"]
+    J --> K["Run in fenics-code-runner"]
+    K --> L{"Run successful?"}
+    L -->|no| I
+    L -->|yes| M["Visualization postprocess"]
+    M --> N["Artifact store"]
+    N --> O["Final AES response + result links"]
 ```
 
 ### Deterministic MCP Smoke Path

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import logging
 import os
@@ -8,15 +9,16 @@ import re
 import time
 from typing import Any, Dict, List, Protocol
 
-from aes_agent.helpers import ollama_json, safe_list_of_str, safe_str
+from aes_agent.helpers import ollama_text, safe_list_of_str
 from aes_agent.logging_config import log_content_preview
 from aes_agent.prompts import (
     generate_fenics_dolfinx_code_prompt,
     repair_fenics_dolfinx_code_prompt,
+    retry_fenics_dolfinx_code_prompt,
 )
 from aes_agent.python_checker import (
     check_python_syntax,
-    python_code_from_model_result,
+    extract_python_code,
     strip_invalid_python_control_chars,
 )
 from aes_agent.state import AgentState
@@ -391,46 +393,85 @@ def generate_dolfinx_script(
         snapshot.get("numerical_recipe", {}).get("solution_mode", ""),
     )
     log_content_preview(logger, "DOLFINx script generation snapshot", snapshot)
-    model_result = ollama_json(generate_fenics_dolfinx_code_prompt(snapshot))
-    code = python_code_from_model_result(model_result)
-    summary = safe_str(model_result.get("summary"), "")
-    expected_artifacts = safe_list_of_str(model_result.get("expected_artifacts"))
+    max_attempts = _generation_attempt_limit()
+    generation_attempts: List[Dict[str, Any]] = []
     warnings: List[str] = []
+    prompt = generate_fenics_dolfinx_code_prompt(snapshot)
 
-    if not code:
-        generation = _fallback_generation(state)
-        code = generation["python_code"]
-        summary = generation["summary"]
-        expected_artifacts = generation["expected_artifacts"]
-        warnings.extend(
-            [
-                "LLM code generation returned no usable python_code; AES used "
-                "its deterministic fallback DOLFINx template.",
-                *generation["warnings"],
-            ]
+    for attempt_number in range(1, max_attempts + 1):
+        model_response = ollama_text(prompt)
+        code, failure_type = _code_from_text_response(model_response)
+        attempt_record = _generation_attempt_record(
+            attempt_number=attempt_number,
+            model_response=model_response,
+            code=code,
+            failure_type=failure_type,
         )
-        logger.warning(
-            "DOLFINx script generation used deterministic fallback: reason=no_usable_llm_code"
+        generation_attempts.append(attempt_record)
+        logger.info(
+            (
+                "DOLFINx raw-code generation attempt completed: attempt=%s/%s "
+                "status=%s failure_type=%s response_chars=%s code_chars=%s"
+            ),
+            attempt_number,
+            max_attempts,
+            attempt_record["status"],
+            attempt_record["failure_type"],
+            attempt_record["response_chars"],
+            len(code),
         )
 
-    if not expected_artifacts:
-        expected_artifacts = ["solve.py", "solution.xdmf", "diagnostics.json"]
+        if code:
+            generation_result = {
+                "summary": (
+                    "Generated a DOLFINx solve.py from raw LLM code on "
+                    f"generation attempt {attempt_number}."
+                ),
+                "python_code": code,
+                "code_origin": "llm",
+                "model": str(model_response.get("model", "")),
+                "expected_artifacts": _expected_artifacts(recipe),
+                "warnings": warnings,
+                "generation_attempts": list(generation_attempts),
+                "repair_attempts": [],
+            }
+            logger.info(
+                (
+                    "DOLFINx script generation completed: origin=llm "
+                    "attempts=%s code_chars=%s expected_artifacts=%s"
+                ),
+                len(generation_attempts),
+                len(code),
+                generation_result["expected_artifacts"],
+            )
+            log_content_preview(
+                logger,
+                "DOLFINx script generation output",
+                generation_result,
+            )
+            return generation_result
 
-    generation_result = {
-        "summary": summary or "Generated a DOLFINx Python solver script.",
-        "python_code": code,
-        "expected_artifacts": _dedupe(["solve.py", *expected_artifacts]),
-        "warnings": warnings,
-        "repair_attempts": [],
-    }
-    logger.info(
-        "DOLFINx script generation completed: code_chars=%s expected_artifacts=%s warnings=%s",
-        len(generation_result["python_code"]),
-        generation_result["expected_artifacts"],
-        len(generation_result["warnings"]),
+        warnings.append(
+            f"LLM raw-code generation attempt {attempt_number} failed: "
+            f"{failure_type}."
+        )
+        if attempt_number < max_attempts:
+            prompt = retry_fenics_dolfinx_code_prompt(snapshot, attempt_record)
+
+    fallback = _fallback_generation(
+        state,
+        generation_attempts=generation_attempts,
+        warnings=warnings,
     )
-    log_content_preview(logger, "DOLFINx script generation output", generation_result)
-    return generation_result
+    logger.warning(
+        (
+            "DOLFINx script generation used deterministic fallback: "
+            "reason=generation_attempts_exhausted attempts=%s failures=%s"
+        ),
+        len(generation_attempts),
+        [attempt["failure_type"] for attempt in generation_attempts],
+    )
+    return fallback
 
 
 def build_user_code_candidate(state: AgentState) -> Dict[str, Any]:
@@ -438,10 +479,73 @@ def build_user_code_candidate(state: AgentState) -> Dict[str, Any]:
     return {
         "summary": "Using user-provided Python code as candidate solve.py.",
         "python_code": code,
+        "code_origin": "user",
+        "model": "",
         "expected_artifacts": ["solve.py", "diagnostics.json", "solution.xdmf", "solution.png"],
         "warnings": [] if code else ["No Python code block or FEniCS-like Python code was detected."],
+        "generation_attempts": [],
         "repair_attempts": [],
     }
+
+
+def _code_from_text_response(
+    model_response: Dict[str, Any],
+) -> tuple[str, str]:
+    transport_status = str(model_response.get("status") or "invalid_response")
+    if transport_status != "completed":
+        return "", transport_status
+
+    raw_text = model_response.get("text")
+    if not isinstance(raw_text, str):
+        return "", "invalid_response"
+    if not raw_text.strip():
+        return "", "empty_response"
+
+    stripped = raw_text.strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        try:
+            parsed = json.loads(stripped)
+        except (TypeError, ValueError):
+            parsed = None
+        if isinstance(parsed, dict):
+            return "", "unexpected_json_envelope"
+
+    code = extract_python_code(raw_text)
+    if not code:
+        return "", "non_code_response"
+    return code, ""
+
+
+def _generation_attempt_record(
+    *,
+    attempt_number: int,
+    model_response: Dict[str, Any],
+    code: str,
+    failure_type: str,
+) -> Dict[str, Any]:
+    return {
+        "attempt": attempt_number,
+        "status": "usable_code" if code else "failed",
+        "failure_type": failure_type,
+        "transport_status": str(model_response.get("status", "")),
+        "model": str(model_response.get("model", "")),
+        "done_reason": str(model_response.get("done_reason", "")),
+        "response_chars": int(model_response.get("response_chars") or 0),
+        "code_chars": len(code),
+        "message": str(model_response.get("message", ""))[:1000],
+    }
+
+
+def _expected_artifacts(recipe: Dict[str, Any]) -> List[str]:
+    configured = safe_list_of_str(recipe.get("outputs"))
+    defaults = ["solve.py", "diagnostics.json", "solution.xdmf"]
+    names = []
+    for name in [*configured, *defaults]:
+        normalized = str(name).strip()
+        if not normalized or "/" in normalized or "\\" in normalized:
+            continue
+        names.append(normalized)
+    return _dedupe(names)
 
 
 def validate_python_code_safety(code: str) -> Dict[str, Any]:
@@ -452,6 +556,7 @@ def validate_python_code_safety(code: str) -> Dict[str, Any]:
     if syntax["status"] != "valid":
         return {
             "status": "unsafe",
+            "syntax_status": "invalid",
             "errors": syntax["errors"],
             "warnings": syntax["warnings"],
         }
@@ -481,6 +586,7 @@ def validate_python_code_safety(code: str) -> Dict[str, Any]:
     warnings = _dedupe(warnings)
     return {
         "status": "safe" if not errors else "unsafe",
+        "syntax_status": "valid",
         "errors": errors,
         "warnings": warnings,
     }
@@ -535,18 +641,29 @@ def _fallback_dolfinx_script(state: AgentState) -> str:
     return _fallback_poisson_script(state)
 
 
-def _fallback_generation(state: AgentState) -> Dict[str, Any]:
+def _fallback_generation(
+    state: AgentState,
+    *,
+    generation_attempts: List[Dict[str, Any]] | None = None,
+    warnings: List[str] | None = None,
+) -> Dict[str, Any]:
+    generation_attempts = list(generation_attempts or [])
+    inherited_warnings = list(warnings or [])
     return {
         "summary": (
-            "Generated a conservative DOLFINx fallback script because the LLM "
-            "did not return usable code."
+            "Generated a conservative DOLFINx fallback script after bounded "
+            "LLM raw-code generation or repair attempts were exhausted."
         ),
         "python_code": _fallback_dolfinx_script(state),
+        "code_origin": "deterministic_fallback",
+        "model": "",
         "expected_artifacts": ["solve.py", "solution.xdmf", "diagnostics.json"],
         "warnings": [
+            *inherited_warnings,
             "AES used its deterministic fallback DOLFINx template only after "
-            "LLM code generation returned no usable python_code."
+            "bounded LLM code generation or repair attempts were exhausted."
         ],
+        "generation_attempts": generation_attempts,
         "repair_attempts": [],
     }
 
@@ -573,19 +690,22 @@ def _repair_generation(
         len(current_code),
     )
     log_content_preview(logger, "DOLFINx script repair context", context)
-    model_result = ollama_json(
+    model_response = ollama_text(
         repair_fenics_dolfinx_code_prompt(
             _state_snapshot(state, recipe),
             current_code,
             context,
         )
     )
-    repaired_code = python_code_from_model_result(model_result)
+    repaired_code, response_failure_type = _code_from_text_response(model_response)
     repair_record = {
         "attempt": attempt_number,
         "failure_type": str(failure_context.get("failure_type", "")),
         "errors": safe_list_of_str(failure_context.get("errors")),
         "status": "repaired" if repaired_code else "no_usable_code",
+        "response_failure_type": response_failure_type,
+        "transport_status": str(model_response.get("status", "")),
+        "response_chars": int(model_response.get("response_chars") or 0),
     }
     repair_attempts.append(repair_record)
 
@@ -603,7 +723,8 @@ def _repair_generation(
             repair_record["failure_type"],
         )
         warnings.append(
-            f"Repair attempt {attempt_number} returned no usable python_code; "
+            f"Repair attempt {attempt_number} returned no usable Python "
+            f"({response_failure_type}); "
             "AES kept the previous generated code."
         )
         return {
@@ -612,20 +733,16 @@ def _repair_generation(
             "repair_attempts": list(repair_attempts),
         }
 
-    expected_artifacts = safe_list_of_str(model_result.get("expected_artifacts"))
-    if not expected_artifacts:
-        expected_artifacts = safe_list_of_str(generation.get("expected_artifacts"))
-    if not expected_artifacts:
-        expected_artifacts = ["solve.py", "solution.xdmf", "diagnostics.json"]
-
     repaired_generation = {
-        "summary": safe_str(
-            model_result.get("summary"),
-            f"Repaired generated DOLFINx script on attempt {attempt_number}.",
-        ),
+        "summary": f"Repaired generated DOLFINx script on attempt {attempt_number}.",
         "python_code": repaired_code,
-        "expected_artifacts": _dedupe(["solve.py", *expected_artifacts]),
+        "code_origin": "llm_repair",
+        "model": str(model_response.get("model", generation.get("model", ""))),
+        "expected_artifacts": _dedupe(
+            ["solve.py", *safe_list_of_str(generation.get("expected_artifacts"))]
+        ),
         "warnings": _dedupe(warnings),
+        "generation_attempts": list(generation.get("generation_attempts", [])),
         "repair_attempts": list(repair_attempts),
     }
     logger.info(
@@ -667,6 +784,7 @@ def _fallback_generation_after_failed_repairs(
     return {
         **fallback,
         "warnings": _dedupe(warnings),
+        "generation_attempts": list(generation.get("generation_attempts", [])),
         "repair_attempts": list(repair_attempts),
         "used_fallback_after_repair": True,
     }
@@ -1030,6 +1148,14 @@ def _repair_attempt_limit() -> int:
         return 2
 
 
+def _generation_attempt_limit() -> int:
+    raw_value = os.getenv("DOLFINX_CODE_GENERATION_ATTEMPTS", "2").strip()
+    try:
+        return max(1, int(raw_value))
+    except ValueError:
+        return 2
+
+
 def _should_execute_live() -> bool:
     return _env_flag("DOLFINX_CODE_EXECUTE")
 
@@ -1153,6 +1279,51 @@ def _result_return_code(result: Dict[str, Any]) -> int | None:
         return None
 
 
+def _build_code_candidate(
+    *,
+    recipe: Dict[str, Any],
+    generation: Dict[str, Any],
+    safety: Dict[str, Any],
+) -> Dict[str, Any]:
+    code = str(generation.get("python_code", ""))
+    generation_attempts = [
+        attempt
+        for attempt in generation.get("generation_attempts", [])
+        if isinstance(attempt, dict)
+    ]
+    repair_attempts = [
+        attempt
+        for attempt in generation.get("repair_attempts", [])
+        if isinstance(attempt, dict)
+    ]
+    return {
+        "schema_version": "1.0",
+        "status": "accepted" if safety.get("status") == "safe" else "rejected",
+        "summary": str(generation.get("summary", "")),
+        "code_origin": str(generation.get("code_origin", "unknown")),
+        "source_file": DEFAULT_SCRIPT_NAME,
+        "python_code": code,
+        "sha256": hashlib.sha256(code.encode("utf-8")).hexdigest(),
+        "generation": {
+            "model": str(generation.get("model", "")),
+            "attempt_count": len(generation_attempts),
+            "attempts": generation_attempts,
+            "repair_attempt_count": len(repair_attempts),
+            "repair_attempts": repair_attempts,
+        },
+        "static_validation": {
+            "syntax_status": str(safety.get("syntax_status", "unknown")),
+            "safety_status": str(safety.get("status", "unknown")),
+            "errors": safe_list_of_str(safety.get("errors")),
+            "warnings": safe_list_of_str(safety.get("warnings")),
+        },
+        "expected_artifacts": safe_list_of_str(
+            generation.get("expected_artifacts")
+        ),
+        "workflow": str(recipe.get("workflow", FENICS_CODE_WORKFLOW)),
+    }
+
+
 def _build_output(
     *,
     recipe: Dict[str, Any],
@@ -1191,6 +1362,11 @@ def _build_output(
         for attempt in generation.get("repair_attempts", [])
         if isinstance(attempt, dict)
     ]
+    code_candidate = _build_code_candidate(
+        recipe=recipe,
+        generation=generation,
+        safety=safety,
+    )
     return {
         "schema_version": "1.0",
         "provider": FENICS_CODE_PROVIDER,
@@ -1199,6 +1375,10 @@ def _build_output(
         "generated_file_names": [file["name"] for file in generated_files],
         "generated_files": generated_files,
         "code_summary": generation["summary"],
+        "code_candidate": code_candidate,
+        "code_origin": generation.get("code_origin", "unknown"),
+        "generation_attempt_count": len(generation.get("generation_attempts", [])),
+        "generation_attempts": list(generation.get("generation_attempts", [])),
         "safety_status": safety["status"],
         "safety_warnings": safety["warnings"],
         "repair_attempt_count": len(repair_attempts),

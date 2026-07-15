@@ -432,6 +432,14 @@ class ArtifactNodeTests(unittest.TestCase):
                             "generated_file_names": ["solve.py", "diagnostics.json"],
                             "safety_status": "safe",
                             "code_summary": "Generated fallback code.",
+                            "code_origin": "llm",
+                            "generation_attempts": [
+                                {
+                                    "attempt": 1,
+                                    "status": "usable_code",
+                                    "failure_type": "",
+                                }
+                            ],
                             "execution": {
                                 "result": {
                                     "stdout": "{}",
@@ -500,6 +508,8 @@ class ArtifactNodeTests(unittest.TestCase):
 
         artifact = result["generated_artifact"]
         self.assertIn("Result review", artifact)
+        self.assertIn("Code origin: llm", artifact)
+        self.assertIn("Generation attempts: #1 usable_code", artifact)
         self.assertIn("Runtime: 1.25 s", artifact)
         self.assertIn("DOFs=1089", artifact)
         self.assertIn("Final solution stats", artifact)

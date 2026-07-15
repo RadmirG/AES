@@ -181,37 +181,81 @@ flowchart TD
     H --> E
 ```
 
-## Generated-Code Repair Loop
+## Generated-Code Lifecycle
 
-For LLM-generated FEniCS code, AES attempts bounded repair. User-provided code
+The LLM returns only raw Python source. It does not own the JSON contract.
+AES normalizes and checks the source, creates the structured
+`FenicsCodeCandidate`, and then executes it. User-provided code is checked but
 is not auto-rewritten.
 
 ```mermaid
 flowchart TD
-    A["LLM-generated solve.py"] --> B["Strip invalid control characters"]
-    B --> C["General Python extraction + syntax checker"]
-    C --> D["FEniCS-specific safety allowlist"]
-    D --> E{"Safe?"}
-    E -->|no, attempts left| F["LLM repair with syntax/safety report"]
-    F --> B
-    E -->|no, no usable repairs| G["Deterministic fallback for supported simple PDEs"]
-    G --> B
-    E -->|yes| H["Execute in fenics-code-runner"]
-    H --> I{"Return code 0?"}
-    I -->|no| J["LLM repair with stdout/stderr/diagnostics"]
-    J --> B
-    I -->|no, repairs exhausted| G
-    I -->|yes| K["Return code, diagnostics, sampled u(x,y,t), artifact refs"]
+    A["Validated numerical recipe"] --> B["LLM generates raw solve.py"]
+    B --> C["Normalize response<br/>remove fences and prose"]
+    C --> D{"Usable Python found?"}
+    D -->|"no, attempts remain"| E["Retry with exact failure classification"]
+    E --> B
+    D -->|"no, exhausted"| F["Deterministic fallback<br/>supported simple PDEs only"]
+    D -->|yes| G["Python AST syntax check"]
+    F --> G
+    G -->|invalid| H["LLM repair with syntax report"]
+    H --> C
+    G -->|valid| I["FEniCS safety allowlist"]
+    I -->|unsafe| H
+    I -->|safe| J["AES builds FenicsCodeCandidate"]
+    J --> K["Execute in fenics-code-runner"]
+    K --> L{"Return code 0?"}
+    L -->|no| M["LLM repair with stdout/stderr/diagnostics"]
+    M --> C
+    L -->|"no, repairs exhausted"| F
+    L -->|yes| N["Diagnostics, sampled u(x,y,t), artifact refs"]
 ```
 
-Repair attempts are bounded by `DOLFINX_CODE_REPAIR_ATTEMPTS`.
+Initial raw-code generation is bounded by
+`DOLFINX_CODE_GENERATION_ATTEMPTS`; static/runtime repair is independently
+bounded by `DOLFINX_CODE_REPAIR_ATTEMPTS`.
 The generic checker lives in `aes_agent/python_checker.py` and is intentionally
-not FEniCS-specific: it extracts Python from common LLM response shapes, strips
-invalid control characters, and catches syntax errors before the stricter
-FEniCS import/call allowlist runs. If bounded static or runtime repairs return
-no usable Python for a supported simple heat/Poisson-style problem, AES falls
-back to the deterministic DOLFINx template instead of repeatedly validating or
-executing the same broken script.
+not FEniCS-specific: it extracts raw Python, strips invalid control characters,
+and catches syntax errors before the stricter FEniCS import/call allowlist
+runs. Generation failures are classified as transport, empty response,
+unexpected JSON envelope, invalid response, or non-code response. If bounded
+generation/static/runtime attempts fail for a supported simple
+heat/Poisson-style problem, AES uses the deterministic DOLFINx template.
+
+The model never serializes the candidate envelope. AES constructs it after
+checking the source and records code origin, SHA-256, generation attempts,
+repair attempts, static validation, and expected artifacts. The contract is
+documented in `mcp/contracts/fenics_code_candidate.schema.json`.
+
+```mermaid
+classDiagram
+    class FenicsCodeCandidate {
+        schema_version
+        status
+        summary
+        code_origin
+        source_file
+        python_code
+        sha256
+        expected_artifacts
+        workflow
+    }
+    class GenerationProvenance {
+        model
+        attempt_count
+        attempts
+        repair_attempt_count
+        repair_attempts
+    }
+    class StaticValidation {
+        syntax_status
+        safety_status
+        errors
+        warnings
+    }
+    FenicsCodeCandidate *-- GenerationProvenance
+    FenicsCodeCandidate *-- StaticValidation
+```
 
 For generated-code runs, scripts should write sampled field data for the
 numerical solution into `diagnostics.json` under `field_samples`: stationary

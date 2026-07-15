@@ -32,6 +32,18 @@ print(json.dumps({"ok": False}))
 """
 
 
+def _text_response(text, *, status="completed", message=""):
+    return {
+        "status": status,
+        "text": text,
+        "model": "test-code-model",
+        "done_reason": "stop",
+        "response_chars": len(text),
+        "elapsed_ms": 1.0,
+        "message": message,
+    }
+
+
 class _FakeCodeRunnerClient:
     def list_tools(self):
         return [{"name": "run_python_script"}]
@@ -199,14 +211,10 @@ class FenicsCodeTests(unittest.TestCase):
         self.assertEqual(result["warnings"], [])
 
     @patch(
-        "aes_agent.fenics_code.ollama_json",
-        return_value={
-            "summary": "Generated test code.",
-            "python_code": SAFE_CODE,
-            "expected_artifacts": ["solution.xdmf"],
-        },
+        "aes_agent.fenics_code.ollama_text",
+        return_value=_text_response(SAFE_CODE),
     )
-    def test_code_solve_generates_checked_python_file(self, _ollama_json):
+    def test_code_solve_generates_checked_python_file(self, _ollama_text):
         output = execute_fenics_code_solve(
             {
                 "raw_user_input": "As a solution I need a FEniCS executable python file.",
@@ -224,16 +232,89 @@ class FenicsCodeTests(unittest.TestCase):
         self.assertEqual(output["generated_file_names"], ["solve.py"])
         self.assertEqual(output["generated_files"][0]["name"], "solve.py")
         self.assertIn("solution.xdmf", [a["name"] for a in output["fenics_result"]["artifacts"]])
+        self.assertEqual(output["code_origin"], "llm")
+        self.assertEqual(output["generation_attempt_count"], 1)
+        self.assertEqual(output["code_candidate"]["status"], "accepted")
+        self.assertEqual(
+            output["code_candidate"]["static_validation"]["syntax_status"],
+            "valid",
+        )
+        self.assertEqual(output["code_candidate"]["python_code"], SAFE_CODE.strip())
+
+    @patch("aes_agent.fenics_code._generation_attempt_limit", return_value=2)
+    @patch(
+        "aes_agent.fenics_code.ollama_text",
+        side_effect=[
+            _text_response("I cannot provide the requested program."),
+            _text_response(SAFE_CODE),
+        ],
+    )
+    def test_empty_initial_generation_is_retried_before_fallback(
+        self,
+        ollama_text,
+        _attempt_limit,
+    ):
+        output = execute_fenics_code_solve(
+            {
+                "raw_user_input": "Generate a stationary DOLFINx solve.",
+                "solution_mode": "generate_fenics_code",
+                "numerical_recipe": {
+                    "provider": "local:fenics_code",
+                    "workflow": "llm_generated_dolfinx_script_v1",
+                    "execution_requested": False,
+                },
+            }
+        )
+
+        self.assertEqual(ollama_text.call_count, 2)
+        self.assertEqual(output["code_origin"], "llm")
+        self.assertEqual(output["generation_attempt_count"], 2)
+        self.assertEqual(
+            output["generation_attempts"][0]["failure_type"],
+            "non_code_response",
+        )
+        self.assertEqual(output["generation_attempts"][1]["status"], "usable_code")
+
+    @patch("aes_agent.fenics_code._generation_attempt_limit", return_value=2)
+    @patch(
+        "aes_agent.fenics_code.ollama_text",
+        side_effect=[
+            _text_response('{"python_code": "print(1)"}'),
+            _text_response("", status="empty_response"),
+        ],
+    )
+    def test_generation_failures_are_classified_before_supported_fallback(
+        self,
+        ollama_text,
+        _attempt_limit,
+    ):
+        output = execute_fenics_code_solve(
+            {
+                "raw_user_input": "Solve the stationary heat equation.",
+                "pde_info": "stationary_diffusion_equation",
+                "domain_info": "unit_square",
+                "solution_mode": "generate_fenics_code",
+                "numerical_recipe": {
+                    "provider": "local:fenics_code",
+                    "workflow": "llm_generated_dolfinx_script_v1",
+                    "execution_requested": False,
+                },
+            }
+        )
+
+        self.assertEqual(ollama_text.call_count, 2)
+        self.assertEqual(output["code_origin"], "deterministic_fallback")
+        self.assertEqual(
+            [attempt["failure_type"] for attempt in output["generation_attempts"]],
+            ["unexpected_json_envelope", "empty_response"],
+        )
+        self.assertEqual(output["code_candidate"]["status"], "accepted")
 
     @patch(
-        "aes_agent.fenics_code.ollama_json",
-        return_value={
-            "summary": "Generated test code.",
-            "python_code": SAFE_CODE,
-            "expected_artifacts": ["solution.xdmf"],
-        },
+        "aes_agent.fenics_code.ollama_text",
+        return_value=_text_response(SAFE_CODE),
     )
-    def test_execution_request_without_script_runner_is_blocked(self, _ollama_json):
+    def test_execution_request_without_script_runner_is_blocked(self, _ollama_text):
         output = execute_fenics_code_solve(
             {
                 "raw_user_input": "Execute this solve.",
@@ -251,14 +332,10 @@ class FenicsCodeTests(unittest.TestCase):
         self.assertTrue(output["errors"])
 
     @patch(
-        "aes_agent.fenics_code.ollama_json",
-        return_value={
-            "summary": "Generated test code.",
-            "python_code": SAFE_CODE,
-            "expected_artifacts": ["solution.xdmf"],
-        },
+        "aes_agent.fenics_code.ollama_text",
+        return_value=_text_response(SAFE_CODE),
     )
-    def test_execution_request_with_script_runner_executes(self, _ollama_json):
+    def test_execution_request_with_script_runner_executes(self, _ollama_text):
         output = execute_fenics_code_solve(
             {
                 "raw_user_input": "Execute this solve.",
@@ -326,21 +403,13 @@ class FenicsCodeTests(unittest.TestCase):
         self.assertIn("V.tabulate_dof_coordinates()", script)
 
     @patch(
-        "aes_agent.fenics_code.ollama_json",
+        "aes_agent.fenics_code.ollama_text",
         side_effect=[
-            {
-                "summary": "Generated broken code.",
-                "python_code": "from dolfinx import fem\nbad = \b\n",
-                "expected_artifacts": ["solution.xdmf"],
-            },
-            {
-                "summary": "Repaired syntax.",
-                "python_code": SAFE_CODE,
-                "expected_artifacts": ["solution.xdmf"],
-            },
+            _text_response("from dolfinx import fem\nbad = \b\n"),
+            _text_response(SAFE_CODE),
         ],
     )
-    def test_static_syntax_error_triggers_repair(self, ollama_json):
+    def test_static_syntax_error_triggers_repair(self, ollama_text):
         output = execute_fenics_code_solve(
             {
                 "raw_user_input": "As a solution I need a FEniCS executable python file.",
@@ -353,7 +422,7 @@ class FenicsCodeTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(ollama_json.call_count, 2)
+        self.assertEqual(ollama_text.call_count, 2)
         self.assertEqual(output["execution_mode"], "generated")
         self.assertEqual(output["safety_status"], "safe")
         self.assertEqual(output["repair_attempt_count"], 1)
@@ -361,20 +430,16 @@ class FenicsCodeTests(unittest.TestCase):
         self.assertIn("from dolfinx", output["generated_files"][0]["content"])
 
     @patch(
-        "aes_agent.fenics_code.ollama_json",
+        "aes_agent.fenics_code.ollama_text",
         side_effect=[
-            {
-                "summary": "Generated broken code.",
-                "python_code": "from dolfinx import fem\n\ndef broken():\n",
-                "expected_artifacts": ["solution.xdmf"],
-            },
-            {},
-            {},
+            _text_response("from dolfinx import fem\n\ndef broken():\n"),
+            _text_response("", status="empty_response"),
+            _text_response("", status="empty_response"),
         ],
     )
     def test_static_repair_no_usable_code_falls_back_for_supported_problem(
         self,
-        ollama_json,
+        ollama_text,
     ):
         output = execute_fenics_code_solve(
             {
@@ -396,7 +461,7 @@ class FenicsCodeTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(ollama_json.call_count, 3)
+        self.assertEqual(ollama_text.call_count, 3)
         self.assertEqual(output["execution_mode"], "generated")
         self.assertEqual(output["safety_status"], "safe")
         self.assertEqual(output["repair_attempt_count"], 2)
@@ -409,21 +474,13 @@ class FenicsCodeTests(unittest.TestCase):
         )
 
     @patch(
-        "aes_agent.fenics_code.ollama_json",
+        "aes_agent.fenics_code.ollama_text",
         side_effect=[
-            {
-                "summary": "Generated runtime-broken code.",
-                "python_code": SAFE_CODE,
-                "expected_artifacts": ["solution.xdmf"],
-            },
-            {
-                "summary": "Repaired runtime error.",
-                "python_code": SAFE_CODE,
-                "expected_artifacts": ["solution.xdmf"],
-            },
+            _text_response(SAFE_CODE),
+            _text_response(SAFE_CODE),
         ],
     )
-    def test_runtime_execution_error_triggers_repair(self, ollama_json):
+    def test_runtime_execution_error_triggers_repair(self, ollama_text):
         client = _FailThenSucceedCodeRunnerClient()
         output = execute_fenics_code_solve(
             {
@@ -439,7 +496,7 @@ class FenicsCodeTests(unittest.TestCase):
             execute=True,
         )
 
-        self.assertEqual(ollama_json.call_count, 2)
+        self.assertEqual(ollama_text.call_count, 2)
         self.assertEqual(client.calls, 2)
         self.assertEqual(output["execution_mode"], "executed")
         self.assertEqual(output["errors"], [])
@@ -447,20 +504,16 @@ class FenicsCodeTests(unittest.TestCase):
         self.assertEqual(output["repair_attempts"][0]["failure_type"], "runtime_execution")
 
     @patch(
-        "aes_agent.fenics_code.ollama_json",
+        "aes_agent.fenics_code.ollama_text",
         side_effect=[
-            {
-                "summary": "Generated runtime-broken DOLFINx code.",
-                "python_code": RUNTIME_BAD_DOLFINX_CODE,
-                "expected_artifacts": ["solution.xdmf"],
-            },
-            {},
-            {},
+            _text_response(RUNTIME_BAD_DOLFINX_CODE),
+            _text_response("", status="empty_response"),
+            _text_response("", status="empty_response"),
         ],
     )
     def test_runtime_repair_no_usable_code_falls_back_for_supported_problem(
         self,
-        ollama_json,
+        ollama_text,
     ):
         client = _RuntimeFailUntilFallbackCodeRunnerClient()
         output = execute_fenics_code_solve(
@@ -485,7 +538,7 @@ class FenicsCodeTests(unittest.TestCase):
             execute=True,
         )
 
-        self.assertEqual(ollama_json.call_count, 3)
+        self.assertEqual(ollama_text.call_count, 3)
         self.assertEqual(client.calls, 3)
         self.assertEqual(output["execution_mode"], "executed")
         self.assertEqual(output["errors"], [])
@@ -501,16 +554,12 @@ class FenicsCodeTests(unittest.TestCase):
         )
 
     @patch(
-        "aes_agent.fenics_code.ollama_json",
-        return_value={
-            "summary": "Generated test code.",
-            "python_code": SAFE_CODE,
-            "expected_artifacts": ["solution.xdmf"],
-        },
+        "aes_agent.fenics_code.ollama_text",
+        return_value=_text_response(SAFE_CODE),
     )
     def test_execution_request_with_execution_disabled_is_blocked_but_keeps_code(
         self,
-        _ollama_json,
+        _ollama_text,
     ):
         output = execute_fenics_code_solve(
             {

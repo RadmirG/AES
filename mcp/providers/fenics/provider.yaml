@@ -17,6 +17,7 @@ aes_wrapper_tools:
   - fenics_forward_solve
   - fenics_code_solve
 contracts:
+  - ../../contracts/fenics_code_candidate.schema.json
   - ../../contracts/fenics_forward_solve.schema.json
   - ../../contracts/numerical_recipe.schema.json
   - ../../contracts/tool_result.schema.json

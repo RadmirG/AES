@@ -99,6 +99,7 @@ that should cross provider boundaries. These contracts should stay provider
 agnostic where possible:
 
 - `fenics_forward_solve.schema.json`,
+- `fenics_code_candidate.schema.json`,
 - `numerical_recipe.schema.json`,
 - `tool_result.schema.json`.
 

@@ -266,12 +266,8 @@ PDE problem described by the current AES state.
 Current AES state:
 {json.dumps(snapshot, indent=2)}
 
-Return ONLY a valid JSON object with exactly these keys:
-{{
-  "summary": "...",
-  "python_code": "...",
-  "expected_artifacts": ["solution.xdmf", "diagnostics.json"]
-}}
+Return ONLY the complete Python source for `solve.py`.
+Do not return JSON, Markdown fences, a summary, or explanatory prose.
 
 Code requirements:
 - Use DOLFINx/FEniCSx, not legacy dolfin/fenics.
@@ -291,6 +287,37 @@ Code requirements:
   [[x,y], ...] and samples as [{{"time": t, "step": n, "values": [...]}}, ...].
 - If plotting is included, save a PNG file instead of opening a GUI window.
 - Keep the code robust for headless container execution.
+"""
+
+
+def retry_fenics_dolfinx_code_prompt(
+    snapshot: Dict[str, Any],
+    failure: Dict[str, Any],
+) -> str:
+    return f"""
+You are a senior numerical software engineer inside AES.
+
+The previous attempt to generate `solve.py` could not be used.
+
+Failure classification:
+{json.dumps(failure, indent=2)}
+
+Current AES state:
+{json.dumps(snapshot, indent=2)}
+
+Generate a fresh, complete DOLFINx/FEniCSx Python script.
+Return ONLY raw Python source. Do not return JSON, Markdown fences, a summary,
+or explanatory prose.
+
+Requirements:
+- Use DOLFINx/FEniCSx, not legacy dolfin/fenics.
+- Make the script self-contained and runnable as `python solve.py`.
+- Do not use network access, shell commands, subprocesses, dynamic imports,
+  eval, exec, input, or absolute output paths.
+- Write outputs into the current working directory.
+- Write diagnostics.json and sampled `field_samples` suitable for AES
+  visualization when practical.
+- Keep the code robust for a headless FEniCS container.
 """
 
 
@@ -317,12 +344,8 @@ Current Python code:
 {current_code}
 ```
 
-Return ONLY a valid JSON object with exactly these keys:
-{{
-  "summary": "...",
-  "python_code": "...",
-  "expected_artifacts": ["solution.xdmf", "diagnostics.json"]
-}}
+Return ONLY the complete replacement Python source for `solve.py`.
+Do not return JSON, Markdown fences, a summary, a patch, or explanatory prose.
 
 Repair rules:
 - Return a complete replacement `solve.py`, not a patch or explanation.

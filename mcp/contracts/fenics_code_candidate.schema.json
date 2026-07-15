@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aes.local/contracts/fenics_code_candidate.schema.json",
+  "title": "AES FEniCS Code Candidate",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "status",
+    "summary",
+    "code_origin",
+    "source_file",
+    "python_code",
+    "sha256",
+    "generation",
+    "static_validation",
+    "expected_artifacts",
+    "workflow"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "status": {"type": "string", "enum": ["accepted", "rejected"]},
+    "summary": {"type": "string"},
+    "code_origin": {
+      "type": "string",
+      "enum": ["llm", "llm_repair", "user", "deterministic_fallback", "unknown"]
+    },
+    "source_file": {"const": "solve.py"},
+    "python_code": {"type": "string"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "generation": {
+      "type": "object",
+      "required": [
+        "model",
+        "attempt_count",
+        "attempts",
+        "repair_attempt_count",
+        "repair_attempts"
+      ],
+      "properties": {
+        "model": {"type": "string"},
+        "attempt_count": {"type": "integer", "minimum": 0},
+        "attempts": {"type": "array", "items": {"type": "object"}},
+        "repair_attempt_count": {"type": "integer", "minimum": 0},
+        "repair_attempts": {"type": "array", "items": {"type": "object"}}
+      },
+      "additionalProperties": false
+    },
+    "static_validation": {
+      "type": "object",
+      "required": ["syntax_status", "safety_status", "errors", "warnings"],
+      "properties": {
+        "syntax_status": {"type": "string", "enum": ["valid", "invalid", "unknown"]},
+        "safety_status": {"type": "string", "enum": ["safe", "unsafe", "unknown"]},
+        "errors": {"type": "array", "items": {"type": "string"}},
+        "warnings": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "expected_artifacts": {"type": "array", "items": {"type": "string"}},
+    "workflow": {"type": "string"}
+  },
+  "additionalProperties": false
+}

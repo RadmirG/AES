@@ -803,6 +803,26 @@ def _append_tool_result_section(
         if safety_status:
             lines.append(f"  Safety status: {_artifact_value(safety_status)}")
 
+        code_origin = output.get("code_origin")
+        if code_origin:
+            lines.append(f"  Code origin: {_artifact_value(code_origin)}")
+
+        generation_attempts = output.get("generation_attempts")
+        if isinstance(generation_attempts, list) and generation_attempts:
+            summaries = []
+            for attempt in generation_attempts[:3]:
+                if not isinstance(attempt, dict):
+                    continue
+                number = attempt.get("attempt")
+                status = attempt.get("status")
+                failure_type = attempt.get("failure_type")
+                outcome = failure_type or status
+                summaries.append(f"#{number} {status} -> {outcome}")
+            if summaries:
+                lines.append(
+                    f"  Generation attempts: {_artifact_list(summaries, limit=360)}"
+                )
+
         code_summary = output.get("code_summary")
         if code_summary:
             lines.append(f"  Code summary: {_artifact_value(code_summary, limit=320)}")
