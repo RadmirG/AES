@@ -576,7 +576,6 @@ be reconciled by a maintenance job. Provider-owned `mcp://` references remain
 
 ```text
 database/
-  .env.example
   architecture.md
   README.md
   compose.database.yaml

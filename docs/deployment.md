@@ -10,14 +10,15 @@ docker network create ai-stack-net
 
 ## Required Database Configuration
 
-Create the ignored repository-root `.env` file before the first startup:
+Create the ignored deployment environment file before the first startup:
 
 ```bash
-cp database/.env.example .env
+cp deploy/.env.example deploy/.env
 ```
 
 Replace `AES_POSTGRES_ADMIN_PASSWORD` and `AES_POSTGRES_APP_PASSWORD` with two
-different random values. Do not commit `.env`. Keep
+different random values. Do not commit `deploy/.env`. Docker Compose loads it
+automatically because the top-level entrypoints are located in `deploy/`. Keep
 `AES_AUTH_COOKIE_SECURE=false` for local HTTP or an SSH tunnel; set it to
 `true` only when the browser reaches AES through HTTPS.
 

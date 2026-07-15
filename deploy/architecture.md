@@ -95,8 +95,9 @@ flowchart LR
 
 ## Common Startup
 
-Copy `database/.env.example` to the repository-root `.env` file and replace
-both password placeholders before the first startup. Compose refuses to start
+Copy `deploy/.env.example` to `deploy/.env` and replace both password
+placeholders before the first startup. Compose loads this file automatically
+because the top-level entrypoints are in `deploy/`, and refuses to start
 without the database administrator and application-role passwords.
 
 Production full stack:

@@ -10,15 +10,17 @@ design.
 
 ## Required Configuration
 
-From the repository root, create an ignored `.env` file:
+From the repository root, create the ignored deployment environment file:
 
 ```bash
-cp database/.env.example .env
+cp deploy/.env.example deploy/.env
 ```
 
 Replace both password placeholders with different random values before running
 Compose. The application role password is passed separately to LangGraph; it
 is not embedded in a database URL, so URL-special characters are supported.
+Docker Compose loads `deploy/.env` automatically because the top-level
+Compose entrypoints are located in `deploy/`.
 
 ## Migrations
 

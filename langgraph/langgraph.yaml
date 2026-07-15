@@ -44,7 +44,7 @@ services:
       - AES_DB_PORT=5432
       - AES_DB_NAME=${AES_POSTGRES_DB:-aes}
       - AES_DB_USER=aes_app
-      - AES_DB_PASSWORD=${AES_POSTGRES_APP_PASSWORD:?Set AES_POSTGRES_APP_PASSWORD in the repository-root .env file}
+      - AES_DB_PASSWORD=${AES_POSTGRES_APP_PASSWORD:?Set AES_POSTGRES_APP_PASSWORD in deploy/.env}
     volumes:
       - ../artifacts:/artifacts
     networks:

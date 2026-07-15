@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: ${AES_POSTGRES_DB:-aes}
       POSTGRES_USER: ${AES_POSTGRES_ADMIN_USER:-aes_admin}
-      POSTGRES_PASSWORD: ${AES_POSTGRES_ADMIN_PASSWORD:?Set AES_POSTGRES_ADMIN_PASSWORD in the repository-root .env file}
+      POSTGRES_PASSWORD: ${AES_POSTGRES_ADMIN_PASSWORD:?Set AES_POSTGRES_ADMIN_PASSWORD in deploy/.env}
     volumes:
       - aes-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -32,8 +32,8 @@ services:
       PGPORT: 5432
       PGDATABASE: ${AES_POSTGRES_DB:-aes}
       PGUSER: ${AES_POSTGRES_ADMIN_USER:-aes_admin}
-      PGPASSWORD: ${AES_POSTGRES_ADMIN_PASSWORD:?Set AES_POSTGRES_ADMIN_PASSWORD in the repository-root .env file}
-      AES_POSTGRES_APP_PASSWORD: ${AES_POSTGRES_APP_PASSWORD:?Set AES_POSTGRES_APP_PASSWORD in the repository-root .env file}
+      PGPASSWORD: ${AES_POSTGRES_ADMIN_PASSWORD:?Set AES_POSTGRES_ADMIN_PASSWORD in deploy/.env}
+      AES_POSTGRES_APP_PASSWORD: ${AES_POSTGRES_APP_PASSWORD:?Set AES_POSTGRES_APP_PASSWORD in deploy/.env}
     entrypoint:
       - /bin/sh
       - /migrations/apply.sh
@@ -48,4 +48,3 @@ volumes:
 networks:
   ai-stack-net:
     external: true
-

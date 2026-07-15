@@ -187,17 +187,19 @@ Safer idempotent version:
 docker network inspect ai-stack-net >/dev/null 2>&1 || docker network create ai-stack-net
 ```
 
-Create the ignored repository-root database configuration before starting AES:
+Create the ignored deployment configuration before starting AES:
 
 ```bash
 cd ~/projects/AES
-cp database/.env.example .env
-chmod 600 .env
+cp deploy/.env.example deploy/.env
+chmod 600 deploy/.env
 ```
 
-Edit `.env` and replace both PostgreSQL password placeholders with different
-random values. Never commit this file. Keep `AES_AUTH_COOKIE_SECURE=false` for
-local HTTP/SSH-tunnel testing; use `true` only behind HTTPS.
+Edit `deploy/.env` and replace both PostgreSQL password placeholders with
+different random values. Never commit this file. Keep
+`AES_AUTH_COOKIE_SECURE=false` for local HTTP/SSH-tunnel testing; use `true`
+only behind HTTPS. Docker Compose loads this file automatically because the
+top-level Compose files are also in `deploy/`.
 
 ## 7. First Local Unit Tests
 
