@@ -1,28 +1,33 @@
 import { FormEvent, useState } from "react";
-import type { WorkbenchUser } from "../types";
-
 type Props = {
-  onLogin: (user: WorkbenchUser) => void;
+  onLogin: (username: string, password: string) => Promise<void>;
+  initialError?: string;
 };
 
-export function LoginScreen({ onLogin }: Props) {
+export function LoginScreen({ onLogin, initialError = "" }: Props) {
   const [username, setUsername] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [error, setError] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(initialError);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
     const normalizedUsername = username.trim();
-    if (!normalizedUsername) {
-      setError("Please enter a user name.");
+    if (!normalizedUsername || !password) {
+      setError("Enter your user name and password.");
       return;
     }
 
-    onLogin({
-      username: normalizedUsername,
-      displayName: displayName.trim() || normalizedUsername,
-      signedInAt: new Date().toISOString(),
-    });
+    setIsSubmitting(true);
+    setError("");
+    try {
+      await onLogin(normalizedUsername, password);
+      setPassword("");
+    } catch (loginError) {
+      setError((loginError as Error).message || "Authentication failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -32,8 +37,8 @@ export function LoginScreen({ onLogin }: Props) {
           <p className="eyebrow">AES Workbench</p>
           <h1>Sign in</h1>
           <p className="muted">
-            Local prototype login. Your saved chats are stored in this browser
-            under the selected user name.
+            Sign in with an AES account. Authentication sessions are stored
+            securely by the AES server.
           </p>
         </div>
 
@@ -43,22 +48,26 @@ export function LoginScreen({ onLogin }: Props) {
             autoFocus
             value={username}
             onChange={(event) => setUsername(event.target.value)}
-            placeholder="radmir"
+            placeholder="engineer"
+            autoComplete="username"
           />
         </label>
 
         <label>
-          Display name
+          Password
           <input
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-            placeholder="optional"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="current-password"
           />
         </label>
 
         {error ? <div className="errorBox">{error}</div> : null}
 
-        <button type="submit">Open Workbench</button>
+        <button disabled={isSubmitting} type="submit">
+          {isSubmitting ? "Signing in..." : "Sign in"}
+        </button>
       </form>
     </main>
   );

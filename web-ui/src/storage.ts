@@ -1,20 +1,7 @@
-import type { Conversation, WorkbenchUser } from "./types";
+import type { Conversation } from "./types";
 
-const USER_KEY = "aes.workbench.user.v1";
 const CONVERSATIONS_KEY_PREFIX = "aes.workbench.conversations.v1.";
 const ACTIVE_CONVERSATION_KEY_PREFIX = "aes.workbench.activeConversation.v1.";
-
-export function loadStoredUser(): WorkbenchUser | null {
-  return readJson<WorkbenchUser>(USER_KEY);
-}
-
-export function saveStoredUser(user: WorkbenchUser) {
-  window.localStorage.setItem(USER_KEY, JSON.stringify(user));
-}
-
-export function clearStoredUser() {
-  window.localStorage.removeItem(USER_KEY);
-}
 
 export function loadStoredConversations(username: string): Conversation[] {
   const conversations = readJson<Conversation[]>(conversationKey(username));

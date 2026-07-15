@@ -8,6 +8,19 @@ Create the shared network once:
 docker network create ai-stack-net
 ```
 
+## Required Database Configuration
+
+Create the ignored repository-root `.env` file before the first startup:
+
+```bash
+cp database/.env.example .env
+```
+
+Replace `AES_POSTGRES_ADMIN_PASSWORD` and `AES_POSTGRES_APP_PASSWORD` with two
+different random values. Do not commit `.env`. Keep
+`AES_AUTH_COOKIE_SECURE=false` for local HTTP or an SSH tunnel; set it to
+`true` only when the browser reaches AES through HTTPS.
+
 ## Component Compose Files
 
 Each subproject owns its own service definition:
@@ -15,11 +28,16 @@ Each subproject owns its own service definition:
 ```bash
 docker compose -f ollama/ollama-server.dev.yaml up -d
 docker compose -f ollama/ollama-server.prod.yaml up -d
+docker compose -f database/compose.database.yaml up -d
 docker compose -f web-ui/web-ui.yaml up -d --build
 docker compose -f mcp/compose.mcp.yaml --profile fenics up -d
 docker compose -f langgraph/langgraph.yaml up -d --build
 docker compose -f langgraph/langgraph.prod.yaml up -d --build
 ```
+
+Because LangGraph now requires the PostgreSQL service and completed migration
+job, normal operation should use the top-level `deploy/compose.*.yaml`
+entrypoints instead of starting LangGraph's component file by itself.
 
 `mcp/compose.mcp.yaml` is itself a thin MCP entrypoint. It includes the
 provider-owned Compose files under `mcp/providers/`.
@@ -127,6 +145,7 @@ The container joins `ai-stack-net` and uses Nginx as a same-origin proxy:
 
 ```text
 Browser -> web-ui:3000
+web-ui /api/*       -> http://langgraph:8001/api/*
 web-ui /v1/*        -> http://langgraph:8001/v1/*
 web-ui /artifacts/* -> http://langgraph:8001/artifacts/*
 ```
@@ -191,14 +210,27 @@ tunnel port such as `3001`.
 The AES Workbench is the only browser UI included by default in
 `deploy/compose.dev.yaml` and `deploy/compose.prod.yaml`.
 
-On first load, `web-ui` shows a local Workbench login screen. This login
-separates saved browser-local conversations by user name. It is meant for the
-prototype and does not authenticate against the server yet.
+On first load, `web-ui` restores the server session through `/api/auth/me` or
+shows the login screen. Login credentials are verified by LangGraph against
+PostgreSQL. The browser receives an opaque `HttpOnly` session cookie; it does
+not store the password or session token in `localStorage`.
+
+Create the first user interactively after the stack is running:
+
+```bash
+docker compose -f deploy/compose.dev.yaml exec langgraph \
+  python -m aes_agent.create_user --username engineer --display-name "AES Engineer"
+```
+
+Use `deploy/compose.prod.yaml` in that command for production. The command
+prompts for the password and never accepts it as a command-line argument.
 
 Chats, assistant answers, the latest `aes_result`, and right-pane result state
-are stored in browser `localStorage`. Refreshing the page keeps the active
-conversation and previously generated result links. Clearing browser storage or
-using a different browser profile starts with an empty local history.
+remain stored in browser `localStorage`, scoped to the authenticated username,
+until the chat persistence slice is implemented. Refreshing keeps the active
+conversation and result links, but clearing browser storage or using another
+browser profile starts with an empty local chat history. PostgreSQL is already
+the source of truth for users and sessions.
 
 ## Ollama Model Manifests and Pull Automation
 
@@ -340,4 +372,3 @@ The repair loop applies only to LLM-generated code. Static validation failures
 and provider runtime failures are sent back to the LLM with bounded diagnostic
 context. User-provided Python code is checked and either accepted or rejected;
 AES does not auto-rewrite user code.
-

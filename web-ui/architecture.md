@@ -8,6 +8,8 @@ results and visualization on the right.
 flowchart TD
     A["Browser"] --> B["web-ui Nginx"]
     B --> C["React Workbench"]
+    C --> AUTH["/api/auth/login, /me, /logout"]
+    AUTH --> B
     C --> D["Left pane<br/>chat + history"]
     C --> E["Right pane<br/>result workspace"]
     D --> F["POST /v1/chat/completions"]
@@ -25,14 +27,15 @@ flowchart TD
 
 `web-ui/` owns:
 
-- login screen for local prototype sessions,
-- browser-local conversation storage,
+- authenticated login/session UI,
+- server-authenticated session bootstrap and logout,
+- browser-local conversation storage scoped by authenticated username,
 - chat panel against `aes-agent`,
 - persisted AES progress turns,
 - result workspace,
 - artifact links and diagnostics rendering,
 - VTK.js viewer shell,
-- Nginx proxy for `/v1/` and `/artifacts/`.
+- Nginx proxy for `/api/`, `/v1/`, and `/artifacts/`.
 
 It does not own:
 
@@ -78,18 +81,27 @@ panels are inspected.
 
 ## Session Model
 
-The first Workbench session model is browser-local. It is not authentication.
+Identity is server-authenticated. The browser receives an opaque `HttpOnly`
+session cookie and never stores the password or raw token in JavaScript-accessible
+storage. On every page load the Workbench asks the AES API for the current user.
 
 ```mermaid
 flowchart TD
-    A["Load Workbench"] --> B{"Stored user?"}
-    B -->|no| C["Show login screen"]
-    B -->|yes| D["Load user"]
-    C --> D
-    D --> E["Load conversations from localStorage"]
-    E --> F["Select active conversation"]
-    F --> G["Render chat + latest result"]
+    A["Load Workbench"] --> B["GET /api/auth/me<br/>with session cookie"]
+    B --> C{"Authenticated?"}
+    C -->|no| D["Show login form"]
+    D --> E["POST /api/auth/login"]
+    E --> B
+    C -->|yes| F["Receive public user profile"]
+    F --> G["Load local conversation cache<br/>for authenticated username"]
+    G --> H["Select active conversation"]
+    H --> I["Render chat + latest result"]
 ```
+
+PostgreSQL is authoritative for users and sessions. Conversation content is
+still stored in browser `localStorage` as a transitional implementation. The
+next database slice moves conversations and messages to authenticated APIs;
+local storage then becomes only an optimistic cache and UI preference store.
 
 Saved conversations contain:
 
@@ -148,8 +160,10 @@ Container deployment uses same-origin proxying:
 
 ```text
 /v1/*         -> http://langgraph:8001/v1/*
+/api/*        -> http://langgraph:8001/api/*
 /artifacts/* -> http://langgraph:8001/artifacts/*
 ```
 
 The `/v1/` proxy has long timeouts because first model loads and FEniCS runs can
-take several minutes.
+take several minutes. Browser requests include credentials so the same-origin
+session cookie protects chat and artifact access.

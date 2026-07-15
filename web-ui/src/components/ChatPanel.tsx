@@ -144,6 +144,7 @@ export function ChatPanel({
     try {
       const response = await fetch(`${aesApiBaseUrl}/v1/chat/completions`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "aes-agent",

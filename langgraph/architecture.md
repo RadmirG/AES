@@ -7,7 +7,8 @@ answers from graph state.
 
 ```mermaid
 flowchart TD
-    A["HTTP request<br/>/v1/chat/completions or /invoke"] --> B["FastAPI adapter"]
+    A["HTTP request<br/>/v1/chat/completions or /invoke"] --> AUTH["Session authentication"]
+    AUTH --> B["FastAPI adapter"]
     B --> C["OpenAI chat adapter"]
     C --> D["Active AES request"]
     D --> E["LangGraph StateGraph"]
@@ -28,6 +29,7 @@ flowchart TD
 
 - the AES FastAPI service,
 - the OpenAI-compatible API surface,
+- PostgreSQL-backed user/session authentication at the API boundary,
 - `AgentState`,
 - LangGraph nodes and routing,
 - Ollama prompt builders and response parsing,
@@ -44,6 +46,36 @@ It does not own:
 - browser UI state,
 - provider workspaces,
 - production deployment topology.
+
+## Authentication Boundary
+
+The FastAPI service owns authentication so the browser never connects to
+PostgreSQL. `POST /api/auth/login` verifies an Argon2id password hash and sets
+an opaque `HttpOnly` cookie. Only a SHA-256 hash of the random session token is
+stored in `identity.auth_session`. `GET /api/auth/me` restores the Workbench
+session, and `POST /api/auth/logout` revokes it.
+
+```mermaid
+sequenceDiagram
+    participant UI as web-ui
+    participant API as LangGraph FastAPI
+    participant DB as PostgreSQL identity schema
+
+    UI->>API: POST /api/auth/login
+    API->>DB: Load user and password hash
+    API->>API: Verify Argon2id password
+    API->>DB: Store hashed opaque session token
+    API-->>UI: HttpOnly session cookie + public user
+    UI->>API: POST /v1/chat/completions with cookie
+    API->>DB: Validate active session
+    API->>API: Invoke AES graph
+```
+
+`/v1/chat/completions`, `/invoke`, and `/artifacts/...` require an active
+session. `/health`, `/v1/models`, and the login endpoint remain reachable for
+health checks and session creation. Initial users are created interactively
+inside the LangGraph container with `python -m aes_agent.create_user`; passwords
+are never accepted as command-line arguments.
 
 ## Graph Flow
 

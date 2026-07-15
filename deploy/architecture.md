@@ -5,12 +5,14 @@ not define every service directly; it includes component-owned Compose files.
 
 ```mermaid
 flowchart TD
-    A["deploy/compose.dev.yaml"] --> B["ollama/ollama-server.dev.yaml"]
+    A["deploy/compose.dev.yaml"] --> DB["database/compose.database.yaml"]
+    A --> B["ollama/ollama-server.dev.yaml"]
     A --> C["web-ui/web-ui.yaml"]
     A --> D["mcp/compose.mcp.yaml"]
     A --> E["langgraph/langgraph.yaml"]
 
-    F["deploy/compose.prod.yaml"] --> G["ollama/ollama-server.prod.yaml"]
+    F["deploy/compose.prod.yaml"] --> DB
+    F --> G["ollama/ollama-server.prod.yaml"]
     F --> C
     F --> D
     F --> H["langgraph/langgraph.prod.yaml"]
@@ -46,6 +48,7 @@ flowchart LR
 
 Both stacks include:
 
+- `aes-postgres` and the one-shot `aes-database-migrate`,
 - `web-ui`,
 - `langgraph`,
 - `ollama`,
@@ -55,7 +58,8 @@ Both stacks include:
 
 ```mermaid
 flowchart TD
-    A["base compose up"] --> B["web-ui"]
+    A["base compose up"] --> DB["aes-postgres + migration"]
+    A --> B["web-ui"]
     A --> C["langgraph"]
     A --> D["ollama"]
     E["--profile models"] --> F["ollama-model-puller"]
@@ -83,12 +87,17 @@ LangGraph by Docker service name.
 flowchart LR
     A["Browser<br/>127.0.0.1:3000"] --> B["web-ui"]
     B --> C["langgraph:8001"]
+    C --> DB[("aes-postgres:5432")]
     C --> D["ollama-server:11434"]
     C --> E["fenics-code-runner:8000"]
     C --> F["dolfinx-mcp:8000"]
 ```
 
 ## Common Startup
+
+Copy `database/.env.example` to the repository-root `.env` file and replace
+both password placeholders before the first startup. Compose refuses to start
+without the database administrator and application-role passwords.
 
 Production full stack:
 

@@ -1,6 +1,7 @@
 name: aes-dev
 
 include:
+  - ../database/compose.database.yaml
   - ../ollama/ollama-server.dev.yaml
   - ../web-ui/web-ui.yaml
   - ../mcp/compose.mcp.yaml

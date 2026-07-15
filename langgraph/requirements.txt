@@ -9,3 +9,5 @@ requests
 langgraph
 langchain
 langchain-community
+argon2-cffi>=23.1,<26
+psycopg[binary]>=3.2,<4

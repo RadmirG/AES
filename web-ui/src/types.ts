@@ -8,9 +8,10 @@ export type ChatTurn = {
 };
 
 export type WorkbenchUser = {
+  id: string;
   username: string;
   displayName: string;
-  signedInAt: string;
+  createdAt: string;
 };
 
 export type Conversation = {

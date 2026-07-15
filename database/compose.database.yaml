@@ -1,0 +1,51 @@
+services:
+  aes-postgres:
+    image: pgvector/pgvector:0.8.2-pg16-bookworm
+    container_name: aes-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${AES_POSTGRES_DB:-aes}
+      POSTGRES_USER: ${AES_POSTGRES_ADMIN_USER:-aes_admin}
+      POSTGRES_PASSWORD: ${AES_POSTGRES_ADMIN_PASSWORD:?Set AES_POSTGRES_ADMIN_PASSWORD in the repository-root .env file}
+    volumes:
+      - aes-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      - ai-stack-net
+
+  aes-database-migrate:
+    image: pgvector/pgvector:0.8.2-pg16-bookworm
+    container_name: aes-database-migrate
+    restart: "no"
+    depends_on:
+      aes-postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: aes-postgres
+      PGPORT: 5432
+      PGDATABASE: ${AES_POSTGRES_DB:-aes}
+      PGUSER: ${AES_POSTGRES_ADMIN_USER:-aes_admin}
+      PGPASSWORD: ${AES_POSTGRES_ADMIN_PASSWORD:?Set AES_POSTGRES_ADMIN_PASSWORD in the repository-root .env file}
+      AES_POSTGRES_APP_PASSWORD: ${AES_POSTGRES_APP_PASSWORD:?Set AES_POSTGRES_APP_PASSWORD in the repository-root .env file}
+    entrypoint:
+      - /bin/sh
+      - /migrations/apply.sh
+    volumes:
+      - ./migrations:/migrations:ro
+    networks:
+      - ai-stack-net
+
+volumes:
+  aes-postgres-data:
+
+networks:
+  ai-stack-net:
+    external: true
+

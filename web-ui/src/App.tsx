@@ -1,31 +1,50 @@
 import { useEffect, useMemo, useState } from "react";
+import { currentAuthenticatedUser, loginUser, logoutUser } from "./auth";
 import { ChatPanel } from "./components/ChatPanel";
 import { ConversationSidebar } from "./components/ConversationSidebar";
 import { LoginScreen } from "./components/LoginScreen";
 import { ResultWorkspace } from "./components/ResultWorkspace";
 import {
-  clearStoredUser,
   loadStoredActiveConversationId,
   loadStoredConversations,
-  loadStoredUser,
   saveStoredActiveConversationId,
   saveStoredConversations,
-  saveStoredUser,
 } from "./storage";
 import type { Conversation, WorkbenchUser } from "./types";
 
 export function App() {
-  const [user, setUser] = useState<WorkbenchUser | null>(() => loadStoredUser());
-  const [conversations, setConversations] = useState<Conversation[]>(() =>
-    user ? withDefaultConversation(loadStoredConversations(user.username)) : [],
-  );
-  const [activeConversationId, setActiveConversationId] = useState(
-    () => initialActiveConversationId(user, conversations),
-  );
+  const [user, setUser] = useState<WorkbenchUser | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState("");
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [authenticationError, setAuthenticationError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    currentAuthenticatedUser()
+      .then((authenticatedUser) => {
+        if (cancelled || !authenticatedUser) {
+          return;
+        }
+        activateUser(authenticatedUser);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setAuthenticationError((error as Error).message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsCheckingSession(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (user) {
-      saveStoredUser(user);
       saveStoredConversations(user.username, conversations);
       saveStoredActiveConversationId(user.username, activeConversationId);
     }
@@ -38,27 +57,37 @@ export function App() {
     [activeConversationId, conversations],
   );
 
-  function handleLogin(nextUser: WorkbenchUser) {
+  function activateUser(nextUser: WorkbenchUser) {
     const storedConversations = withDefaultConversation(
       loadStoredConversations(nextUser.username),
     );
     const storedActiveId = initialActiveConversationId(
-      nextUser,
+      nextUser.username,
       storedConversations,
     );
     setUser(nextUser);
     setConversations(storedConversations);
     setActiveConversationId(storedActiveId);
-    saveStoredUser(nextUser);
     saveStoredConversations(nextUser.username, storedConversations);
     saveStoredActiveConversationId(nextUser.username, storedActiveId);
   }
 
-  function handleLogout() {
-    clearStoredUser();
-    setUser(null);
-    setConversations([]);
-    setActiveConversationId("");
+  async function handleLogin(username: string, password: string) {
+    const nextUser = await loginUser(username, password);
+    setAuthenticationError("");
+    activateUser(nextUser);
+  }
+
+  async function handleLogout() {
+    try {
+      await logoutUser();
+    } catch (error) {
+      setAuthenticationError((error as Error).message);
+    } finally {
+      setUser(null);
+      setConversations([]);
+      setActiveConversationId("");
+    }
   }
 
   function handleNewConversation() {
@@ -102,8 +131,21 @@ export function App() {
     }
   }
 
+  if (isCheckingSession) {
+    return (
+      <main className="loginShell">
+        <div className="loginCard">Checking AES session...</div>
+      </main>
+    );
+  }
+
   if (!user || !activeConversation) {
-    return <LoginScreen onLogin={handleLogin} />;
+    return (
+      <LoginScreen
+        initialError={authenticationError}
+        onLogin={handleLogin}
+      />
+    );
   }
 
   return (
@@ -116,7 +158,7 @@ export function App() {
           </div>
           <div className="userMenu">
             <span>{user.displayName}</span>
-            <button onClick={handleLogout} type="button">
+            <button onClick={() => void handleLogout()} type="button">
               Sign out
             </button>
           </div>
@@ -150,13 +192,10 @@ function withDefaultConversation(conversations: Conversation[]) {
 }
 
 function initialActiveConversationId(
-  user: WorkbenchUser | null,
+  username: string,
   conversations: Conversation[],
 ) {
-  if (!user) {
-    return conversations[0]?.id || "";
-  }
-  const storedId = loadStoredActiveConversationId(user.username);
+  const storedId = loadStoredActiveConversationId(username);
   if (storedId && conversations.some((conversation) => conversation.id === storedId)) {
     return storedId;
   }

@@ -187,6 +187,18 @@ Safer idempotent version:
 docker network inspect ai-stack-net >/dev/null 2>&1 || docker network create ai-stack-net
 ```
 
+Create the ignored repository-root database configuration before starting AES:
+
+```bash
+cd ~/projects/AES
+cp database/.env.example .env
+chmod 600 .env
+```
+
+Edit `.env` and replace both PostgreSQL password placeholders with different
+random values. Never commit this file. Keep `AES_AUTH_COOKIE_SECURE=false` for
+local HTTP/SSH-tunnel testing; use `true` only behind HTTPS.
+
 ## 7. First Local Unit Tests
 
 These tests run in WSL with the central `aes_test_env` environment.
@@ -254,6 +266,22 @@ Check running services:
 docker compose -f deploy/compose.dev.yaml --profile models ps
 ```
 
+Check the PostgreSQL and migration startup:
+
+```bash
+docker compose -f deploy/compose.dev.yaml --profile models logs aes-postgres aes-database-migrate
+```
+
+Create the first Workbench user interactively:
+
+```bash
+docker compose -f deploy/compose.dev.yaml exec langgraph \
+  python -m aes_agent.create_user --username engineer --display-name "AES Engineer"
+```
+
+The command prompts for and confirms the password without placing it in shell
+history or the process command line.
+
 Clean rebuild/restart of the full dev stack after service-layout changes:
 
 ```bash
@@ -283,6 +311,12 @@ Show LangGraph/AES logs:
 
 ```bash
 docker compose -f deploy/compose.dev.yaml --profile models logs -f langgraph
+```
+
+Show PostgreSQL and migration logs:
+
+```bash
+docker compose -f deploy/compose.dev.yaml --profile models logs -f aes-postgres aes-database-migrate
 ```
 
 Show AES Web UI logs:
@@ -361,10 +395,28 @@ Check OpenAI-compatible AES model listing:
 curl -s http://127.0.0.1:8002/v1/models | jq .
 ```
 
+Authenticate once and save the opaque session cookie in a temporary cookie
+jar. The password remains in a temporary shell variable and is not written to
+the command line:
+
+```bash
+read -rsp "AES password: " AES_PASSWORD; echo
+jq -n --arg username engineer --arg password "$AES_PASSWORD" \
+  '{username:$username,password:$password}' \
+  | curl -s -c /tmp/aes.cookies \
+      -H "Content-Type: application/json" \
+      --data-binary @- \
+      http://127.0.0.1:8002/api/auth/login \
+  | jq .
+unset AES_PASSWORD
+curl -s -b /tmp/aes.cookies http://127.0.0.1:8002/api/auth/me | jq .
+```
+
 Invoke the AES graph directly:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8002/invoke \
+  -b /tmp/aes.cookies \
   -H "Content-Type: application/json" \
   -d '{"text":"Solve a steady heat equation on a unit square with u=0 on the boundary and source f=1."}' \
   | jq .
@@ -374,6 +426,7 @@ Test the OpenAI-compatible chat endpoint:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8002/v1/chat/completions \
+  -b /tmp/aes.cookies \
   -H "Content-Type: application/json" \
   -d '{
     "model":"aes-agent",

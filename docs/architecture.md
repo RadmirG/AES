@@ -17,6 +17,7 @@ flowchart TD
     A --> H["ollama/architecture.md<br/>Model runtime"]
     A --> I["deploy/architecture.md<br/>Compose topology"]
     A --> J["docs/artifact_store.md<br/>Artifact ownership"]
+    A --> K["database/architecture.md<br/>PostgreSQL + pgvector"]
 ```
 
 ## System Overview
@@ -29,28 +30,59 @@ workloads through MCP providers, and stores final artifacts through the AES
 artifact store.
 
 ```mermaid
-flowchart TD
+flowchart LR
+    subgraph CLIENT["Client"]
+        direction TB
+        user["User"] --> web["web-ui"]
+    end
+
+    subgraph CORE["AES Core"]
+        direction TB
+        api["LangGraph API"] --> orchestrator["StateGraph"]
+    end
+
+    subgraph COMPUTE["Models and Tools"]
+        direction TB
+        ollama["Ollama"]
+        mcp["MCP Providers"]
+    end
+
+    subgraph PERSISTENCE["Persistence"]
+        direction TB
+        postgres[("PostgreSQL + pgvector")]
+        artifacts[("Artifact Store<br/>files")]
+    end
+
+    web --> api
+    orchestrator --> ollama
+    orchestrator --> mcp
+    api --> postgres
+    orchestrator --> postgres
+    orchestrator --> artifacts
+```
+
+The database component now deploys one PostgreSQL container with `pgvector`, a
+versioned migration job, separate schemas, and restricted runtime roles. The
+implemented identity slice stores users and opaque server sessions. Large
+numerical files remain in the artifact store; chat, workflow, checkpoint,
+artifact-metadata, and retrieval persistence follow in later slices.
+
+```mermaid
+flowchart LR
     U["User"] --> W["web-ui<br/>AES Workbench"]
-    W -->|"same-origin /v1"| API["LangGraph FastAPI<br/>OpenAI-compatible API"]
+    W -->|"same-origin API"| API["LangGraph FastAPI"]
     API --> G["LangGraph StateGraph"]
-
-    G --> O["Ollama<br/>model runtime"]
+    API --> DB[("users, chats, runs")]
+    G --> DB
+    G --> O["Ollama"]
     G --> T["AES tool registry"]
-
-    T --> FC["fenics_code_solve"]
-    T --> FM["fenics_forward_solve"]
-    T --> V["visualization_postprocess"]
+    T --> MCP["FEniCS MCP providers"]
+    T --> RET["Retrieval MCP"]
+    RET --> VEC[("pgvector embeddings")]
     T --> AS["artifact_store"]
-
-    FC --> CR["fenics-code-runner MCP"]
-    FM --> DM["dolfinx-mcp"]
-
-    CR --> PR["provider artifact refs"]
-    DM --> PR
-    PR --> V
-    V --> AS
-    AS --> ART["/artifacts/<run_id>"]
-    ART -->|"same-origin /artifacts"| W
+    AS --> FILES["/artifacts/<run_id>"]
+    AS --> META[("artifact metadata")]
+    FILES -->|"same-origin /artifacts"| W
 ```
 
 ## Source Layout
@@ -61,6 +93,7 @@ AES/
   mcp/           # MCP provider layer and provider governance
   ollama/        # model runtime compose files and model manifests
   web-ui/        # AES Workbench browser application
+  database/      # PostgreSQL/pgvector persistence architecture and service
   deploy/        # dev/prod Compose entrypoints
   docs/          # cross-component documentation
 ```
@@ -74,32 +107,41 @@ sequenceDiagram
     participant LG as LangGraph API
     participant O as Ollama
     participant MCP as FEniCS MCP Provider
+    participant DB as PostgreSQL pgvector
     participant Store as Artifact Store
 
     User->>UI: Submit PDE / engineering request
-    UI->>UI: Append persisted AES progress turn
-    UI->>LG: POST /v1/chat/completions model=aes-agent
+    UI->>LG: Submit authenticated chat message
+    LG->>DB: Store message and create AES run
     LG->>LG: Run LangGraph StateGraph
+    LG->>DB: Store checkpoints and run events
     LG->>O: Structured JSON reasoning calls
     O-->>LG: Parsed model output
     LG->>MCP: Execute governed MCP tool if needed
     MCP-->>LG: stdout, diagnostics, provider artifact refs
     LG->>Store: Store manifest, summary, inline artifacts
     Store-->>LG: AES artifact run id and URLs
+    LG->>DB: Store tool/artifact metadata and final run status
+    LG->>DB: Store assistant message
     LG-->>UI: Final answer + aes_result
-    UI->>UI: Mark progress done, append answer
     UI->>Store: Load /artifacts links through proxy
 ```
+
+Identity/session operations in this sequence are implemented. Message, run,
+checkpoint, tool, and artifact-metadata operations describe the next
+persistence slices; the current Workbench still stores conversations in
+browser `localStorage` and the graph invokes without a persistent checkpointer.
 
 ## Component Responsibilities
 
 | Component | Responsibility | Detailed Architecture |
 | --- | --- | --- |
-| `web-ui/` | Browser Workbench, chat, local sessions, progress turns, result workspace, VTK.js shell | [`web-ui/architecture.md`](../web-ui/architecture.md) |
-| `langgraph/` | FastAPI API, LangGraph workflow, state, routing, Ollama calls, tool execution, final answer renderer | [`langgraph/architecture.md`](../langgraph/architecture.md) |
+| `web-ui/` | Browser Workbench, authenticated session UI, local chat cache, progress turns, result workspace, VTK.js shell | [`web-ui/architecture.md`](../web-ui/architecture.md) |
+| `langgraph/` | FastAPI auth/API boundary, LangGraph workflow, state, routing, Ollama calls, tool execution, final answer renderer | [`langgraph/architecture.md`](../langgraph/architecture.md) |
 | `ollama/` | LLM runtime, dev/prod model manifests, pull automation, model warmup/runtime settings | [`ollama/architecture.md`](../ollama/architecture.md) |
 | `mcp/` | Provider registry, provider manifests, allowlists, contracts, Compose provider includes | [`mcp/architecture.md`](../mcp/architecture.md) |
 | `mcp/providers/fenics/` | DOLFINx/FEniCS execution boundary, code runner, deterministic MCP smoke path | [`mcp/providers/fenics/architecture.md`](../mcp/providers/fenics/architecture.md) |
+| `database/` | PostgreSQL schemas, pgvector retrieval index, LangGraph checkpoints, migrations, backups, and database service roles | [`database/architecture.md`](../database/architecture.md) |
 | `deploy/` | Dev/prod Compose entrypoints and profile composition | [`deploy/architecture.md`](../deploy/architecture.md) |
 | artifact store | AES-owned run manifests, summaries, materialized artifacts, public artifact URLs | [`docs/artifact_store.md`](artifact_store.md) |
 | observability | Component-prefixed logs, content preview controls, live Docker log workflow | [`docs/logging.md`](logging.md) |
@@ -112,9 +154,14 @@ The Workbench calls the LangGraph API through the same-origin Nginx proxy:
 
 ```text
 Browser -> web-ui:3000
+web-ui /api/*        -> http://langgraph:8001/api/*
 web-ui /v1/*         -> http://langgraph:8001/v1/*
 web-ui /artifacts/*  -> http://langgraph:8001/artifacts/*
 ```
+
+The browser authenticates through `/api/auth/login`. LangGraph stores the
+session server-side and returns an opaque `HttpOnly` cookie; protected chat,
+invoke, and artifact requests carry that cookie through the same-origin proxy.
 
 The public model is:
 
@@ -171,6 +218,13 @@ flowchart LR
 - Expose high-level AES tools to the graph, not every low-level MCP tool.
 - Keep heavy execution backends in provider containers.
 - Keep final artifact policy in AES, not provider scratch workspaces.
+- Keep browser clients and LLMs away from direct database access; persistence
+  is exposed through authenticated APIs and typed retrieval tools.
+- Keep full `AgentState` snapshots in the LangGraph checkpointer while
+  projecting queryable run, event, tool, and artifact metadata into dedicated
+  tables.
+- Keep large numerical artifacts outside PostgreSQL and store only their
+  ownership, status, checksum, metadata, and URI in the database.
 - Treat artifact storage as workflow traceability, not only successful solver
   output.
 - Use Mermaid diagrams as the default architecture communication format.
@@ -215,12 +269,14 @@ path remains for controlled smoke workflows and provider contract validation.
 
 ```mermaid
 flowchart TD
-    A["deploy/compose.dev.yaml"] --> B["ollama dev"]
+    A["deploy/compose.dev.yaml"] --> DB["PostgreSQL + migration"]
+    A --> B["ollama dev"]
     A --> C["web-ui"]
     A --> D["mcp providers"]
     A --> E["langgraph dev"]
 
-    F["deploy/compose.prod.yaml"] --> G["ollama prod"]
+    F["deploy/compose.prod.yaml"] --> DB
+    F --> G["ollama prod"]
     F --> C
     F --> D
     F --> H["langgraph prod"]
@@ -237,6 +293,8 @@ See [`deploy/architecture.md`](../deploy/architecture.md) and
 - Materialize provider-owned raw solution files into AES-owned `/artifacts`.
 - Add real VTK conversion for `.xdmf`/`.h5` solution outputs.
 - Add retrieval provider implementation for project/domain RAG.
-- Add persistent server-side Workbench sessions later, replacing localStorage.
+- Migrate Workbench chats, run progress, artifact ownership, and LangGraph
+  checkpoints from process/browser memory to server-side PostgreSQL
+  persistence; identity and login sessions are already implemented.
 - Add lifecycle controller for on-demand provider startup when Compose profiles
   are no longer enough.

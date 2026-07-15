@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:8080"
+    depends_on:
+      langgraph:
+        condition: service_started
     networks:
       - ai-stack-net
 

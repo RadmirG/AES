@@ -11,11 +11,21 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Union
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
+from aes_agent.auth import (
+    AuthenticationBackendError,
+    AuthUser,
+    GENERIC_LOGIN_ERROR,
+    InvalidCredentialsError,
+    LoginRateLimiter,
+    auth_enabled,
+    cookie_settings,
+    get_auth_service,
+)
 from aes_agent.graph import graph
 from aes_agent.logging_config import (
     configure_logging,
@@ -47,6 +57,10 @@ AES_MODEL_ID = "aes-agent"
 AES_RESULT_CACHE_TTL_SECONDS = 10.0
 _RESULT_CACHE_LOCK = threading.Lock()
 _RESULT_CACHE: Dict[str, tuple[float, Dict[str, Any]]] = {}
+_LOGIN_RATE_LIMITER = LoginRateLimiter(
+    max_attempts=int(os.getenv("AES_AUTH_LOGIN_MAX_ATTEMPTS", "5")),
+    window_seconds=int(os.getenv("AES_AUTH_LOGIN_WINDOW_SECONDS", "300")),
+)
 
 
 class Query(BaseModel):
@@ -63,6 +77,11 @@ class ChatCompletionRequest(BaseModel):
     messages: List[ChatMessage]
     stream: bool = False
     temperature: float | None = None
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 
 def extract_text_from_content(content: Union[str, List[Dict[str, Any]]]) -> str:
@@ -255,11 +274,15 @@ def _looks_like_pde_problem_text(text: str) -> bool:
     return any(marker in lowered for marker in markers)
 
 
-def run_aes_agent(user_text: str) -> Dict[str, Any]:
+def run_aes_agent(
+    user_text: str,
+    *,
+    cache_scope: str = "anonymous",
+) -> Dict[str, Any]:
     """
     Internal helper that runs the LangGraph graph.
     """
-    cache_key = _result_cache_key(user_text)
+    cache_key = _result_cache_key(user_text, cache_scope=cache_scope)
     cached_result = _get_cached_result(cache_key)
     if cached_result is not None:
         logger.info(
@@ -349,8 +372,9 @@ def _summarize_result_for_log(result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _result_cache_key(user_text: str) -> str:
-    return hashlib.sha256(user_text.strip().encode("utf-8")).hexdigest()
+def _result_cache_key(user_text: str, *, cache_scope: str) -> str:
+    cache_input = f"{cache_scope}\0{user_text.strip()}"
+    return hashlib.sha256(cache_input.encode("utf-8")).hexdigest()
 
 
 def _get_cached_result(cache_key: str) -> Dict[str, Any] | None:
@@ -459,17 +483,115 @@ def build_streaming_chunk(
 @app.get("/health")
 def health():
     logger.info("Health check requested.")
-    return {"status": "ok"}
+    database_status = "not_required"
+    if auth_enabled():
+        try:
+            get_auth_service().ping()
+            database_status = "ok"
+        except AuthenticationBackendError as exc:
+            logger.warning("Authentication database health check failed: %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail="Authentication database is unavailable.",
+            ) from exc
+    return {
+        "status": "ok",
+        "authentication": "enabled" if auth_enabled() else "disabled",
+        "database": database_status,
+    }
+
+
+@app.post("/api/auth/login")
+def login(payload: LoginRequest, request: Request, response: Response):
+    settings = cookie_settings()
+    rate_limit_key = _login_rate_limit_key(request, payload.username)
+    if _LOGIN_RATE_LIMITER.is_blocked(rate_limit_key):
+        logger.warning("Authentication login rate limited.")
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Please try again later.",
+        )
+
+    try:
+        result = get_auth_service().login(
+            username=payload.username,
+            password=payload.password,
+            ttl_seconds=settings.ttl_seconds,
+        )
+    except InvalidCredentialsError as exc:
+        _LOGIN_RATE_LIMITER.record_failure(rate_limit_key)
+        logger.warning("Authentication login failed.")
+        raise HTTPException(status_code=401, detail=GENERIC_LOGIN_ERROR) from exc
+    except AuthenticationBackendError as exc:
+        logger.exception("Authentication backend failed during login.")
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service is unavailable.",
+        ) from exc
+
+    _LOGIN_RATE_LIMITER.clear(rate_limit_key)
+    response.set_cookie(
+        key=settings.name,
+        value=result.session_token,
+        max_age=settings.ttl_seconds,
+        expires=result.expires_at,
+        path="/",
+        secure=settings.secure,
+        httponly=True,
+        samesite=settings.same_site,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    logger.info("Authentication login completed: user_id=%s", result.user.id)
+    return {"user": result.user.public_dict()}
+
+
+@app.get("/api/auth/me")
+def current_user(request: Request, response: Response):
+    user = require_authenticated_user(request)
+    response.headers["Cache-Control"] = "no-store"
+    return {"user": user.public_dict()}
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request, response: Response):
+    settings = cookie_settings()
+    session_token = request.cookies.get(settings.name, "")
+    backend_error: AuthenticationBackendError | None = None
+    if session_token:
+        try:
+            get_auth_service().logout(session_token)
+        except AuthenticationBackendError as exc:
+            backend_error = exc
+            logger.exception("Authentication backend failed during logout.")
+
+    response.delete_cookie(
+        key=settings.name,
+        path="/",
+        secure=settings.secure,
+        httponly=True,
+        samesite=settings.same_site,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    if backend_error is not None:
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication session could not be revoked.",
+        ) from backend_error
+
+    logger.info("Authentication logout completed.")
+    return {"status": "logged_out"}
 
 
 @app.post("/invoke")
-def invoke(query: Query):
+def invoke(query: Query, request: Request):
+    user = require_authenticated_user(request)
     logger.info("Direct /invoke request received: text_chars=%s", len(query.text))
-    return run_aes_agent(query.text)
+    return run_aes_agent(query.text, cache_scope=user.id)
 
 
 @app.get("/artifacts/{run_id}/{artifact_path:path}")
-def get_artifact(run_id: str, artifact_path: str):
+def get_artifact(run_id: str, artifact_path: str, request: Request):
+    require_authenticated_user(request)
     logger.info("Artifact request received: run_id=%s path=%s", run_id, artifact_path)
     root = Path(os.getenv("AES_ARTIFACT_ROOT", "artifacts")).resolve()
     requested = (root / run_id / artifact_path).resolve()
@@ -502,12 +624,14 @@ def list_models():
 
 
 @app.post("/v1/chat/completions")
-def chat_completions(request: ChatCompletionRequest):
+def chat_completions(request: ChatCompletionRequest, http_request: Request):
+    user = require_authenticated_user(http_request)
     logger.info(
         (
-            "OpenAI-compatible chat completion requested: model=%s stream=%s "
-            "messages=%s"
+            "OpenAI-compatible chat completion requested: user_id=%s "
+            "model=%s stream=%s messages=%s"
         ),
+        user.id,
         request.model,
         request.stream,
         len(request.messages),
@@ -519,7 +643,7 @@ def chat_completions(request: ChatCompletionRequest):
             detail="No user message found in request.messages."
         )
 
-    result = run_aes_agent(user_text)
+    result = run_aes_agent(user_text, cache_scope=user.id)
     assistant_text = build_assistant_text(result)
     logger.info(
         "OpenAI-compatible chat completion prepared: response_chars=%s status=%s",
@@ -591,3 +715,52 @@ def chat_completions(request: ChatCompletionRequest):
         },
         "aes_result": result,
     }
+
+
+def require_authenticated_user(request: Request) -> AuthUser:
+    if not auth_enabled():
+        return AuthUser(
+            id="authentication-disabled",
+            username="anonymous",
+            display_name="Anonymous",
+            status="active",
+            created_at=datetime_from_epoch(),
+        )
+
+    settings = cookie_settings()
+    session_token = request.cookies.get(settings.name, "")
+    if not session_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required.",
+        )
+
+    try:
+        user = get_auth_service().authenticate_session(session_token)
+    except AuthenticationBackendError as exc:
+        logger.exception("Authentication backend failed during session validation.")
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service is unavailable.",
+        ) from exc
+
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required.",
+        )
+    return user
+
+
+def _login_rate_limit_key(request: Request, username: str) -> str:
+    forwarded = request.headers.get("x-real-ip", "").strip()
+    client = getattr(request, "client", None)
+    client_host = getattr(client, "host", "") if client else ""
+    identity = f"{forwarded or client_host}|{username.strip().lower()}"
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+def datetime_from_epoch():
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(0, tz=timezone.utc)

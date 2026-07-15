@@ -1,6 +1,7 @@
 name: aes-prod
 
 include:
+  - ../database/compose.database.yaml
   - ../ollama/ollama-server.prod.yaml
   - ../web-ui/web-ui.yaml
   - ../mcp/compose.mcp.yaml
