@@ -618,3 +618,765 @@ SQL before LangGraph starts.
 - Introducing Qdrant, Weaviate, Elasticsearch, or a second relational database
   before pgvector is measured under real AES retrieval workloads.
 - Reimplementing the official LangGraph PostgreSQL checkpoint schema.
+
+
+```mermaid
+flowchart LR
+
+%% ============================================================
+%% 1. ENGINEERING PROBLEM
+%% ============================================================
+
+    Problem["Engineering / Scientific Problem"]
+
+    Problem --> objective
+
+    subgraph objectives["PROBLEM OBJECTIVE"]
+        direction TB
+
+        objective{"What should be determined?"}
+
+        objective --> forward["Forward Simulation"]
+        objective --> inverse["Inverse Problem"]
+        objective --> optimization["Design Optimization"]
+        objective --> uncertainty["Uncertainty Quantification"]
+        objective --> control["Prediction and Control"]
+
+        forward --> forward_desc["Known model and parameters<br/>→ compute system response"]
+
+        inverse --> inverse_desc["Measured response<br/>→ infer parameters, sources,<br/>geometry or initial conditions"]
+
+        optimization --> optimization_desc["Change design variables<br/>→ minimize or maximize an objective"]
+
+        uncertainty --> uncertainty_desc["Propagate uncertain parameters<br/>→ probability distributions<br/>and confidence intervals"]
+
+        control --> control_desc["Use simulation repeatedly<br/>→ estimate and control<br/>a dynamic system"]
+    end
+
+%% ============================================================
+%% 2. PHYSICAL DOMAINS
+%% ============================================================
+
+    forward --> physics
+    inverse --> physics
+    optimization --> physics
+    uncertainty --> physics
+    control --> physics
+
+    subgraph numerics["PHYSICAL DOMAINS OF NUMERICAL SIMULATION"]
+        direction TB
+
+        physics["Selection of Physical Model"]
+
+        physics --> solid["Solid Mechanics"]
+        physics --> fluid["Fluid Mechanics / CFD"]
+        physics --> heat["Heat Transfer"]
+        physics --> electromagnetic["Electromagnetics"]
+        physics --> acoustics["Acoustics and Wave Propagation"]
+        physics --> species["Mass and Species Transport"]
+        physics --> reactions["Chemical Reactions and Combustion"]
+        physics --> geomechanics["Geomechanics and Porous Media"]
+        physics --> phasefield["Phase-Field and Microstructure Models"]
+        physics --> particles["Particle and Molecular Systems"]
+        physics --> radiation["Radiation and Particle Transport"]
+        physics --> biological["Biological and Biomedical Systems"]
+        physics --> quantum["Quantum and Electronic Structure"]
+        physics --> plasma["Plasma Physics"]
+    end
+
+%% ============================================================
+%% 3. SOLID MECHANICS
+%% ============================================================
+
+    subgraph solid_models["SOLID MECHANICS"]
+        direction TB
+
+        solid --> solid_types{"Model type"}
+
+        solid_types --> elasticity["Linear Elasticity"]
+        solid_types --> nonlinear_solid["Nonlinear Solid Mechanics"]
+        solid_types --> plasticity["Plasticity"]
+        solid_types --> fracture["Fracture and Damage"]
+        solid_types --> structural_dynamics["Structural Dynamics"]
+        solid_types --> contact["Contact Mechanics"]
+        solid_types --> viscoelasticity["Viscoelasticity"]
+        solid_types --> composites["Composite Materials"]
+
+        elasticity --> solid_eq["Balance of momentum:<br/>ρ ü = ∇·σ + f"]
+
+        solid_eq --> constitutive["Constitutive relation:<br/>σ = C : ε"]
+
+        constitutive --> strain["Small-strain tensor:<br/>ε = ½(∇u + ∇uᵀ)"]
+
+        nonlinear_solid --> finite_deformation["Finite deformation:<br/>deformation gradient F<br/>and nonlinear stress measures"]
+
+        plasticity --> plastic_model["Elastic-plastic decomposition<br/>yield criterion<br/>flow rule<br/>hardening law"]
+
+        fracture --> fracture_models["LEFM<br/>cohesive-zone models<br/>phase-field fracture"]
+
+        structural_dynamics --> dynamics_eq["M ü + C u̇ + K u = f(t)"]
+
+        contact --> contact_conditions["Non-penetration<br/>normal pressure<br/>friction law"]
+
+        solid --> solid_outputs["Typical outputs:<br/>displacement, strain, stress,<br/>eigenfrequencies, damage,<br/>buckling loads and fatigue"]
+    end
+
+%% ============================================================
+%% 4. FLUID MECHANICS
+%% ============================================================
+
+    subgraph fluid_models["FLUID MECHANICS / CFD"]
+        direction TB
+
+        fluid --> fluid_classification{"Flow classification"}
+
+        fluid_classification --> incompressible["Incompressible Flow"]
+        fluid_classification --> compressible["Compressible Flow"]
+        fluid_classification --> laminar["Laminar Flow"]
+        fluid_classification --> turbulent["Turbulent Flow"]
+        fluid_classification --> multiphase["Multiphase Flow"]
+        fluid_classification --> nonnewtonian["Non-Newtonian Flow"]
+        fluid_classification --> rotating["Rotating and Turbomachinery Flow"]
+        fluid_classification --> free_surface["Free-Surface Flow"]
+
+        incompressible --> continuity["Mass conservation:<br/>∇·u = 0"]
+
+        incompressible --> momentum["Momentum conservation:<br/>ρ(∂u/∂t + u·∇u)<br/>= −∇p + μ∇²u + ρf"]
+
+        compressible --> compressible_eq["Compressible conservation laws:<br/>mass + momentum + energy<br/>with variable density"]
+
+        turbulent --> turbulence_models["RANS<br/>LES<br/>DNS<br/>hybrid RANS-LES"]
+
+        multiphase --> multiphase_models["Volume of Fluid<br/>Euler-Euler<br/>Euler-Lagrange<br/>level-set methods"]
+
+        nonnewtonian --> rheology["Constitutive laws:<br/>viscosity depends on<br/>shear rate or deformation history"]
+
+        fluid --> fluid_outputs["Typical outputs:<br/>velocity, pressure, vorticity,<br/>drag, lift, mass flow,<br/>turbulence and wall shear"]
+    end
+
+%% ============================================================
+%% 5. HEAT TRANSFER
+%% ============================================================
+
+    subgraph heat_models["HEAT TRANSFER"]
+        direction TB
+
+        heat --> heat_types{"Heat-transfer mechanism"}
+
+        heat_types --> conduction["Heat Conduction"]
+        heat_types --> convection["Convective Heat Transfer"]
+        heat_types --> thermal_radiation["Thermal Radiation"]
+        heat_types --> phase_change["Phase Change"]
+        heat_types --> conjugate_heat["Conjugate Heat Transfer"]
+
+        conduction --> heat_eq["Heat equation:<br/>ρcₚ ∂T/∂t<br/>= ∇·(k∇T) + Q"]
+
+        convection --> advection_heat["Energy transport in fluid:<br/>ρcₚ(∂T/∂t + u·∇T)<br/>= ∇·(k∇T) + Q"]
+
+        thermal_radiation --> radiation_models["Surface-to-surface radiation<br/>radiative transfer equation<br/>view-factor methods"]
+
+        phase_change --> phase_change_models["Latent heat<br/>enthalpy method<br/>Stefan problem"]
+
+        conjugate_heat --> conjugate_desc["Coupled conduction in solids<br/>and convection in fluids"]
+
+        heat --> heat_outputs["Typical outputs:<br/>temperature, heat flux,<br/>thermal resistance,<br/>cooling rate and hot spots"]
+    end
+
+%% ============================================================
+%% 6. ELECTROMAGNETICS
+%% ============================================================
+
+    subgraph electromagnetic_models["ELECTROMAGNETICS"]
+        direction TB
+
+        electromagnetic --> em_types{"Frequency and regime"}
+
+        em_types --> electrostatic["Electrostatics"]
+        em_types --> magnetostatic["Magnetostatics"]
+        em_types --> low_frequency["Low-Frequency Electromagnetics"]
+        em_types --> wave_em["Electromagnetic Waves"]
+        em_types --> circuits["Circuit and Field Coupling"]
+
+        electrostatic --> poisson_em["Poisson equation:<br/>−∇·(ε∇φ) = ρₑ"]
+
+        magnetostatic --> magnetic_eq["Magnetic vector potential:<br/>∇×(μ⁻¹∇×A) = J"]
+
+        wave_em --> maxwell["Maxwell equations:<br/>∇×E = −∂B/∂t<br/>∇×H = J + ∂D/∂t"]
+
+        electromagnetic --> em_outputs["Typical outputs:<br/>electric and magnetic fields,<br/>current density, impedance,<br/>forces, losses and radiation"]
+    end
+
+%% ============================================================
+%% 7. ACOUSTICS AND WAVES
+%% ============================================================
+
+    subgraph acoustic_models["ACOUSTICS AND WAVE PROPAGATION"]
+        direction TB
+
+        acoustics --> acoustic_types{"Wave model"}
+
+        acoustic_types --> pressure_acoustics["Pressure Acoustics"]
+        acoustic_types --> elastic_waves["Elastic Waves"]
+        acoustic_types --> ultrasound["Ultrasound"]
+        acoustic_types --> aeroacoustics["Aeroacoustics"]
+        acoustic_types --> seismic["Seismic Waves"]
+
+        pressure_acoustics --> wave_eq["Wave equation:<br/>∂²p/∂t² = c²∇²p"]
+
+        pressure_acoustics --> helmholtz["Frequency-domain form:<br/>∇²p + k²p = 0"]
+
+        elastic_waves --> elastodynamics["Elastodynamic equation:<br/>ρü = ∇·σ + f"]
+
+        aeroacoustics --> aero_desc["Coupling between unsteady flow<br/>and sound generation"]
+
+        acoustics --> acoustic_outputs["Typical outputs:<br/>sound pressure, frequency response,<br/>wave arrival times, modes,<br/>attenuation and scattering"]
+    end
+
+%% ============================================================
+%% 8. MASS TRANSPORT AND REACTIONS
+%% ============================================================
+
+    subgraph transport_models["MASS, SPECIES AND REACTION TRANSPORT"]
+        direction TB
+
+        species --> transport_types{"Transport mechanism"}
+
+        transport_types --> diffusion["Diffusion"]
+        transport_types --> advection_diffusion["Advection-Diffusion"]
+        transport_types --> porous_transport["Transport in Porous Media"]
+        transport_types --> particle_transport["Particle Transport"]
+
+        diffusion --> diffusion_eq["Diffusion equation:<br/>∂c/∂t = ∇·(D∇c) + S"]
+
+        advection_diffusion --> transport_eq["Advection-diffusion:<br/>∂c/∂t + u·∇c<br/>= ∇·(D∇c) + S"]
+
+        reactions --> reaction_types{"Reaction model"}
+
+        reaction_types --> reaction_kinetics["Chemical Kinetics"]
+        reaction_types --> combustion["Combustion"]
+        reaction_types --> electrochemistry["Electrochemistry"]
+        reaction_types --> catalysis["Catalytic Reactions"]
+
+        reaction_kinetics --> reaction_eq["Reaction-transport equation:<br/>∂cᵢ/∂t + u·∇cᵢ<br/>= ∇·(Dᵢ∇cᵢ) + Rᵢ(c,T)"]
+
+        combustion --> combustion_coupling["Flow + heat + species<br/>+ chemical reaction kinetics"]
+
+        electrochemistry --> electrochemistry_eq["Charge transport<br/>species transport<br/>electrode kinetics"]
+
+        species --> transport_outputs["Typical outputs:<br/>concentration, residence time,<br/>mixing, pollutant dispersion<br/>and reaction conversion"]
+    end
+
+%% ============================================================
+%% 9. GEOMECHANICS AND POROUS MEDIA
+%% ============================================================
+
+    subgraph geo_models["GEOMECHANICS AND POROUS MEDIA"]
+        direction TB
+
+        geomechanics --> geo_types{"Model type"}
+
+        geo_types --> soil_mechanics["Soil and Rock Mechanics"]
+        geo_types --> groundwater["Groundwater Flow"]
+        geo_types --> reservoir["Reservoir Simulation"]
+        geo_types --> poroelasticity["Poroelasticity"]
+        geo_types --> subsurface_fracture["Hydraulic Fracture"]
+
+        groundwater --> darcy["Darcy law:<br/>u = −K/μ · (∇p − ρg)"]
+
+        groundwater --> groundwater_eq["Mass balance:<br/>S ∂p/∂t − ∇·(K∇p) = q"]
+
+        poroelasticity --> biot["Biot poroelasticity:<br/>solid deformation<br/>coupled with pore pressure"]
+
+        subsurface_fracture --> fracture_flow["Fracture mechanics<br/>+ porous flow<br/>+ fluid pressure"]
+
+        geomechanics --> geo_outputs["Typical outputs:<br/>settlement, pore pressure,<br/>stress, permeability,<br/>subsidence and fracture growth"]
+    end
+
+%% ============================================================
+%% 10. PHASE FIELD AND MATERIAL SCIENCE
+%% ============================================================
+
+    subgraph material_models["MATERIAL SCIENCE AND MICROSTRUCTURE"]
+        direction TB
+
+        phasefield --> phase_types{"Microstructure process"}
+
+        phase_types --> solidification["Solidification"]
+        phase_types --> grain_growth["Grain Growth"]
+        phase_types --> phase_separation["Phase Separation"]
+        phase_types --> phase_fracture["Diffuse Fracture"]
+        phase_types --> corrosion["Corrosion"]
+        phase_types --> topology["Topology Evolution"]
+
+        phase_separation --> cahn_hilliard["Cahn-Hilliard equation:<br/>∂φ/∂t = ∇·(M∇μ)"]
+
+        solidification --> allen_cahn["Allen-Cahn-type evolution:<br/>∂φ/∂t = −M δF/δφ"]
+
+        phase_fracture --> fracture_phase["Displacement field u<br/>+ damage phase field d"]
+
+        particles --> particle_types{"Particle scale"}
+
+        particle_types --> molecular_dynamics["Molecular Dynamics"]
+        particle_types --> discrete_elements["Discrete Element Method"]
+        particle_types --> smoothed_particles["Smoothed Particle Hydrodynamics"]
+
+        molecular_dynamics --> newton_particles["Particle dynamics:<br/>mᵢẍᵢ = Fᵢ"]
+
+        discrete_elements --> dem_desc["Contact forces between<br/>discrete particles or grains"]
+
+        phasefield --> material_outputs["Typical outputs:<br/>microstructure, grains,<br/>interfaces, cracks,<br/>phase fractions and defects"]
+    end
+
+%% ============================================================
+%% 11. RADIATION, QUANTUM, BIOLOGY AND PLASMA
+%% ============================================================
+
+    subgraph advanced_models["ADDITIONAL COMPUTATIONAL PHYSICS DOMAINS"]
+        direction TB
+
+        radiation --> radiation_transport["Radiative / particle transport:<br/>Boltzmann transport equation"]
+
+        radiation_transport --> radiation_methods["Discrete ordinates<br/>Monte Carlo<br/>moment methods"]
+
+        biological --> bio_models["Biomechanics<br/>blood flow<br/>tissue growth<br/>electrophysiology<br/>reaction-diffusion systems"]
+
+        quantum --> quantum_models["Schrödinger equation<br/>density functional theory<br/>electronic structure"]
+
+        quantum_models --> schrodinger["Time-independent Schrödinger equation:<br/>Ĥψ = Eψ"]
+
+        plasma --> plasma_models["Magnetohydrodynamics<br/>kinetic plasma models<br/>particle-in-cell methods"]
+
+        plasma_models --> mhd["MHD coupling:<br/>fluid mechanics<br/>+ electromagnetics"]
+    end
+
+%% ============================================================
+%% 12. MATHEMATICAL FORMULATION
+%% ============================================================
+
+    solid_outputs --> formulation
+    fluid_outputs --> formulation
+    heat_outputs --> formulation
+    em_outputs --> formulation
+    acoustic_outputs --> formulation
+    transport_outputs --> formulation
+    geo_outputs --> formulation
+    material_outputs --> formulation
+    radiation_methods --> formulation
+    bio_models --> formulation
+    schrodinger --> formulation
+    mhd --> formulation
+
+    subgraph mathematical_formulation["MATHEMATICAL FORMULATION"]
+        direction TB
+
+        formulation["Governing Mathematical Model"]
+
+        formulation --> algebraic["Algebraic Equations"]
+        formulation --> ode["Ordinary Differential Equations"]
+        formulation --> pde["Partial Differential Equations"]
+        formulation --> integral["Integral Equations"]
+        formulation --> stochastic["Stochastic Differential Equations"]
+        formulation --> dae["Differential-Algebraic Equations"]
+        formulation --> variational["Variational and Weak Formulations"]
+
+        pde --> pde_types{"PDE classification"}
+
+        pde_types --> elliptic["Elliptic<br/>equilibrium and steady fields"]
+        pde_types --> parabolic["Parabolic<br/>diffusion and dissipation"]
+        pde_types --> hyperbolic["Hyperbolic<br/>waves and conservation laws"]
+        pde_types --> mixed["Mixed and coupled systems"]
+
+        integral --> integral_examples["Boundary integral equations<br/>radiative transfer<br/>potential problems"]
+
+        stochastic --> stochastic_examples["Random forcing<br/>Brownian motion<br/>uncertain systems"]
+
+        variational --> weak_form["Multiply by test function<br/>integrate over domain<br/>apply integration by parts"]
+    end
+
+%% ============================================================
+%% 13. INITIAL AND BOUNDARY CONDITIONS
+%% ============================================================
+
+    formulation --> conditions
+
+    subgraph model_conditions["MODEL COMPLETION"]
+        direction TB
+
+        conditions["Initial, Boundary and Interface Conditions"]
+
+        conditions --> dirichlet["Dirichlet condition:<br/>prescribed solution value"]
+
+        conditions --> neumann["Neumann condition:<br/>prescribed flux or traction"]
+
+        conditions --> robin["Robin condition:<br/>mixed value and flux"]
+
+        conditions --> initial["Initial condition:<br/>state at t = 0"]
+
+        conditions --> interface["Interface conditions:<br/>continuity, jump or contact laws"]
+
+        conditions --> periodic["Periodic conditions"]
+
+        conditions --> farfield["Open, radiation or far-field conditions"]
+
+        conditions --> material_parameters["Material and model parameters:<br/>density, viscosity, conductivity,<br/>elasticity, diffusivity and reaction rates"]
+    end
+
+%% ============================================================
+%% 14. DISCRETIZATION METHODS
+%% ============================================================
+
+    material_parameters --> discretization
+
+    subgraph numerical_methods["NUMERICAL DISCRETIZATION METHODS"]
+        direction TB
+
+        discretization["Discretize Space, Time and State Variables"]
+
+        discretization --> fem["Finite Element Method<br/>FEM"]
+
+        discretization --> fvm["Finite Volume Method<br/>FVM"]
+
+        discretization --> fdm["Finite Difference Method<br/>FDM"]
+
+        discretization --> bem["Boundary Element Method<br/>BEM"]
+
+        discretization --> spectral["Spectral and Pseudospectral Methods"]
+
+        discretization --> dg["Discontinuous Galerkin<br/>DG"]
+
+        discretization --> meshfree["Mesh-Free Methods"]
+
+        discretization --> lbm["Lattice Boltzmann Method<br/>LBM"]
+
+        discretization --> montecarlo["Monte Carlo Methods"]
+
+        discretization --> particle_methods["Particle Methods<br/>SPH, DEM, PIC"]
+
+        fem --> fem_use["Common for:<br/>solid mechanics, heat,<br/>electromagnetics and multiphysics"]
+
+        fvm --> fvm_use["Common for:<br/>CFD, heat transfer<br/>and conservation laws"]
+
+        fdm --> fdm_use["Common for:<br/>structured grids,<br/>waves and diffusion"]
+
+        bem --> bem_use["Common for:<br/>exterior domains,<br/>acoustics and potential problems"]
+
+        spectral --> spectral_use["High-order accuracy<br/>for smooth solutions"]
+
+        montecarlo --> montecarlo_use["Radiation, uncertainty,<br/>particle transport and statistics"]
+    end
+
+%% ============================================================
+%% 15. MESHING
+%% ============================================================
+
+    discretization --> mesh
+
+    subgraph meshing["GEOMETRY AND MESH GENERATION"]
+        direction TB
+
+        mesh["Computational Domain"]
+
+        mesh --> geometry["CAD / BIM / IFC / Imaging / Point Cloud"]
+
+        geometry --> cleanup["Geometry repair:<br/>watertightness, intersections,<br/>gaps and topology"]
+
+        cleanup --> spatial_mesh{"Spatial representation"}
+
+        spatial_mesh --> structured["Structured mesh"]
+        spatial_mesh --> unstructured["Unstructured mesh"]
+        spatial_mesh --> adaptive["Adaptive mesh"]
+        spatial_mesh --> immersed["Immersed or embedded geometry"]
+        spatial_mesh --> particles_mesh["Particles or point clouds"]
+
+        structured --> structured_cells["Quadrilateral / hexahedral cells"]
+
+        unstructured --> unstructured_cells["Triangles / tetrahedra<br/>polyhedra / prisms"]
+
+        adaptive --> amr["Adaptive mesh refinement<br/>based on error indicators"]
+
+        mesh --> mesh_quality["Mesh-quality checks:<br/>skewness, aspect ratio,<br/>non-orthogonality and resolution"]
+    end
+
+%% ============================================================
+%% 16. ALGEBRAIC SOLVERS
+%% ============================================================
+
+    mesh_quality --> solver
+
+    subgraph solvers["NUMERICAL SOLUTION"]
+        direction TB
+
+        solver["Discrete Algebraic System"]
+
+        solver --> linear_system["Linear system:<br/>A x = b"]
+
+        solver --> nonlinear_system["Nonlinear system:<br/>F(x) = 0"]
+
+        solver --> eigenproblem["Eigenvalue problem:<br/>A x = λ B x"]
+
+        solver --> timedependent["Time-dependent system:<br/>M ẋ = F(x,t)"]
+
+        linear_system --> direct_solver["Direct solvers:<br/>LU, Cholesky and sparse factorization"]
+
+        linear_system --> iterative_solver["Iterative solvers:<br/>CG, GMRES, BiCGSTAB"]
+
+        iterative_solver --> preconditioner["Preconditioning:<br/>Jacobi, ILU, AMG,<br/>domain decomposition"]
+
+        nonlinear_system --> nonlinear_solver["Newton method<br/>Picard iteration<br/>fixed-point iteration"]
+
+        timedependent --> time_integrator["Time integration:<br/>explicit, implicit,<br/>Runge-Kutta and BDF"]
+
+        eigenproblem --> eigen_solver["Arnoldi, Lanczos<br/>and subspace iteration"]
+
+        solver --> parallel["Parallel and HPC execution:<br/>MPI, OpenMP, GPU<br/>and distributed computing"]
+    end
+
+%% ============================================================
+%% 17. VERIFICATION AND VALIDATION
+%% ============================================================
+
+    parallel --> results
+
+    subgraph verification["RESULT ANALYSIS AND TRUST"]
+        direction TB
+
+        results["Numerical Results"]
+
+        results --> verification_step["Verification:<br/>Did we solve the equations correctly?"]
+
+        verification_step --> convergence["Residual convergence"]
+
+        verification_step --> mesh_independence["Mesh-independence study"]
+
+        verification_step --> timestep_independence["Time-step independence"]
+
+        verification_step --> code_verification["Benchmark and manufactured solutions"]
+
+        results --> validation_step["Validation:<br/>Do the equations represent reality?"]
+
+        validation_step --> experiments["Comparison with measurements"]
+
+        validation_step --> reference["Comparison with analytical<br/>or reference solutions"]
+
+        validation_step --> calibration["Parameter calibration"]
+
+        results --> postprocessing["Post-processing:<br/>fields, plots, streamlines,<br/>stress maps and animations"]
+    end
+
+%% ============================================================
+%% 18. INVERSE PROBLEMS
+%% ============================================================
+
+    inverse_desc --> inverse_workflow
+
+    subgraph inverse_problems["INVERSE PROBLEMS AND DATA ASSIMILATION"]
+        direction TB
+
+        inverse_workflow["Observed Data y"]
+
+        inverse_workflow --> forward_operator["Forward model:<br/>y = F(m) + noise"]
+
+        forward_operator --> unknowns["Unknown quantities m:<br/>material parameters, sources,<br/>loads, boundary conditions,<br/>geometry or initial state"]
+
+        unknowns --> inverse_methods{"Inverse method"}
+
+        inverse_methods --> deterministic_inverse["Deterministic optimization"]
+
+        inverse_methods --> bayesian_inverse["Bayesian inversion"]
+
+        inverse_methods --> data_assimilation["Data assimilation"]
+
+        inverse_methods --> tomography["Tomographic reconstruction"]
+
+        inverse_methods --> sciml_inverse["Scientific Machine Learning"]
+
+        deterministic_inverse --> least_squares["Minimize:<br/>‖F(m) − y‖² + regularization"]
+
+        bayesian_inverse --> posterior["Posterior distribution:<br/>p(m|y) ∝ p(y|m)p(m)"]
+
+        data_assimilation --> assimilation_methods["Kalman filters<br/>ensemble methods<br/>variational assimilation"]
+
+        tomography --> transforms["Integral transforms:<br/>Radon transform<br/>Fourier transform<br/>inverse scattering"]
+
+        sciml_inverse --> pinns["PINNs<br/>neural operators<br/>surrogate models"]
+
+        least_squares --> inverse_result["Estimated parameters<br/>and reconstructed state"]
+
+        posterior --> inverse_result
+        assimilation_methods --> inverse_result
+        transforms --> inverse_result
+        pinns --> inverse_result
+    end
+
+%% ============================================================
+%% 19. OPTIMIZATION AND DESIGN
+%% ============================================================
+
+    optimization_desc --> design_loop
+
+    subgraph design_optimization["SIMULATION-BASED DESIGN OPTIMIZATION"]
+        direction TB
+
+        design_loop["Design Variables"]
+
+        design_loop --> simulation_model["Numerical Simulation"]
+
+        simulation_model --> objective_function["Objective function:<br/>mass, drag, stress,<br/>temperature, cost or efficiency"]
+
+        objective_function --> constraints["Constraints:<br/>physics, geometry,<br/>manufacturing and safety"]
+
+        constraints --> gradients{"Optimization strategy"}
+
+        gradients --> gradient_based["Gradient-based methods"]
+
+        gradients --> gradient_free["Gradient-free methods"]
+
+        gradients --> topology_opt["Topology optimization"]
+
+        gradients --> multiobjective["Multi-objective optimization"]
+
+        gradient_based --> adjoint["Adjoint methods<br/>for efficient sensitivities"]
+
+        gradient_free --> evolutionary["Evolutionary algorithms<br/>particle swarm<br/>Bayesian optimization"]
+
+        topology_opt --> material_design["Optimal material distribution"]
+
+        multiobjective --> pareto["Pareto-optimal designs"]
+
+        adjoint --> updated_design["Updated Design"]
+        evolutionary --> updated_design
+        material_design --> updated_design
+        pareto --> updated_design
+
+        updated_design --> simulation_model
+    end
+
+%% ============================================================
+%% 20. UNCERTAINTY QUANTIFICATION
+%% ============================================================
+
+    uncertainty_desc --> uq
+
+    subgraph uncertainty_models["UNCERTAINTY QUANTIFICATION"]
+        direction TB
+
+        uq["Uncertain Inputs"]
+
+        uq --> aleatory["Aleatory uncertainty:<br/>natural variability"]
+
+        uq --> epistemic["Epistemic uncertainty:<br/>limited knowledge"]
+
+        aleatory --> random_variables["Probability distributions<br/>and random fields"]
+
+        epistemic --> uncertain_parameters["Intervals, priors<br/>and model discrepancy"]
+
+        random_variables --> uq_methods{"Propagation method"}
+        uncertain_parameters --> uq_methods
+
+        uq_methods --> sampling["Monte Carlo sampling"]
+
+        uq_methods --> polynomial_chaos["Polynomial chaos"]
+
+        uq_methods --> stochastic_collocation["Stochastic collocation"]
+
+        uq_methods --> surrogate_uq["Surrogate-assisted UQ"]
+
+        sampling --> uq_outputs["Output distributions<br/>failure probabilities<br/>sensitivity indices<br/>and confidence intervals"]
+
+        polynomial_chaos --> uq_outputs
+        stochastic_collocation --> uq_outputs
+        surrogate_uq --> uq_outputs
+    end
+
+%% ============================================================
+%% 21. MULTIPHYSICS
+%% ============================================================
+
+    solid --> multiphysics_center
+    fluid --> multiphysics_center
+    heat --> multiphysics_center
+    electromagnetic --> multiphysics_center
+    acoustics --> multiphysics_center
+    species --> multiphysics_center
+    reactions --> multiphysics_center
+    geomechanics --> multiphysics_center
+    phasefield --> multiphysics_center
+
+    subgraph multiphysics["MULTIPHYSICS COUPLING"]
+        direction TB
+
+        multiphysics_center["Coupled Physical Processes"]
+
+        multiphysics_center --> fsi["Fluid-Structure Interaction<br/>CFD + solid mechanics"]
+
+        multiphysics_center --> thermo_mechanical["Thermo-Mechanical Coupling<br/>heat + deformation"]
+
+        multiphysics_center --> conjugate["Conjugate Heat Transfer<br/>fluid + solid heat transfer"]
+
+        multiphysics_center --> electro_thermal["Electro-Thermal Coupling<br/>electric current + heat"]
+
+        multiphysics_center --> magneto_mechanical["Magneto-Mechanical Coupling<br/>electromagnetics + deformation"]
+
+        multiphysics_center --> poromechanics["Poromechanics<br/>porous flow + deformation"]
+
+        multiphysics_center --> reactive_flow["Reactive Flow<br/>CFD + heat + species + chemistry"]
+
+        multiphysics_center --> aeroacoustic_coupling["Aeroacoustics<br/>fluid flow + acoustic waves"]
+
+        multiphysics_center --> electrochem_thermal["Battery Model<br/>electrochemistry + heat<br/>+ mechanics"]
+
+        multiphysics_center --> additive["Additive Manufacturing<br/>fluid flow + phase change<br/>+ heat + mechanics"]
+
+        multiphysics_center --> building_physics["Building Physics<br/>airflow + heat + moisture<br/>+ radiation"]
+
+        multiphysics_center --> biomedical_coupling["Biomedical Multiphysics<br/>blood flow + tissue mechanics<br/>+ transport"]
+
+        multiphysics_center --> coupling_methods{"Coupling strategy"}
+
+        coupling_methods --> monolithic["Monolithic coupling:<br/>solve all fields together"]
+
+        coupling_methods --> partitioned["Partitioned coupling:<br/>separate solvers exchange data"]
+
+        coupling_methods --> one_way["One-way coupling"]
+
+        coupling_methods --> two_way["Two-way coupling"]
+    end
+
+%% ============================================================
+%% 22. DIGITAL TWINS AND AES
+%% ============================================================
+
+    postprocessing --> digital_twin
+    inverse_result --> digital_twin
+    uq_outputs --> digital_twin
+    updated_design --> digital_twin
+    multiphysics_center --> digital_twin
+
+    subgraph modern_systems["MODERN COMPUTATIONAL ENGINEERING SYSTEMS"]
+        direction TB
+
+        digital_twin["Integrated Computational System"]
+
+        digital_twin --> digital_twin_model["Digital Twin"]
+
+        digital_twin --> simulation_platform["Multiphysics Simulation Platform"]
+
+        digital_twin --> sciml["Scientific Machine Learning"]
+
+        digital_twin --> rom["Reduced-Order Models"]
+
+        digital_twin --> surrogate["Surrogate Models"]
+
+        digital_twin --> aes["Agentic Engineering System"]
+
+        digital_twin_model --> twin_loop["Measurements → state estimation<br/>→ simulation → prediction<br/>→ decision"]
+
+        rom --> rom_desc["Approximate high-dimensional models<br/>with reduced computational cost"]
+
+        surrogate --> surrogate_desc["Learn input-output relation<br/>from simulation or measurement data"]
+
+        sciml --> sciml_desc["Physics-informed learning<br/>neural operators<br/>hybrid data-physics models"]
+
+        aes --> aes_tasks["Natural-language specification<br/>model selection<br/>solver orchestration<br/>HPC execution<br/>validation and reporting"]
+    end
+```

@@ -10,6 +10,7 @@ from aes_agent.auth import (
     InvalidUserDataError,
     LoginRateLimiter,
     UserAlreadyExistsError,
+    UserNotFoundError,
     hash_session_token,
 )
 
@@ -31,6 +32,7 @@ class _FakeRepository:
         self.sessions = {}
         self.touched = []
         self.revoked = []
+        self.revoked_users = []
 
     def ping(self) -> None:
         return None
@@ -99,6 +101,17 @@ class _FakeRepository:
             session["revoked"] = True
         self.revoked.append(token_hash)
 
+    def reset_password_and_revoke_sessions(
+        self,
+        user_id: str,
+        password_hash: str,
+    ) -> None:
+        self.update_password_hash(user_id, password_hash)
+        for session in self.sessions.values():
+            if session["user_id"] == user_id:
+                session["revoked"] = True
+        self.revoked_users.append(user_id)
+
 
 class AuthServiceTests(unittest.TestCase):
     def setUp(self):
@@ -158,6 +171,43 @@ class AuthServiceTests(unittest.TestCase):
         self.assertIsNone(
             self.service.authenticate_session(result.session_token)
         )
+
+    def test_reset_password_replaces_hash_and_revokes_existing_sessions(self):
+        existing_session = self.service.login(
+            username="engineer.one",
+            password="correct-horse-battery",
+            ttl_seconds=3600,
+        )
+
+        reset_user = self.service.reset_password(
+            username="ENGINEER.ONE",
+            password="new-correct-horse-battery",
+        )
+
+        self.assertEqual(reset_user, self.user)
+        self.assertEqual(self.repository.revoked_users, [self.user.id])
+        self.assertIsNone(
+            self.service.authenticate_session(existing_session.session_token)
+        )
+        with self.assertRaises(InvalidCredentialsError):
+            self.service.login(
+                username="engineer.one",
+                password="correct-horse-battery",
+                ttl_seconds=3600,
+            )
+        login = self.service.login(
+            username="engineer.one",
+            password="new-correct-horse-battery",
+            ttl_seconds=3600,
+        )
+        self.assertEqual(login.user, self.user)
+
+    def test_reset_password_rejects_unknown_user(self):
+        with self.assertRaisesRegex(UserNotFoundError, "was not found"):
+            self.service.reset_password(
+                username="missing.user",
+                password="new-correct-horse-battery",
+            )
 
 
 class LoginRateLimiterTests(unittest.TestCase):

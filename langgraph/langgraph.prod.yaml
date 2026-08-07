@@ -11,6 +11,17 @@ services:
       aes-database-migrate:
         condition: service_completed_successfully
     environment:
+      # The production client supports the cluster vLLM OpenAI-compatible API.
+      # Ollama remains the default until AES_LLM_PROVIDER is changed during the
+      # controlled cluster cutover.
+      - AES_LLM_PROVIDER=${AES_LLM_PROVIDER:-ollama}
+      - AES_LLM_BASE_URL=${AES_LLM_BASE_URL:-}
+      - AES_LLM_MODEL=${AES_LLM_MODEL:-}
+      - AES_LLM_API_KEY=${AES_LLM_API_KEY:-}
+      - AES_LLM_TIMEOUT=${AES_LLM_TIMEOUT:-300}
+      - AES_LLM_MAX_TOKENS=${AES_LLM_MAX_TOKENS:-4096}
+      - AES_LLM_TEMPERATURE=${AES_LLM_TEMPERATURE:-0.1}
+      # Backward-compatible Ollama settings.
       - OLLAMA_BASE_URL=http://ollama-server:11434
       - OLLAMA_MODEL=${AES_OLLAMA_MODEL:-gemma4:26b}
       - OLLAMA_TIMEOUT=300

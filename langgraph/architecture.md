@@ -1,9 +1,9 @@
 # LangGraph Architecture
 
 The `langgraph/` component is the AES orchestration service. It exposes the
-OpenAI-compatible `aes-agent` API, owns the LangGraph workflow, calls Ollama for
-structured reasoning, selects high-level tools, and writes final user-facing
-answers from graph state.
+OpenAI-compatible `aes-agent` API, owns the LangGraph workflow, calls the
+configured model provider for structured reasoning, selects high-level tools,
+and writes final user-facing answers from graph state.
 
 ```mermaid
 flowchart TD
@@ -12,7 +12,7 @@ flowchart TD
     B --> C["OpenAI chat adapter"]
     C --> D["Active AES request"]
     D --> E["LangGraph StateGraph"]
-    E --> F["Ollama JSON calls"]
+    E --> F["Provider-neutral model calls"]
     E --> G["AES tool registry"]
     G --> H["MCP-backed tools"]
     G --> I["Local tools"]
@@ -33,7 +33,7 @@ flowchart TD
 - PostgreSQL-backed user/session authentication at the API boundary,
 - `AgentState`,
 - LangGraph nodes and routing,
-- Ollama prompt builders and response parsing,
+- model-provider prompt transport and response parsing,
 - high-level tool registry,
 - MCP client boundary,
 - generated-code safety checks and repair loop,
@@ -42,7 +42,7 @@ flowchart TD
 
 It does not own:
 
-- Ollama model storage,
+- Ollama or vLLM model storage,
 - FEniCS/DOLFINx installation,
 - browser UI state,
 - provider workspaces,
@@ -55,6 +55,14 @@ PostgreSQL. `POST /api/auth/login` verifies an Argon2id password hash and sets
 an opaque `HttpOnly` cookie. Only a SHA-256 hash of the random session token is
 stored in `identity.auth_session`. `GET /api/auth/me` restores the Workbench
 session, and `POST /api/auth/logout` revokes it.
+
+Administrative password recovery uses the interactive
+`python -m aes_agent.reset_user_password --username <name>` command inside the
+LangGraph container. The command validates the existing password policy,
+stores a new Argon2id hash, and revokes every active session for the account in
+one database transaction.
+Passwords are read from a hidden terminal prompt and never accepted as command
+arguments.
 
 ```mermaid
 sequenceDiagram
@@ -76,7 +84,8 @@ sequenceDiagram
 session. `/health`, `/v1/models`, and the login endpoint remain reachable for
 health checks and session creation. Initial users are created interactively
 inside the LangGraph container with `python -m aes_agent.create_user`; passwords
-are never accepted as command-line arguments.
+are never accepted as command-line arguments. Existing users are recovered with
+`python -m aes_agent.reset_user_password`.
 
 ## Graph Flow
 
@@ -266,11 +275,22 @@ the Workbench even before a full VTK `.vtu` or `.vtkjs` conversion exists.
 ## API Boundary
 
 The public API exposes `aes-agent`; this is an AES wrapper model, not a raw LLM.
-The raw backend model is selected through environment:
+The backend transport is selected through environment:
 
-```text
-AES_OLLAMA_MODEL -> OLLAMA_MODEL -> Ollama /api/generate payload model
+```mermaid
+flowchart LR
+    provider["AES_LLM_PROVIDER"] --> client["model_client.py"]
+    client -->|"ollama"| ollamaApi["Ollama /api/generate"]
+    client -->|"vllm"| vllmApi["vLLM /v1/chat/completions"]
+    model["AES_LLM_MODEL"] --> client
+    endpoint["AES_LLM_BASE_URL"] --> client
+    key["AES_LLM_API_KEY"] --> client
 ```
+
+When `AES_LLM_MODEL` is empty, the Ollama path preserves the existing
+`OLLAMA_MODEL` setting. The vLLM path uses `response_format=json_object` for
+structured graph calls and plain Chat Completions for generated Python source.
+Provider API keys are used only in the server-side LangGraph client.
 
 The OpenAI-compatible adapter normally uses the latest user turn as the active
 request. The controlled exception is AES-requested output clarification: when

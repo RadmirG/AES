@@ -11,8 +11,18 @@ services:
       aes-database-migrate:
         condition: service_completed_successfully
     environment:
+      # Provider-neutral model boundary. Ollama remains the default dev
+      # provider; set AES_LLM_PROVIDER=vllm plus the OpenAI-compatible URL,
+      # served model name, and API key to use a cluster vLLM endpoint.
+      - AES_LLM_PROVIDER=${AES_LLM_PROVIDER:-ollama}
+      - AES_LLM_BASE_URL=${AES_LLM_BASE_URL:-}
+      - AES_LLM_MODEL=${AES_LLM_MODEL:-}
+      - AES_LLM_API_KEY=${AES_LLM_API_KEY:-}
+      - AES_LLM_TIMEOUT=${AES_LLM_TIMEOUT:-300}
+      - AES_LLM_MAX_TOKENS=${AES_LLM_MAX_TOKENS:-4096}
+      - AES_LLM_TEMPERATURE=${AES_LLM_TEMPERATURE:-0.1}
+      # Backward-compatible Ollama settings.
       - OLLAMA_BASE_URL=http://ollama-server:11434
-#      - OLLAMA_MODEL=gemma4:31b
       - OLLAMA_MODEL=${AES_OLLAMA_MODEL:-qwen3:4b}
       - OLLAMA_TIMEOUT=300
       - OLLAMA_NUM_CTX=4096

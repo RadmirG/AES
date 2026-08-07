@@ -299,6 +299,31 @@ The command displays `Password:` and `Confirm password:` prompts. Enter the
 password you want to use for the `engineer` account. Input is intentionally not
 shown and is never placed in shell history or the process command line.
 
+### Reset a Workbench Password
+
+Reset the production `engineer` password interactively:
+
+```bash
+docker compose -f deploy/compose.prod.yaml \
+  --profile models --profile fenics \
+  exec langgraph \
+  python -m aes_agent.reset_user_password --username engineer
+```
+
+For development, use `deploy/compose.dev.yaml`:
+
+```bash
+docker compose -f deploy/compose.dev.yaml \
+  exec langgraph \
+  python -m aes_agent.reset_user_password --username engineer
+```
+
+The command prompts for `New password:` and `Confirm new password:` without
+echoing either value. It replaces the Argon2id password hash and revokes all
+active sessions for that account in one transaction. Sign in again with the
+new password. If the running `langgraph` image predates this command, rebuild
+and recreate that service first.
+
 Open the Workbench and sign in with user name `engineer` and that password:
 
 ```text
@@ -1011,3 +1036,83 @@ docker system prune
 
 Be careful with volume deletion commands because Ollama models and generated
 AES artifacts live in mounted data directories/volumes.
+
+## 21. Kubernetes vLLM Model Serving
+
+The cluster model runtime lives under `vllm/`. It is deployed with Kubernetes,
+not Docker Compose. Local development can continue to use Ollama.
+
+First inspect the assigned cluster resources:
+
+```powershell
+kubectl get nodes `
+    -o custom-columns="NAME:.metadata.name,GPU:.status.allocatable.nvidia\.com/gpu,CPU:.status.allocatable.cpu,MEMORY:.status.allocatable.memory"
+
+kubectl get storageclass
+kubectl get resourcequota,limitrange --namespace=$namespace
+```
+
+Create the ignored local API-key Secret manifest:
+
+```powershell
+Copy-Item vllm/k8s/secret.example.yaml vllm/k8s/secret.local.yaml
+```
+
+Replace the placeholder in `secret.local.yaml`, then deploy into the namespace
+assigned by the cluster administrator:
+
+```powershell
+kubectl apply `
+    --namespace=$namespace `
+    -f vllm/k8s/secret.local.yaml
+
+kubectl apply `
+    --namespace=$namespace `
+    -k vllm/k8s/base
+```
+
+Watch the first model download and server startup:
+
+```powershell
+kubectl get pods,services,pvc --namespace=$namespace --watch
+```
+
+```powershell
+kubectl logs `
+    --namespace=$namespace `
+    deployment/aes-vllm `
+    --follow
+```
+
+After the Pod is ready, start a local tunnel:
+
+```powershell
+kubectl port-forward `
+    --namespace=$namespace `
+    service/aes-vllm `
+    8000:8000
+```
+
+Test the authenticated OpenAI-compatible API in another terminal:
+
+```powershell
+$apiKey = "replace-with-the-value-from-secret.local.yaml"
+
+Invoke-RestMethod `
+    -Uri "http://127.0.0.1:8000/v1/models" `
+    -Headers @{ Authorization = "Bearer $apiKey" }
+```
+
+The served model alias is `aes-engineering-model`. LangGraph selects it with:
+
+```text
+AES_LLM_PROVIDER=vllm
+AES_LLM_BASE_URL=http://<approved-endpoint>/v1
+AES_LLM_MODEL=aes-engineering-model
+AES_LLM_API_KEY=<same-api-key>
+```
+
+Port forwarding proves the deployment but is not a permanent production route.
+For the permanent connection, run LangGraph in the cluster and use the internal
+Service DNS, or obtain an administrator-approved private Ingress/Gateway with
+TLS and authentication.

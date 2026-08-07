@@ -1,7 +1,9 @@
 # Ollama Architecture
 
-The `ollama/` component is the local model runtime for AES. LangGraph exposes
-`aes-agent` to clients, but the actual LLM is selected and served by Ollama.
+The `ollama/` component is the local-development and compatibility model runtime
+for AES. LangGraph exposes `aes-agent` to clients and selects Ollama only when
+`AES_LLM_PROVIDER=ollama`. Kubernetes production model serving is moving to the
+separate `vllm/` component.
 
 ```mermaid
 flowchart TD
@@ -54,12 +56,16 @@ flowchart TD
 
 Development targets laptop/WSL iteration and defaults to `qwen3:4b`.
 
-Production targets the GPU server and defaults to `gemma4:26b`, with the
-production model set narrowed to:
+The current Compose production compatibility path targets the GPU server and
+defaults to `gemma4:26b`, with the model set narrowed to:
 
 - `qwen3:8b`,
 - `gemma4:26b`,
 - `gemma4:31b`.
+
+These Ollama tags do not transfer directly to vLLM. The vLLM deployment uses a
+Hugging Face model repository plus the stable served alias
+`aes-engineering-model`.
 
 ## Pull Automation
 

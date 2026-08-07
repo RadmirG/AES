@@ -13,7 +13,7 @@ The following components use AES-owned structured text logs:
 
 - `langgraph`: FastAPI requests, OpenAI-compatible chat requests, graph
   invocation boundaries, LangGraph node starts/finishes, routing decisions,
-  Ollama requests, MCP client calls, tool execution, FEniCS code generation,
+  Ollama/vLLM model-provider requests, MCP client calls, tool execution, FEniCS code generation,
   repair/fallback decisions, visualization, and artifact persistence.
 - `fenics-code-runner`: MCP requests, tool calls, script writing/execution,
   stdout/stderr/diagnostics previews, artifact discovery, and timeouts.

@@ -33,6 +33,10 @@ class UserAlreadyExistsError(AuthenticationError):
     pass
 
 
+class UserNotFoundError(AuthenticationError):
+    pass
+
+
 class AuthenticationBackendError(AuthenticationError):
     pass
 
@@ -127,6 +131,13 @@ class AuthRepository(Protocol):
         ...
 
     def revoke_session(self, token_hash: str) -> None:
+        ...
+
+    def reset_password_and_revoke_sessions(
+        self,
+        user_id: str,
+        password_hash: str,
+    ) -> None:
         ...
 
 
@@ -335,6 +346,38 @@ class PostgresAuthRepository:
             "Could not revoke authentication session.",
         )
 
+    def reset_password_and_revoke_sessions(
+        self,
+        user_id: str,
+        password_hash: str,
+    ) -> None:
+        try:
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE identity.app_user
+                        SET password_hash = %s
+                        WHERE id = %s
+                        """,
+                        (password_hash, user_id),
+                    )
+                    cursor.execute(
+                        """
+                        UPDATE identity.auth_session
+                        SET revoked_at = COALESCE(revoked_at, now())
+                        WHERE user_id = %s
+                          AND revoked_at IS NULL
+                        """,
+                        (user_id,),
+                    )
+        except AuthenticationBackendError:
+            raise
+        except Exception as exc:
+            raise AuthenticationBackendError(
+                "Could not reset password and revoke user sessions."
+            ) from exc
+
     def _execute_write(
         self,
         statement: str,
@@ -432,6 +475,23 @@ class AuthService:
             session_token=session_token,
             expires_at=expires_at,
         )
+
+    def reset_password(self, *, username: str, password: str) -> AuthUser:
+        normalized_username = normalize_username(username)
+        validate_password(password)
+
+        record = self.repository.get_user_by_username(normalized_username)
+        if record is None:
+            raise UserNotFoundError(
+                f"AES user '{normalized_username}' was not found."
+            )
+
+        user, _password_hash = record
+        self.repository.reset_password_and_revoke_sessions(
+            user.id,
+            self.password_hasher.hash(password),
+        )
+        return user
 
     def authenticate_session(self, session_token: str) -> AuthUser | None:
         if not session_token or len(session_token) > 512:
@@ -579,4 +639,3 @@ def _env_bool(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
-

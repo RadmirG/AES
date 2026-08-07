@@ -21,6 +21,9 @@ artifacts/*
 !artifacts/.gitkeep
 visualization-ui/
 
+# Local Kubernetes secrets
+vllm/k8s/secret.local.yaml
+
 # Generated MCP provider workspaces
 mcp/providers/*/workspace/*
 !mcp/providers/*/workspace/.gitkeep

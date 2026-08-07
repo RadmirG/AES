@@ -40,6 +40,10 @@ Because LangGraph now requires the PostgreSQL service and completed migration
 job, normal operation should use the top-level `deploy/compose.*.yaml`
 entrypoints instead of starting LangGraph's component file by itself.
 
+Cluster production model serving is a separate Kubernetes component under
+`vllm/`; it is not a Docker Compose include. See `vllm/README.md` for the
+namespace-scoped deployment and smoke-test sequence.
+
 `mcp/compose.mcp.yaml` is itself a thin MCP entrypoint. It includes the
 provider-owned Compose files under `mcp/providers/`.
 
@@ -115,8 +119,8 @@ containers. Starting a provider only for one tool call and shutting it down
 again is possible later, but requires a lifecycle controller and readiness
 checks. Docker Compose profiles are the simpler first reliability layer.
 
-The only intentional component difference between development and production is
-the Ollama service file:
+The current local-Compose model difference between development and production
+is the Ollama service file:
 
 ```text
 dev:  ollama/ollama-server.dev.yaml
@@ -164,13 +168,25 @@ POST /v1/chat/completions
 ```
 
 `aes-agent` is the public wrapper model used by the AES workbench. It is not
-the raw LLM. Inside the LangGraph service, AES calls Ollama with the
-environment variable `OLLAMA_MODEL`, which is set by Compose from
-`AES_OLLAMA_MODEL`:
+the raw LLM. Inside the LangGraph service, AES now calls a provider-neutral
+model client. The existing Ollama configuration remains backward compatible:
 
 ```text
 AES_OLLAMA_MODEL -> OLLAMA_MODEL -> Ollama /api/generate payload model
 ```
+
+The Kubernetes vLLM path is selected with:
+
+```text
+AES_LLM_PROVIDER=vllm
+AES_LLM_BASE_URL=<approved-vLLM-base-url>/v1
+AES_LLM_MODEL=aes-engineering-model
+AES_LLM_API_KEY=<secret>
+```
+
+vLLM requests use `/v1/chat/completions`. Structured LangGraph calls request a
+JSON object; raw FEniCS code generation requests plain text. The public
+Workbench model remains `aes-agent` in both cases.
 
 For development the default is:
 

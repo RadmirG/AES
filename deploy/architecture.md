@@ -2,6 +2,8 @@
 
 The `deploy/` component owns the top-level Docker Compose entrypoints. It does
 not define every service directly; it includes component-owned Compose files.
+Cluster-native vLLM is intentionally outside Docker Compose and is deployed
+from `vllm/k8s/`.
 
 ```mermaid
 flowchart TD
@@ -16,6 +18,9 @@ flowchart TD
     F --> C
     F --> D
     F --> H["langgraph/langgraph.prod.yaml"]
+
+    V["vllm/k8s/base"] --> K["Kubernetes cluster"]
+    H -.->|provider cutover| K
 ```
 
 ## Ownership
@@ -35,15 +40,17 @@ It does not own:
 
 ## Dev Versus Prod
 
-The intentional dev/prod difference is concentrated in Ollama and LangGraph
-runtime defaults.
+The current Compose dev/prod difference is concentrated in Ollama and LangGraph
+runtime defaults. During the cluster migration, local development remains on
+Ollama while production LangGraph can select vLLM through `AES_LLM_PROVIDER`.
 
 ```mermaid
 flowchart LR
     A["dev"] --> B["qwen3:4b default"]
-    A --> C["planning-friendly defaults"]
-    D["prod"] --> E["gemma4:26b default"]
-    D --> F["FEniCS execution enabled"]
+    A --> C["Ollama local runtime"]
+    D["prod transition"] --> E["Ollama compatibility fallback"]
+    D --> F["vLLM cluster target"]
+    D --> G["FEniCS execution enabled"]
 ```
 
 Both stacks include:
@@ -53,6 +60,10 @@ Both stacks include:
 - `langgraph`,
 - `ollama`,
 - `mcp/compose.mcp.yaml`.
+
+The vLLM Kubernetes resources are applied separately because they are scheduled
+by Kubernetes, use `nvidia.com/gpu`, and own a cluster PVC rather than a Docker
+volume.
 
 ## Profiles
 

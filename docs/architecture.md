@@ -18,6 +18,7 @@ flowchart TD
     A --> I["deploy/architecture.md<br/>Compose topology"]
     A --> J["docs/artifact_store.md<br/>Artifact ownership"]
     A --> K["database/architecture.md<br/>PostgreSQL + pgvector"]
+    A --> L["vllm/architecture.md<br/>Cluster model serving"]
 ```
 
 ## System Overview
@@ -25,9 +26,10 @@ flowchart TD
 AES is an agentic engineering system for PDE/FEM workflows. The browser talks
 to an AES-native Workbench. The Workbench calls the LangGraph service through an
 OpenAI-compatible API. LangGraph orchestrates the engineering workflow, calls
-Ollama for structured model reasoning, invokes governed tools, executes FEniCS
-workloads through MCP providers, and stores final artifacts through the AES
-artifact store.
+the configured model provider for structured reasoning, invokes governed tools,
+executes FEniCS workloads through MCP providers, and stores final artifacts
+through the AES artifact store. Ollama serves local development; vLLM is the
+cluster-native production target.
 
 ```mermaid
 flowchart LR
@@ -43,7 +45,7 @@ flowchart LR
 
     subgraph COMPUTE["Models and Tools"]
         direction TB
-        ollama["Ollama"]
+        models["Model Serving<br/>Ollama dev / vLLM cluster"]
         mcp["MCP Providers"]
     end
 
@@ -54,7 +56,7 @@ flowchart LR
     end
 
     web --> api
-    orchestrator --> ollama
+    orchestrator --> models
     orchestrator --> mcp
     api --> postgres
     orchestrator --> postgres
@@ -74,7 +76,9 @@ flowchart LR
     API --> G["LangGraph StateGraph"]
     API --> DB[("users, chats, runs")]
     G --> DB
-    G --> O["Ollama"]
+    G --> O["Model provider client"]
+    O --> OD["Ollama dev"]
+    O --> VP["vLLM cluster"]
     G --> T["AES tool registry"]
     T --> MCP["FEniCS MCP providers"]
     T --> RET["Retrieval MCP"]
@@ -92,6 +96,7 @@ AES/
   langgraph/     # orchestration service, graph, tools, API
   mcp/           # MCP provider layer and provider governance
   ollama/        # model runtime compose files and model manifests
+  vllm/          # Kubernetes-native production model serving
   web-ui/        # AES Workbench browser application
   database/      # PostgreSQL/pgvector persistence architecture and service
   deploy/        # dev/prod Compose entrypoints
@@ -105,7 +110,7 @@ sequenceDiagram
     participant User
     participant UI as web-ui
     participant LG as LangGraph API
-    participant O as Ollama
+    participant Model as Selected LLM provider
     participant MCP as FEniCS MCP Provider
     participant DB as PostgreSQL pgvector
     participant Store as Artifact Store
@@ -115,8 +120,8 @@ sequenceDiagram
     LG->>DB: Store message and create AES run
     LG->>LG: Run LangGraph StateGraph
     LG->>DB: Store checkpoints and run events
-    LG->>O: Structured JSON reasoning calls
-    O-->>LG: Parsed model output
+    LG->>Model: Structured JSON or raw-code generation call
+    Model-->>LG: Provider response
     LG->>MCP: Execute governed MCP tool if needed
     MCP-->>LG: stdout, diagnostics, provider artifact refs
     LG->>Store: Store manifest, summary, inline artifacts
@@ -137,8 +142,9 @@ browser `localStorage` and the graph invokes without a persistent checkpointer.
 | Component | Responsibility | Detailed Architecture |
 | --- | --- | --- |
 | `web-ui/` | Browser Workbench, authenticated session UI, local chat cache, progress turns, result workspace, VTK.js shell | [`web-ui/architecture.md`](../web-ui/architecture.md) |
-| `langgraph/` | FastAPI auth/API boundary, LangGraph workflow, state, routing, Ollama calls, tool execution, final answer renderer | [`langgraph/architecture.md`](../langgraph/architecture.md) |
-| `ollama/` | LLM runtime, dev/prod model manifests, pull automation, model warmup/runtime settings | [`ollama/architecture.md`](../ollama/architecture.md) |
+| `langgraph/` | FastAPI auth/API boundary, LangGraph workflow, state, routing, provider-neutral model calls, tool execution, final answer renderer | [`langgraph/architecture.md`](../langgraph/architecture.md) |
+| `ollama/` | Local/dev LLM runtime, model manifests, pull automation, model warmup/runtime settings | [`ollama/architecture.md`](../ollama/architecture.md) |
+| `vllm/` | Kubernetes-native production model serving, GPU resources, persistent cache, authenticated ClusterIP API | [`vllm/architecture.md`](../vllm/architecture.md) |
 | `mcp/` | Provider registry, provider manifests, allowlists, contracts, Compose provider includes | [`mcp/architecture.md`](../mcp/architecture.md) |
 | `mcp/providers/fenics/` | DOLFINx/FEniCS execution boundary, code runner, deterministic MCP smoke path | [`mcp/providers/fenics/architecture.md`](../mcp/providers/fenics/architecture.md) |
 | `database/` | PostgreSQL schemas, pgvector retrieval index, LangGraph checkpoints, migrations, backups, and database service roles | [`database/architecture.md`](../database/architecture.md) |
@@ -169,7 +175,7 @@ The public model is:
 aes-agent
 ```
 
-This is an AES wrapper model, not the raw Ollama model.
+This is an AES wrapper model, not the raw Ollama or vLLM model.
 
 The browser receives a compact public `aes_result`, not the complete internal
 `AgentState`. It contains result status and artifact manifest references.
@@ -177,17 +183,24 @@ Inline generated files, sampled field arrays, execution diagnostics, and raw
 MCP payloads remain in the artifact store and are fetched only when the result
 workspace needs them.
 
-### LangGraph To Ollama
+### LangGraph To Model Providers
 
-LangGraph calls Ollama through the configured internal service URL.
+LangGraph owns a provider-neutral model client. Local development uses Ollama's
+native generation API. Cluster production uses vLLM's OpenAI-compatible Chat
+Completions API.
 
 ```mermaid
 flowchart LR
-    A["AES_OLLAMA_MODEL"] --> B["Compose env"]
-    B --> C["OLLAMA_MODEL"]
-    C --> D["LangGraph Ollama client"]
-    D --> E["Ollama /api/generate"]
+    A["AES_LLM_PROVIDER"] --> B["LangGraph model client"]
+    B -->|"ollama"| C["Ollama /api/generate"]
+    B -->|"vllm"| D["vLLM /v1/chat/completions"]
+    E["AES_LLM_MODEL"] --> B
+    F["AES_LLM_BASE_URL"] --> B
+    G["AES_LLM_API_KEY"] --> B
 ```
+
+The public Workbench model remains `aes-agent`; raw provider models are never
+exposed as the AES application contract.
 
 ### LangGraph To MCP Providers
 
