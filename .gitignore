@@ -1,4 +1,5 @@
 commands.sh
+commands.md
 memory.md
 
 # Python
@@ -23,6 +24,7 @@ visualization-ui/
 
 # Local Kubernetes secrets
 vllm/k8s/secret.local.yaml
+vllm/k8s/ingress.local.yaml
 
 # Generated MCP provider workspaces
 mcp/providers/*/workspace/*

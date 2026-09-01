@@ -13,8 +13,9 @@ flowchart LR
     end
 
     subgraph CLUSTER["Kubernetes Compute Plane"]
+        ingress["Optional VPN-restricted Ingress"] --> service
         service["aes-vllm ClusterIP Service"] --> pod["vLLM OpenAI server"]
-        pod --> gpu["NVIDIA GPU"]
+        pod --> gpu["One A100 GPU"]
         pod --> cache[("Persistent model and compile cache")]
     end
 
@@ -40,10 +41,39 @@ flowchart TD
     pvc[("PVC aes-vllm-cache")] --> deployment
     account["ServiceAccount<br/>no API token mounted"] --> deployment
     deployment --> pod["vLLM Pod"]
-    pod --> gpu["nvidia.com/gpu: 1"]
+    cleaner["GPU idle cleaner"] -->|"exempt by label"| deployment
+    scheduler["Scheduler<br/>gpu=a100, normal priority"] --> pod
+    pod --> gpu["nvidia.com/gpu: 1<br/>A100 capability"]
     service["ClusterIP Service<br/>port 8000"] --> pod
     langgraph["LangGraph"] -->|"Bearer token + OpenAI API"| service
+    ingress["Optional VPN Ingress<br/>local manifest"] --> service
 ```
+
+The Ingress path is optional and deliberately excluded from the Kustomize
+base. Its hostname and cluster annotations belong in ignored
+`vllm/k8s/ingress.local.yaml`. Same-cluster LangGraph uses Service DNS instead.
+
+## Model And Resource Contract
+
+```mermaid
+flowchart TD
+    request["Gemma 4 31B for AES reasoning and code"] --> memory{"Precision choice"}
+    memory -->|"BF16: about 69.9 GB weights"| multi["Later two-A100 benchmark<br/>plus KV/runtime headroom"]
+    memory -->|"Official W4A16: about 17.5 GB weights"| baseline["Current one-A100 baseline"]
+    baseline --> context["8192-token context"]
+    baseline --> pvc[("100 GiB model cache PVC")]
+    baseline --> limits["4-8 CPU<br/>32-64 GiB RAM<br/>4-16 GiB ephemeral storage"]
+```
+
+The base serves `google/gemma-4-31B-it-qat-w4a16-ct` under the stable alias
+`aes-engineering-model`. The official W4A16 checkpoint is preferred over BF16
+for the first shared-cluster deployment because it fits one 40 GiB A100 with
+room for KV cache and runtime overhead. The model context remains intentionally
+below its architectural maximum until VRAM and latency are measured.
+
+Node-level hardware capacity does not imply namespace quota. Deployment is
+still conditional on one allocatable `nvidia.com/gpu`, CPU/memory quota, and a
+bound PVC. The scheduler selects `gpu: a100`, never a physical worker name.
 
 ## Request Sequence
 
@@ -74,6 +104,10 @@ stateDiagram-v2
     Loading --> Ready: startup probe succeeds
     Ready --> NotReady: readiness probe fails
     NotReady --> Ready: engine recovers
+    Ready --> Idle: no inference traffic
+    Idle --> Ready: new inference request
+    Idle --> Protected: gpu-cleaner=allow-gpu-idle
+    Protected --> Ready: service remains deployed
     Ready --> Terminating: rollout or deletion
     Terminating --> [*]
 ```
@@ -81,7 +115,11 @@ stateDiagram-v2
 The startup probe allows a long first model download/load interval. Readiness
 keeps traffic away until the engine responds. A `Recreate` deployment strategy
 prevents two large model Pods from competing for a single GPU and a
-ReadWriteOnce cache during rollout.
+ReadWriteOnce cache during rollout. The idle exemption is required because an
+always-on inference server can legitimately hold its GPU while waiting for AES
+requests; if the cluster cleaner removes both Pod and Deployment, Kubernetes
+has no remaining controller that can recreate the service. Model data survives
+in the PVC, but availability does not.
 
 ## Configuration Ownership
 
@@ -90,22 +128,27 @@ ReadWriteOnce cache during rollout.
 | model repository and served alias | `vllm/k8s/base/configmap.yaml` |
 | vLLM image and process arguments | `vllm/k8s/base/deployment.yaml` |
 | GPU/CPU/memory requests | Deployment resources |
+| GPU capability and toleration | Deployment Pod scheduling policy |
+| workload priority | cluster `normal` PriorityClass |
+| idle-GPU lifecycle exemption | `gpu-cleaner: allow-gpu-idle` labels |
 | model and compile cache | `aes-vllm-cache` PVC |
 | inference API key | ignored/local Kubernetes Secret |
 | optional gated-model token | `aes-huggingface` Secret |
+| VPN hostname and Ingress annotations | ignored `ingress.local.yaml` |
 | model request/response parsing | LangGraph model-provider client |
 | public user API | LangGraph `aes-agent`, never raw vLLM |
 
 ## Security Boundary
 
-- The Service is `ClusterIP`; no public Ingress is created.
+- The base Service is `ClusterIP`; no public Ingress is created.
+- The optional Ingress is private/VPN-restricted and remains outside the base.
 - vLLM requires a Bearer API key.
 - The Pod does not receive a Kubernetes service-account token.
 - The container runs as a non-root UID with privilege escalation disabled.
 - Secrets are not stored in tracked manifests.
 - Users and browsers call LangGraph, not vLLM.
-- A later permanent route must add administrator-approved TLS, authentication,
-  and NetworkPolicy controls.
+- A cluster-specific NetworkPolicy remains pending until the Ingress controller
+  namespace labels and LangGraph placement are known.
 
 ## Scaling Direction
 
@@ -113,13 +156,15 @@ ReadWriteOnce cache during rollout.
 flowchart TD
     A["Measure one-GPU deployment"] --> B{"Model fits and latency is acceptable?"}
     B -->|yes| C["Keep tensor parallel size 1"]
-    B -->|no, model fits across GPUs on one node| D["Add multi-GPU overlay<br/>tensor parallel size = GPU count"]
+    B -->|quality needs BF16| D["Add two-A100 BF16 overlay<br/>tensor parallel size 2"]
+    B -->|no, quantized model does not fit| D
     B -->|no, multiple nodes required| E["Design distributed vLLM deployment"]
     E --> F["Validate NCCL and high-speed interconnect"]
     F --> G["Choose Ray/LWS/KubeRay or production-stack"]
 ```
 
-Multi-GPU and multi-node manifests are intentionally deferred until the cluster
-GPU topology, node labels, quotas, interconnect, and supported controller are
-known. Guessing those values would create manifests that schedule incorrectly
-or perform poorly.
+The known A100 capability makes a later same-node two-GPU experiment plausible,
+but namespace quota and observed W4A16 quality must justify it first.
+InfiniBand is unnecessary for the current single-GPU Pod. Multi-node manifests
+remain deferred until quota, topology, NCCL/RDMA resources, and the supported
+distributed controller are verified.

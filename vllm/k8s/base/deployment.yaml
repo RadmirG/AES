@@ -6,8 +6,11 @@ metadata:
     app.kubernetes.io/name: aes-vllm
     app.kubernetes.io/component: model-serving
     app.kubernetes.io/part-of: aes
+    gpu-cleaner: allow-gpu-idle
 spec:
   replicas: 1
+  revisionHistoryLimit: 2
+  progressDeadlineSeconds: 3600
   strategy:
     type: Recreate
   selector:
@@ -19,10 +22,19 @@ spec:
         app.kubernetes.io/name: aes-vllm
         app.kubernetes.io/component: model-serving
         app.kubernetes.io/part-of: aes
+        gpu-cleaner: allow-gpu-idle
     spec:
       serviceAccountName: aes-vllm
       automountServiceAccountToken: false
+      enableServiceLinks: false
+      priorityClassName: normal
       terminationGracePeriodSeconds: 120
+      nodeSelector:
+        gpu: a100
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
       securityContext:
         runAsNonRoot: true
         runAsUser: 2000
@@ -76,11 +88,13 @@ spec:
           resources:
             requests:
               cpu: "4"
-              memory: 16Gi
+              memory: 32Gi
+              ephemeral-storage: 4Gi
               nvidia.com/gpu: "1"
             limits:
               cpu: "8"
-              memory: 32Gi
+              memory: 64Gi
+              ephemeral-storage: 16Gi
               nvidia.com/gpu: "1"
           startupProbe:
             httpGet:
@@ -88,7 +102,7 @@ spec:
               port: http
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 180
+            failureThreshold: 360
           readinessProbe:
             httpGet:
               path: /health
@@ -113,6 +127,8 @@ spec:
               mountPath: /model-cache
             - name: shared-memory
               mountPath: /dev/shm
+            - name: temporary-files
+              mountPath: /tmp
       volumes:
         - name: model-cache
           persistentVolumeClaim:
@@ -120,4 +136,7 @@ spec:
         - name: shared-memory
           emptyDir:
             medium: Memory
+            sizeLimit: 8Gi
+        - name: temporary-files
+          emptyDir:
             sizeLimit: 8Gi

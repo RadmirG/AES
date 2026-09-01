@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/name: aes-vllm
     app.kubernetes.io/part-of: aes
 data:
-  VLLM_MODEL: Qwen/Qwen3-8B
+  VLLM_MODEL: google/gemma-4-31B-it-qat-w4a16-ct
   VLLM_SERVED_MODEL_NAME: aes-engineering-model
   VLLM_MAX_MODEL_LEN: "8192"
   VLLM_TENSOR_PARALLEL_SIZE: "1"
