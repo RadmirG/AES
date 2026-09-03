@@ -57,8 +57,9 @@ The Compose `fenics` profile starts `meshing-mcp`, `dolfinx-mcp`, and
 `fenics-code-runner`. `meshing-mcp` is also selectable through the dedicated
 `meshing` profile.
 
-The image installs the OpenGL/GLU and headless X11 runtime libraries required by
-the Python Gmsh wheel (`libGL`, `libGLU`, Xrender, Xcursor, Xft, and Xinerama).
-Its Docker build imports Gmsh once and fails immediately if those libraries are
-unavailable. Runtime geometry failures are returned as structured MCP tool
-results with a run id and concrete error instead of an opaque HTTP 500 response.
+The image installs the OpenGL/GLU, GNU OpenMP, and headless X11 runtime libraries
+required by the Python Gmsh wheel (`libGL`, `libGLU`, `libgomp`, Xrender,
+Xcursor, Xft, and Xinerama). Its Docker build imports and initializes Gmsh once,
+then fails immediately if those libraries are unavailable. Runtime geometry
+failures are returned as structured MCP tool results with a run id and concrete
+error instead of an opaque HTTP 500 response.
