@@ -4,7 +4,13 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgl1 libglu1-mesa \
+    && apt-get install -y --no-install-recommends \
+        libgl1 \
+        libglu1-mesa \
+        libxcursor1 \
+        libxft2 \
+        libxinerama1 \
+        libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
