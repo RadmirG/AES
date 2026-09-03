@@ -337,7 +337,14 @@ Geometry rules:
   surface_scan: {{"kind":"surface_scan","format":"stl|obj|ply","artifact_path":"..."}}
 - Region selectors are object, boundary_of, all_boundary, bounding_box, or
   entity_tags. Boundary-condition region names must exactly match regions.
+- AES may use documented numerical defaults for the time-integration scheme,
+  finite-element family/degree, mesh size, linear solver/preconditioner, and
+  output format. Record such choices in pde_spec.assumptions; do not put them in
+  ambiguities.
 - Put every unresolved fact that prevents a valid mesh or solve in ambiguities.
+- Missing physics or problem-definition data remains blocking: geometry and
+  dimensions, PDE family, coefficients, source, boundary conditions and values,
+  transient initial condition, final time, and dt must not be defaulted.
 - Do not resolve uncertainty by inventing dimensions, region names, paths, or
   boundary assignments.
 """

@@ -249,8 +249,13 @@ default and can enter free-form LLM generation only when explicitly enabled.
 flowchart TD
     A["Natural-language PDE request"] --> AI["Schema-constrained LLM interpretation"]
     AI --> AV{"Usable typed response?"}
-    AV -->|yes| B["Typed PDEProblemSpec"]
-    AV -->|yes| C["Typed GeometrySpec"]
+    AV -->|yes| AS{"Interpretation issue?"}
+    AS -->|none| B["Typed PDEProblemSpec"]
+    AS -->|none| C["Typed GeometrySpec"]
+    AS -->|supported numerical default| AW["Assumption and non-blocking warning"]
+    AW --> B
+    AW --> C
+    AS -->|missing problem definition| AX["Clarification"]
     AV -->|no| AF["Deterministic compatibility fallback with warning"]
     AF --> B
     AF --> C
@@ -280,6 +285,12 @@ call is unavailable or its response does not validate. Setting
 `AES_TYPED_INTERPRETATION_MODE=deterministic_only` is an explicit offline/test
 configuration and is visible as
 `typed_spec_source=deterministic_configuration`.
+
+The interpreter normalizes model-reported issues before typed validation.
+Documented defaults for time integration, finite-element space, mesh size,
+linear solver, preconditioner, and output format are non-blocking assumptions.
+Unresolved physics and geometry inputs remain blocking ambiguities and route to
+clarification.
 
 The initial compiler release supports stationary and transient scalar
 diffusion with constant coefficients, constant sources, constant Dirichlet

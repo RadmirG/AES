@@ -22,6 +22,24 @@ from aes_agent.specs.validation import (
 
 logger = logging.getLogger("aes_agent.typed_problem")
 
+_DEFAULT_MARKERS = ("default", "defaulted", "assumed")
+_SUPPORTED_NUMERICAL_DEFAULTS = (
+    "time stepping scheme",
+    "time-stepping scheme",
+    "time integration scheme",
+    "temporal scheme",
+    "backward_euler",
+    "backward euler",
+    "function space",
+    "finite element family",
+    "finite element degree",
+    "mesh resolution",
+    "mesh size",
+    "linear solver",
+    "preconditioner",
+    "output format",
+)
+
 
 class TypedProblemInterpretation(StrictModel):
     pde_spec: PDEProblemSpec
@@ -63,21 +81,24 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
     geometry, geometry_error = _parse_geometry(
         response.get("geometry_spec") if isinstance(response, dict) else None
     )
-    ambiguities = _strings(response.get("ambiguities")) if isinstance(response, dict) else []
+    raw_ambiguities = _strings(response.get("ambiguities")) if isinstance(response, dict) else []
+    ambiguities, default_warnings = _partition_ambiguities(raw_ambiguities)
 
     if pde is not None and geometry is not None:
         logger.info(
             "Typed problem interpretation completed: source=llm_structured_extraction "
-            "pde_family=%s geometry_source=%s ambiguities=%s",
+            "pde_family=%s geometry_source=%s blocking_ambiguities=%s accepted_defaults=%s",
             pde.equation.family,
             geometry.source.kind,
             len(ambiguities),
+            len(default_warnings),
         )
         return _interpretation_result(
             pde,
             geometry,
             source="llm_structured_extraction",
             ambiguities=ambiguities,
+            warnings=default_warnings,
         )
 
     failures = [item for item in (pde_error, geometry_error) if item]
@@ -94,6 +115,7 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
                 "LLM structured interpretation was unusable; AES used the deterministic "
                 "compatibility extractor.",
                 *failures,
+                *default_warnings,
             ],
         )
 
@@ -102,7 +124,10 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
         geometry,
         source="llm_structured_extraction_failed",
         ambiguities=ambiguities,
-        warnings=failures or ["The model returned no usable typed specifications."],
+        warnings=[
+            *(failures or ["The model returned no usable typed specifications."]),
+            *default_warnings,
+        ],
     )
 
 
@@ -162,6 +187,23 @@ def _strings(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _partition_ambiguities(items: list[str]) -> tuple[list[str], list[str]]:
+    blocking: list[str] = []
+    warnings: list[str] = []
+    for item in items:
+        normalized = " ".join(item.lower().replace("_", " ").split())
+        has_default_marker = any(marker in normalized for marker in _DEFAULT_MARKERS)
+        is_supported_default = any(
+            phrase.replace("_", " ") in normalized
+            for phrase in _SUPPORTED_NUMERICAL_DEFAULTS
+        )
+        if has_default_marker and is_supported_default:
+            warnings.append(f"Accepted non-blocking numerical default: {item}")
+        else:
+            blocking.append(item)
+    return blocking, warnings
 
 
 def _parse_pde(value: Any) -> tuple[PDEProblemSpec | None, str]:

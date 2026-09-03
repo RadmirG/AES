@@ -262,8 +262,13 @@ flowchart LR
 flowchart TD
     A["User PDE and geometry request"] --> B["Schema-constrained LLM interpretation"]
     B --> BI{"Usable typed response?"}
-    BI -->|yes| C["Validated PDEProblemSpec"]
-    BI -->|yes| D["Validated GeometrySpec"]
+    BI -->|yes| BA{"Interpretation issue?"}
+    BA -->|none| C["Validated PDEProblemSpec"]
+    BA -->|none| D["Validated GeometrySpec"]
+    BA -->|supported numerical default| BW["Record assumption and warning"]
+    BW --> C
+    BW --> D
+    BA -->|missing physics or geometry| BC["Blocking clarification"]
     BI -->|no| BF["Explicit deterministic compatibility fallback"]
     BF --> C
     BF --> D
@@ -303,6 +308,11 @@ the combined typed JSON Schema to the selected Ollama or vLLM provider and logs
 the provider, model, request timing, and selected interpretation source. If the
 model endpoint fails or returns an invalid contract, AES records the reason and
 uses the deterministic compatibility extractor only as an explicit fallback.
+Interpretation issues are not all blocking. Documented defaults for numerical
+scheme, finite-element space, mesh size, solver, and output format are recorded
+as assumptions and warnings. Missing physical or mathematical problem data,
+including geometry, coefficients, boundary data, transient initial data, final
+time, or `dt`, routes to clarification.
 
 ## Deployment Topology
 

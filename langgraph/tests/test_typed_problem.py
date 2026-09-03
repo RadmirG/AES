@@ -46,6 +46,40 @@ class TypedProblemInterpretationTests(unittest.TestCase):
         self.assertEqual(result["typed_spec_source"], "llm_structured_extraction")
         self.assertEqual(result["typed_interpretation_warnings"], [])
 
+    @patch("aes_agent.typed_problem.ollama_json")
+    def test_supported_numerical_default_is_a_warning_not_a_blocker(self, model_json):
+        model_json.return_value = {
+            **self.model_response,
+            "ambiguities": [
+                "Time stepping scheme not explicitly specified; defaulted to backward_euler."
+            ],
+        }
+
+        result = interpret_problem_specs(self.state)
+        validated = validate_problem_specs(result)
+
+        self.assertEqual(result["typed_spec_ambiguities"], [])
+        self.assertIn(
+            "non-blocking numerical default",
+            result["typed_interpretation_warnings"][0],
+        )
+        self.assertEqual(validated["typed_validation_status"], "valid")
+        self.assertTrue(validated["compilation_plan"])
+
+    @patch("aes_agent.typed_problem.ollama_json")
+    def test_missing_physics_ambiguity_remains_blocking(self, model_json):
+        model_json.return_value = {
+            **self.model_response,
+            "ambiguities": ["The boundary value is not specified."],
+        }
+
+        result = interpret_problem_specs(self.state)
+        validated = validate_problem_specs(result)
+
+        self.assertEqual(result["typed_spec_ambiguities"], ["The boundary value is not specified."])
+        self.assertEqual(validated["typed_validation_status"], "invalid")
+        self.assertIn("boundary value", validated["typed_validation_errors"][0].lower())
+
     @patch("aes_agent.typed_problem.ollama_json", return_value={})
     def test_invalid_llm_response_uses_explicit_deterministic_fallback(self, model_json):
         with patch.dict(os.environ, {"AES_TYPED_INTERPRETATION_MODE": "llm_first"}):
