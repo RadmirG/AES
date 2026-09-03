@@ -14,6 +14,7 @@ PUBLIC_STATE_FIELDS = (
     "bc_info",
     "initial_condition_info",
     "time_info",
+    "pde_spec",
     "typed_spec_source",
     "typed_spec_ambiguities",
     "typed_interpretation_warnings",

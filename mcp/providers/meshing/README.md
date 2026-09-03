@@ -68,3 +68,18 @@ MCP requests are handled concurrently, but Gmsh sessions are serialized because
 the Gmsh API owns process-global model state. Worker-thread sessions initialize
 Gmsh with `interruptible=False`, which prevents Python signal-handler
 registration outside the main interpreter thread.
+
+## Canonical Examples
+
+Four complete YAML/JSON examples live in `examples/geometries/` at repository
+root. They cover 2D and 3D rectangles/plates, both with and without a centered
+circular through-hole. The examples define stable semantic boundary names and
+are validated both as typed contracts and through native Gmsh generation.
+
+Run the native fixture suite from `mcp/` with the permanent AES test environment:
+
+```powershell
+$env:AES_RUN_GMSH_TESTS = "true"
+& "$HOME\.venvs\aes_test_env\Scripts\python.exe" -m pytest `
+  tests/test_geometry_examples_meshing.py -q
+```

@@ -106,7 +106,12 @@ function compactAesResult(result: AesResult): AesResult {
     tool_errors: result.tool_errors,
     pde_info: result.pde_info,
     domain_info: result.domain_info,
+    coefficient_info: result.coefficient_info,
+    source_info: result.source_info,
+    bc_info: result.bc_info,
+    initial_condition_info: result.initial_condition_info,
     time_info: result.time_info,
+    pde_spec: result.pde_spec,
     tool_results: (result.tool_results || [])
       .filter((tool) => tool.tool_name === "artifact_store")
       .map(compactArtifactStoreResult),

@@ -1,0 +1,54 @@
+schema_version: "1.0"
+dimension: 2
+units: m
+source:
+  kind: csg
+  primitives:
+    - id: square
+      shape: rectangle
+      origin: [0.0, 0.0]
+      size: [1.0, 1.0]
+    - id: hole
+      shape: disk
+      center: [0.5, 0.5]
+      radius: 0.15
+  operations:
+    - type: difference
+      objects: [square]
+      tools: [hole]
+      result: domain
+regions:
+  - name: domain
+    dimension: 2
+    selector: {kind: object, reference: domain}
+  - name: x_min
+    dimension: 1
+    selector: {kind: bounding_box, bounds: [-1.0e-8, -1.0e-8, 1.0e-8, 1.00000001]}
+  - name: x_max
+    dimension: 1
+    selector: {kind: bounding_box, bounds: [0.99999999, -1.0e-8, 1.00000001, 1.00000001]}
+  - name: y_min
+    dimension: 1
+    selector: {kind: bounding_box, bounds: [-1.0e-8, -1.0e-8, 1.00000001, 1.0e-8]}
+  - name: y_max
+    dimension: 1
+    selector: {kind: bounding_box, bounds: [-1.0e-8, 0.99999999, 1.00000001, 1.00000001]}
+  - name: hole_wall
+    dimension: 1
+    selector: {kind: boundary_of, reference: hole}
+mesh:
+  cell_type: triangle
+  order: 1
+  global_size: 0.05
+  refinements:
+    - region: hole_wall
+      size: 0.025
+      distance: 0.2
+  quality:
+    minimum_scaled_jacobian: 0.0
+    maximum_elements: 2000000
+metadata:
+  id: square-with-hole-2d
+  title: Unit square with circular hole
+  description: Unit square with a centered circular hole of radius 0.15.
+

@@ -232,6 +232,30 @@ flowchart LR
     F --> G["web-ui result pane"]
 ```
 
+### Typed Problem And Geometry Presentation
+
+The public response retains the bounded `pde_spec` contract needed to display
+what AES actually solved. The Workbench does not reverse-engineer mathematics
+from assistant prose. KaTeX renders the equation and conditions, while VTK.js
+owns geometry and solution interaction in one scientific viewport.
+
+```mermaid
+flowchart LR
+    A["Validated PDEProblemSpec"] --> B["Public aes_result projection"]
+    B --> C["KaTeX formulation card"]
+    D["Canonical or uploaded GeometrySpec"] --> E["VTK.js geometry actors"]
+    F["Viewer manifest and field data"] --> G["VTK.js solution renderer"]
+    E --> H["Scientific viewport"]
+    G --> H
+    H --> I["Manifest and stdout actions"]
+```
+
+The canonical geometry catalog is `examples/geometries/`. Its four YAML/JSON
+fixtures are shared by contract tests, native Gmsh integration tests, and the
+browser sample selector. Local browser uploads support typed JSON and VTK XML
+PolyData (`.vtp`) for inspection; uploading a geometry into a governed solve is
+a separate future authenticated API boundary.
+
 ## Design Principles
 
 - Keep LangGraph as the explicit workflow and routing spine.

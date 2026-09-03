@@ -21,6 +21,9 @@ venv/
 artifacts/*
 !artifacts/.gitkeep
 visualization-ui/
+web-ui/node_modules/
+web-ui/dist/
+web-ui/tsconfig.tsbuildinfo
 
 # Local Kubernetes secrets
 vllm/k8s/secret.local.yaml

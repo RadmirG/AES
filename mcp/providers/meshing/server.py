@@ -446,7 +446,23 @@ def _resolve_region(
             raise RpcError(-32602, "bounding_box selector requires 4 or 6 values.")
         if len(bounds) == 4:
             bounds = [bounds[0], bounds[1], -1.0e-12, bounds[2], bounds[3], 1.0e-12]
-        return [tuple(item) for item in gmsh.model.getEntitiesInBoundingBox(*bounds, dim=dimension)]
+        # OpenCASCADE entity boxes commonly extend about 1e-7 beyond their
+        # mathematical coordinates. Pad selectors at the model scale so an
+        # exact semantic face selector remains stable across Gmsh versions.
+        scale = max(1.0, *(abs(float(value)) for value in bounds))
+        tolerance = max(1.0e-9, 1.0e-7 * scale)
+        padded = [
+            bounds[0] - tolerance,
+            bounds[1] - tolerance,
+            bounds[2] - tolerance,
+            bounds[3] + tolerance,
+            bounds[4] + tolerance,
+            bounds[5] + tolerance,
+        ]
+        return [
+            tuple(item)
+            for item in gmsh.model.getEntitiesInBoundingBox(*padded, dim=dimension)
+        ]
     boundaries = [
         tuple(item)
         for item in gmsh.model.getBoundary(top_entities, combined=False, oriented=False, recursive=False)
@@ -474,7 +490,8 @@ def _resolve_region(
 
 def _matches_primitive_boundary(gmsh: Any, entity: tuple[int, int], primitive: dict[str, Any]) -> bool:
     bbox = gmsh.model.getBoundingBox(*entity)
-    tolerance = 1.0e-8
+    scale = max(1.0, *(abs(float(value)) for value in bbox))
+    tolerance = 1.0e-6 * scale
     shape = primitive["shape"]
     if shape == "disk":
         cx, cy = _vector(primitive["center"], 2)
@@ -487,6 +504,29 @@ def _matches_primitive_boundary(gmsh: Any, entity: tuple[int, int], primitive: d
         radius = float(primitive["radius"])
         expected = (cx - radius, cy - radius, cz - radius, cx + radius, cy + radius, cz + radius)
         return all(abs(a - b) <= tolerance * max(1.0, abs(b)) for a, b in zip(bbox, expected))
+    if shape == "cylinder":
+        x, y, z = _vector(primitive["origin"], 3)
+        dx, dy, dz = _vector(primitive["axis"], 3)
+        length = math.sqrt(dx * dx + dy * dy + dz * dz)
+        if length <= tolerance:
+            return False
+        direction = (dx / length, dy / length, dz / length)
+        radius = float(primitive["radius"])
+        start = (x, y, z)
+        end = (x + dx, y + dy, z + dz)
+        radial = tuple(radius * math.sqrt(max(0.0, 1.0 - component * component)) for component in direction)
+        expected = (
+            min(start[0], end[0]) - radial[0],
+            min(start[1], end[1]) - radial[1],
+            min(start[2], end[2]) - radial[2],
+            max(start[0], end[0]) + radial[0],
+            max(start[1], end[1]) + radial[1],
+            max(start[2], end[2]) + radial[2],
+        )
+        return all(
+            abs(actual - target) <= tolerance * max(1.0, abs(target))
+            for actual, target in zip(bbox, expected)
+        )
     origin = primitive.get("origin") or []
     size = primitive.get("size") or []
     if shape in {"rectangle", "box"} and origin and size:

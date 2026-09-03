@@ -1,0 +1,10 @@
+**
+!web-ui/
+!web-ui/**
+!examples/
+!examples/geometries/
+!examples/geometries/**
+web-ui/node_modules/
+web-ui/dist/
+web-ui/.env
+web-ui/*.env

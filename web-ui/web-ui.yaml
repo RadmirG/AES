@@ -1,6 +1,8 @@
 services:
   web-ui:
-    build: .
+    build:
+      context: ..
+      dockerfile: web-ui/Dockerfile
     image: aes-web-ui:latest
     container_name: web-ui
     restart: unless-stopped

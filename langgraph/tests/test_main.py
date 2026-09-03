@@ -377,6 +377,27 @@ class PublicResponseProjectionTests(unittest.TestCase):
         self.assertNotIn("raw_user_input", public)
         self.assertEqual(public["agent_status"], "ok")
 
+    def test_projection_keeps_typed_pde_spec_for_equation_rendering(self):
+        pde_spec = {
+            "schema_version": "2.0",
+            "problem_class": "forward_problem",
+            "spatial_dimension": 2,
+            "equation": {
+                "family": "stationary_diffusion",
+                "unknown": "u",
+                "strong_form": "-div(k * grad(u)) = f",
+                "diffusion": {"kind": "constant", "value": "1", "variables": []},
+                "source": {"kind": "constant", "value": "1", "variables": []},
+            },
+            "boundary_conditions": [],
+        }
+
+        public = build_public_aes_result(
+            {"pde_spec": pde_spec, "agent_status": "ok", "tool_results": []}
+        )
+
+        self.assertEqual(public["pde_spec"], pde_spec)
+
     def test_chat_completion_returns_projected_result(self):
         internal_result = {
             "generated_artifact": "completed",

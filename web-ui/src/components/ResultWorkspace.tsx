@@ -3,14 +3,14 @@ import {
   artifactsFromResult,
   latestArtifactStore,
   manifestFromArtifactStore,
-  previewUrl,
   resultLinks,
   visualizationManifestUrl,
 } from "../artifacts";
 import type { AesViewerManifest, WorkbenchResult } from "../types";
 import { ArtifactPanel } from "./ArtifactPanel";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
-import { VtkResultViewer } from "./VtkResultViewer";
+import { EquationSummary } from "./EquationSummary";
+import { GeometryExplorer } from "./GeometryExplorer";
 
 type Props = {
   result: WorkbenchResult | null;
@@ -22,8 +22,9 @@ export function ResultWorkspace({ result }: Props) {
 
   const aesResult = result?.aesResult;
   const artifacts = artifactsFromResult(aesResult);
-  const links = resultLinks(aesResult);
-  const preview = previewUrl(aesResult);
+  const links = resultLinks(aesResult).filter((link) =>
+    ["viewer_manifest.json", "stdout.txt"].includes(link.name),
+  );
   const manifestUrl = visualizationManifestUrl(aesResult);
   const artifactStore = latestArtifactStore(aesResult);
   const artifactManifest = manifestFromArtifactStore(artifactStore);
@@ -48,31 +49,29 @@ export function ResultWorkspace({ result }: Props) {
       .catch((error: Error) => setViewerError(error.message));
   }, [manifestUrl]);
 
-  if (!result) {
-    return (
-      <div className="resultEmpty">
-        <h2>Results will appear here</h2>
-        <p>Run a solve from the chat panel to populate previews and artifacts.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="resultWorkspace">
-      <header className="resultHeader">
-        <div>
-          <h2>{aesResult?.pde_info || "AES result"}</h2>
+      {result ? (
+        <EquationSummary aesResult={aesResult} status={artifactStatus} />
+      ) : (
+        <header className="geometryIntro">
+          <span className="equationEyebrow">Geometry workspace</span>
+          <h2>Select or upload a geometry</h2>
           <p>
-            Status: <strong>{aesResult?.agent_status || "unknown"}</strong> | Next:{" "}
-            <strong>{aesResult?.next_action || "unknown"}</strong>
+            Inspect a standard AES geometry now. A validated PDE formulation and
+            numerical solution will appear here after a solve.
           </p>
-        </div>
-        <div className="statusBadge">{artifactStatus}</div>
-      </header>
+        </header>
+      )}
 
-      <section className="linkStrip">
+      <GeometryExplorer solutionManifest={viewerManifest} />
+
+      {viewerError ? <div className="viewerError">{viewerError}</div> : null}
+
+      {result ? <section className="artifactActions" aria-label="Result files">
+        <span>Run files</span>
         {links.length === 0 ? (
-          <span className="muted">No AES-owned artifact links yet.</span>
+          <span className="muted">Manifest and stdout are not available.</span>
         ) : (
           links.map((link) => (
             <a href={link.url} target="_blank" rel="noreferrer" key={link.name}>
@@ -80,43 +79,17 @@ export function ResultWorkspace({ result }: Props) {
             </a>
           ))
         )}
-      </section>
-
-      <section className="previewGrid">
-        <div className="previewCard">
-          <h3>Preview</h3>
-          {preview ? (
-            <iframe title="AES preview" src={preview} />
-          ) : (
-            <p className="muted">No preview.svg artifact found.</p>
-          )}
-        </div>
-
-        <div className="previewCard">
-          <h3>Interactive Viewer</h3>
-          {viewerManifest ? (
-            <VtkResultViewer manifest={viewerManifest} />
-          ) : (
-            <p className="muted">
-              {viewerError || "No viewer_manifest.json loaded yet."}
-            </p>
-          )}
-        </div>
-      </section>
+      </section> : null}
 
       {viewerManifest ? <DiagnosticsPanel manifest={viewerManifest} /> : null}
-      <ArtifactPanel artifacts={artifacts} />
+      {result ? <ArtifactPanel artifacts={artifacts} /> : null}
     </div>
   );
 }
 
 function labelFor(name: string) {
   const labels: Record<string, string> = {
-    "viewer.html": "Viewer",
-    "preview.svg": "Preview",
     "viewer_manifest.json": "Manifest",
-    "diagnostics.json": "Diagnostics",
-    "solve.py": "solve.py",
     "stdout.txt": "stdout",
   };
   return labels[name] || name;

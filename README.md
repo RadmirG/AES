@@ -38,6 +38,9 @@ visualization.
   manifests in an AES-owned artifact store.
 - Presents authenticated chat, workflow progress, diagnostics, artifacts, and
   numerical result previews in the AES Workbench.
+- Provides an interactive VTK.js geometry catalog with four validated 2D/3D
+  plate examples, local GeometrySpec/VTP inspection, semantic region picking,
+  and a KaTeX rendering of the solved equation and conditions.
 - Supports Ollama for local development and an OpenAI-compatible vLLM service
   as the Kubernetes production target.
 
@@ -123,6 +126,7 @@ AES/
   ollama/      Local model runtime and model-pull automation
   vllm/        Kubernetes-native production model serving
   deploy/      Development and production Docker Compose entrypoints
+  examples/    Versioned typed engineering and geometry examples
   artifacts/   Local AES run artifacts (runtime data)
   docs/        Cross-component architecture and operational documentation
 ```
@@ -134,7 +138,7 @@ AES/
 | Orchestration and API | Python, LangGraph, LangChain integrations, FastAPI, Pydantic |
 | Models | Ollama for local development, vLLM/OpenAI-compatible API for Kubernetes |
 | Engineering tools | MCP, Gmsh, OpenCASCADE, meshio, DOLFINx/FEniCS, PETSc, UFL |
-| Web application | React, TypeScript, Vite, Nginx, VTK.js |
+| Web application | React, TypeScript, Vite, Nginx, VTK.js, KaTeX |
 | Persistence | PostgreSQL 16, pgvector, versioned SQL migrations, filesystem artifact store |
 | Deployment | Docker Compose, Docker, Kubernetes, Kustomize, NVIDIA GPUs |
 

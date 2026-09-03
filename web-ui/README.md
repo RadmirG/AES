@@ -11,16 +11,25 @@ POST /v1/chat/completions
 model: aes-agent
 ```
 
-The right panel reads `aes_result`, artifact manifests, and visualization
-artifacts such as `preview.svg`, `viewer_manifest.json`, and `viewer.html`.
-VTK.js rendering is activated when AES serves browser-fetchable `.vtu`, `.vtp`,
-`.vtk`, or `.vtkjs` datasets.
+The right panel renders the validated `pde_spec` with KaTeX and presents one
+large VTK.js scientific viewport. The viewport can:
+
+- inspect four versioned AES sample geometries,
+- load a local `GeometrySpec` JSON document,
+- load VTK XML PolyData (`.vtp`),
+- switch to sampled stationary/transient solution fields after a solve,
+- rotate, pan, zoom, and pick semantic geometry regions.
+
+The four canonical examples are in `../examples/geometries/`: a 2D unit square,
+a 2D square with a circular hole, a 3D plate solid, and a 3D plate solid with a
+cylindrical through-hole. Manifest and stdout shortcuts appear below the
+viewport; diagnostics and the complete artifact inventory follow them.
 
 ## Development
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 Useful environment variables:
@@ -44,7 +53,9 @@ container joins `ai-stack-net`, publishes `http://127.0.0.1:3000`, and proxies:
 ```
 
 Because the browser talks to the same origin, `VITE_AES_API_BASE_URL` can stay
-empty in container deployment.
+empty in container deployment. The Docker build context is the repository root
+because Vite packages the canonical `examples/geometries/` catalog into the
+static application.
 
 The Nginx proxy allows long-running `/v1/chat/completions` calls. The right
 result pane updates only after AES returns the final response containing

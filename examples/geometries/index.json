@@ -1,0 +1,7 @@
+[
+  {"id": "unit-square-2d", "spec": "unit-square-2d/geometry.json"},
+  {"id": "square-with-hole-2d", "spec": "square-with-hole-2d/geometry.json"},
+  {"id": "unit-plate-solid-3d", "spec": "unit-plate-solid-3d/geometry.json"},
+  {"id": "plate-with-hole-solid-3d", "spec": "plate-with-hole-solid-3d/geometry.json"}
+]
+

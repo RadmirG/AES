@@ -75,6 +75,29 @@ Imported XDMF can map a named cell-data array to Gmsh physical tags; both MSH
 and XDMF imports must prove that all required semantic region tags exist on
 cells of the expected dimension.
 
+## Standard Geometry Fixtures
+
+`examples/geometries/` is the cross-component reference catalog. It contains
+equivalent YAML and JSON `GeometrySpec` files for a unit square, perforated unit
+square, plate solid, and perforated plate solid. These are not hard-coded
+solver templates: they exercise the same public geometry contract accepted by
+the model interpreter, meshing provider, and Workbench.
+
+```mermaid
+flowchart TD
+    A["Canonical GeometrySpec"] --> B["Schema validation"]
+    B --> C["OpenCASCADE construction"]
+    C --> D["Scale-aware semantic region resolution"]
+    D --> E["Physical groups"]
+    E --> F["Gmsh mesh"]
+    F --> G["Mesh quality and tag assertions"]
+```
+
+Bounding-box region selectors are padded at model scale to account for
+OpenCASCADE entity tolerances. Boundaries derived from disk and cylinder tools
+are matched after CSG regeneration, so `hole_wall` remains a stable semantic
+name even though Gmsh entity identifiers change.
+
 ## MCP Tools
 
 - `inspect_geometry`: inspect CAD/CSG entities or an existing mesh,

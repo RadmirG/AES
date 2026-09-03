@@ -78,6 +78,52 @@ class MeshingProviderContractTests(unittest.TestCase):
 
         self.assertTrue(fake.finalized)
 
+    def test_cylindrical_hole_wall_matches_its_lateral_surface_bounds(self):
+        class FakeModel:
+            @staticmethod
+            def getBoundingBox(_dimension, _tag):
+                return (0.35, 0.35, 0.0, 0.65, 0.65, 0.1)
+
+        fake_gmsh = type("FakeGmsh", (), {"model": FakeModel()})()
+        primitive = {
+            "shape": "cylinder",
+            "origin": [0.5, 0.5, 0.0],
+            "axis": [0.0, 0.0, 0.1],
+            "radius": 0.15,
+        }
+
+        self.assertTrue(
+            server._matches_primitive_boundary(fake_gmsh, (2, 17), primitive)
+        )
+
+    def test_bounding_box_region_is_padded_for_occ_tolerance(self):
+        class FakeModel:
+            def __init__(self):
+                self.request = None
+
+            def getEntitiesInBoundingBox(self, *bounds, dim):
+                self.request = (bounds, dim)
+                return [(1, 4)]
+
+        model = FakeModel()
+        fake_gmsh = type("FakeGmsh", (), {"model": model})()
+        region = {
+            "name": "x_min",
+            "dimension": 1,
+            "selector": {
+                "kind": "bounding_box",
+                "bounds": [-1.0e-8, -1.0e-8, 1.0e-8, 1.00000001],
+            },
+        }
+
+        resolved = server._resolve_region(fake_gmsh, region, {}, {}, [])
+
+        self.assertEqual(resolved, [(1, 4)])
+        bounds, dimension = model.request
+        self.assertEqual(dimension, 1)
+        self.assertLess(bounds[0], -1.0e-8)
+        self.assertGreater(bounds[3], 1.0e-8)
+
 
 def _rectangle_geometry():
     return {

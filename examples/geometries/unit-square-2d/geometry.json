@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "dimension": 2,
+  "units": "m",
+  "source": {
+    "kind": "primitives",
+    "primitives": [
+      {"id": "domain", "shape": "rectangle", "origin": [0.0, 0.0], "size": [1.0, 1.0]}
+    ]
+  },
+  "regions": [
+    {"name": "domain", "dimension": 2, "selector": {"kind": "object", "reference": "domain"}},
+    {"name": "x_min", "dimension": 1, "selector": {"kind": "bounding_box", "bounds": [-1.0e-8, -1.0e-8, 1.0e-8, 1.00000001]}},
+    {"name": "x_max", "dimension": 1, "selector": {"kind": "bounding_box", "bounds": [0.99999999, -1.0e-8, 1.00000001, 1.00000001]}},
+    {"name": "y_min", "dimension": 1, "selector": {"kind": "bounding_box", "bounds": [-1.0e-8, -1.0e-8, 1.00000001, 1.0e-8]}},
+    {"name": "y_max", "dimension": 1, "selector": {"kind": "bounding_box", "bounds": [-1.0e-8, 0.99999999, 1.00000001, 1.00000001]}}
+  ],
+  "mesh": {
+    "cell_type": "triangle",
+    "order": 1,
+    "global_size": 0.05,
+    "refinements": [],
+    "quality": {"minimum_scaled_jacobian": 0.0, "maximum_elements": 2000000}
+  },
+  "metadata": {
+    "id": "unit-square-2d",
+    "title": "Unit square",
+    "description": "Unit square [0,1] x [0,1]."
+  }
+}
+

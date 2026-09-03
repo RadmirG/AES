@@ -9,6 +9,7 @@
 
 -r langgraph/requirements.txt
 -r mcp/requirements.txt
+-r mcp/providers/meshing/requirements.txt
 -r ollama/requirements.txt
 
 # Repository-wide test runner.

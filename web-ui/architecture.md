@@ -18,6 +18,8 @@ flowchart TD
     G --> H["aes_result"]
     H --> D
     H --> E
+    SAMPLES["Versioned GeometrySpec samples"] --> E
+    UPLOAD["Local GeometrySpec JSON or VTP"] --> E
     D --> CACHE["Compact per-user local chat cache"]
     E --> I["/artifacts/..."]
     I --> B
@@ -34,8 +36,10 @@ flowchart TD
 - chat panel against `aes-agent`,
 - persisted AES progress turns,
 - result workspace,
+- KaTeX rendering of the solved PDE and its conditions,
+- standard-geometry selection and local geometry upload,
 - artifact links and diagnostics rendering,
-- VTK.js viewer shell,
+- VTK.js geometry and numerical-result rendering,
 - Nginx proxy for `/api/`, `/v1/`, and `/artifacts/`.
 
 It does not own:
@@ -55,10 +59,11 @@ flowchart TD
     C --> E["Conversation history"]
     C --> F["Chat turns"]
     C --> G["Composer"]
-    D --> H["Run summary"]
-    D --> I["Preview / VTK.js viewer"]
-    D --> J["Diagnostics"]
-    D --> K["Artifact panel"]
+    D --> H["KaTeX PDE formulation"]
+    D --> I["Scientific VTK.js viewport"]
+    D --> J["Manifest and stdout actions"]
+    D --> K["Diagnostics"]
+    D --> L["Artifact inventory"]
 ```
 
 The visual target is a bright ChatGPT-like theme. The saved-chat sidebar is
@@ -144,29 +149,78 @@ own progress block between the user request and AES answer.
 
 ## Result Workspace
 
-The right pane reads `aes_result` from the OpenAI-compatible response.
+The right pane reads the bounded `aes_result` from the OpenAI-compatible
+response. The public projection includes `pde_spec`, so the browser renders the
+validated equation, domain, boundary conditions, initial condition, and time
+configuration without parsing the assistant's prose.
 
 ```mermaid
 flowchart TD
     A["compact aes_result"] --> B["ResultWorkspace"]
-    B --> C["Status and next action"]
-    B --> D["Artifact manifest references"]
-    D --> H["Authenticated /artifacts fetch"]
-    B --> E["DiagnosticsPanel"]
-    B --> F["Preview iframe"]
-    B --> G["VtkResultViewer"]
+    B --> C["EquationSummary"]
+    C --> D["KaTeX equation and conditions"]
+    B --> E["GeometryExplorer"]
+    S["GeometrySpec sample"] --> E
+    U["Local JSON or VTP upload"] --> E
+    E --> F{"Viewport mode"}
+    F -->|geometry| G["VTK PolyData geometry actors"]
+    F -->|solution| H["VtkResultViewer"]
+    B --> I["Manifest and stdout actions"]
+    B --> J["DiagnosticsPanel"]
+    B --> K["ArtifactPanel"]
+    H --> L["Authenticated /artifacts fetch"]
 ```
 
-The viewer has two rendering paths:
+The single scientific viewport has these rendering paths:
 
-- sampled-field rendering from `viewer_manifest.datasets.sampled_field`, used
-  for stationary fields such as \(u(x,y)\) and transient fields such as
-  \(u(x,y,t)\) before full VTK conversion exists;
-- VTK.js rendering when AES serves browser-fetchable `.vtu`, `.vtp`, `.vtk`, or
-  `.vtkjs` datasets.
+- browser-generated VTK PolyData actors for the canonical primitive/CSG
+  `GeometrySpec` samples;
+- uploaded `GeometrySpec` JSON for supported rectangle/box and optional
+  disk/cylinder-hole previews;
+- uploaded VTK XML PolyData (`.vtp`);
+- sampled-field rendering from `viewer_manifest.datasets.sampled_field` for
+  stationary \(u(x,y)\) and transient \(u(x,y,t)\) results;
+- provider-produced VTK XML PolyData referenced by the viewer manifest.
 
-Until at least sampled-field data or a VTK dataset exists, the UI shows
-diagnostics, SVG previews, and raw artifact references.
+The initial 2D camera is top-down with parallel projection. The 3D plate camera
+is isometric. VTK interaction supports rotate, pan, zoom, and cell picking;
+picked semantic region actors are highlighted. Renderer instances are disposed
+and their canvases removed on every sample change so browser and GPU resources
+do not accumulate.
+
+The sample/upload selector currently controls visual inspection. Binding a
+selected browser geometry to a subsequent solve requires a separate authenticated
+geometry-upload API and is intentionally outside this browser-only slice.
+
+Run-level shortcuts are placed below the viewer and expose only
+`viewer_manifest.json` and `stdout.txt`. The full artifact inventory remains a
+read-only provenance view below diagnostics.
+
+## Standard Geometry Catalog
+
+The canonical examples live outside the UI in `examples/geometries/`. Each
+example has a human-readable YAML document and an equivalent JSON document.
+LangGraph tests validate both representations against `GeometrySpec`; native
+provider tests generate all four with Gmsh and validate their semantic tags.
+
+```mermaid
+flowchart LR
+    A["examples/geometries/index.json"] --> B["GeometryExplorer"]
+    B --> C["Unit square 2D"]
+    B --> D["Square with hole 2D"]
+    B --> E["Plate solid 3D"]
+    B --> F["Plate solid with hole 3D"]
+    C --> G["VTK.js PolyData compiler"]
+    D --> G
+    E --> G
+    F --> G
+    G --> H["Interactive scientific viewport"]
+```
+
+Vite exposes the catalog at `/geometries/`. The production Docker build uses
+the repository root as its restricted build context so it can copy both
+`web-ui/` and `examples/geometries/`; `.dockerignore` excludes every unrelated
+repository path from that image context.
 
 ## Proxy Boundary
 
