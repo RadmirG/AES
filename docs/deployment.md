@@ -208,6 +208,19 @@ features return a capability report. Set
 `AES_EXPERIMENTAL_LLM_CODE_ENABLED=true` only to opt into bounded free-form LLM
 code generation for unsupported capabilities.
 
+Natural-language interpretation is LLM-first:
+
+```text
+AES_TYPED_INTERPRETATION_MODE=llm_first
+```
+
+The selected model receives the combined `PDEProblemSpec` and `GeometrySpec`
+JSON Schema. Logs should show `Typed problem interpretation started`, followed
+by `Model JSON request started` with `schema_constrained=true`, and finally the
+selected `typed_spec_source`. `deterministic_fallback` means the model call was
+made but did not return a usable contract. `deterministic_only` is available
+only as an explicit offline/test setting.
+
 From the host or WSL, test AES through the direct LangGraph port:
 
 ```bash

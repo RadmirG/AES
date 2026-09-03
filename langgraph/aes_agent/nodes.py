@@ -747,6 +747,8 @@ def _build_generated_artifact(
         f"- Boundary conditions: {_artifact_value(snapshot.get('bc_info'))}",
         f"- Initial condition: {_artifact_value(snapshot.get('initial_condition_info'))}",
         f"- Time: {_artifact_value(snapshot.get('time_info'))}",
+        f"- Typed interpretation: {_artifact_value(snapshot.get('typed_spec_source'))}",
+        f"- Typed validation: {_artifact_value(snapshot.get('typed_validation_status'))}",
         "",
         "Formulation and validation:",
         f"- Selected formulation: {_artifact_value(snapshot.get('selected_formulation'))}",
@@ -757,6 +759,11 @@ def _build_generated_artifact(
 
     _append_issue_section(lines, "Missing information", snapshot.get("missing_information"))
     _append_issue_section(lines, "Validation errors", snapshot.get("validation_errors"))
+    _append_issue_section(
+        lines,
+        "Interpretation warnings",
+        snapshot.get("typed_interpretation_warnings"),
+    )
     _append_issue_section(
         lines,
         "Numerical recipe errors",

@@ -52,11 +52,15 @@ def extract_json_object(text: str) -> Dict[str, Any]:
     return {}
 
 
-def llm_json(prompt: str) -> Dict[str, Any]:
+def llm_json(
+    prompt: str,
+    *,
+    schema: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     """Request a JSON object from the configured AES model provider."""
     if _normalized_provider() == "ollama":
-        return _ollama_json(prompt)
-    return _openai_compatible_json(prompt)
+        return _ollama_json(prompt, schema=schema)
+    return _openai_compatible_json(prompt, schema=schema)
 
 
 def llm_text(prompt: str) -> Dict[str, Any]:
@@ -77,24 +81,29 @@ def _normalized_provider() -> str:
     return "ollama"
 
 
-def _ollama_json(prompt: str) -> Dict[str, Any]:
+def _ollama_json(
+    prompt: str,
+    *,
+    schema: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     started_at = time.perf_counter()
     endpoint = f"{OLLAMA_BASE_URL.rstrip('/')}/api/generate"
     payload = {
         "model": LLM_MODEL,
         "prompt": prompt,
         "stream": False,
-        "format": "json",
+        "format": schema or "json",
         "options": {"num_ctx": OLLAMA_NUM_CTX},
     }
     logger.info(
         "Model JSON request started: provider=ollama model=%s endpoint=%s "
-        "prompt_chars=%s timeout=%s num_ctx=%s",
+        "prompt_chars=%s timeout=%s num_ctx=%s schema_constrained=%s",
         LLM_MODEL,
         endpoint,
         len(prompt),
         LLM_TIMEOUT,
         OLLAMA_NUM_CTX,
+        bool(schema),
     )
     log_content_preview(logger, "Model JSON prompt", {"prompt": prompt})
 
@@ -182,20 +191,36 @@ def _ollama_text(prompt: str) -> Dict[str, Any]:
     )
 
 
-def _openai_compatible_json(prompt: str) -> Dict[str, Any]:
+def _openai_compatible_json(
+    prompt: str,
+    *,
+    schema: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     started_at = time.perf_counter()
     endpoint = _openai_chat_endpoint()
     payload = _openai_payload(prompt)
-    payload["response_format"] = {"type": "json_object"}
+    payload["response_format"] = (
+        {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "aes_structured_response",
+                "strict": True,
+                "schema": schema,
+            },
+        }
+        if schema
+        else {"type": "json_object"}
+    )
     logger.info(
         "Model JSON request started: provider=%s model=%s endpoint=%s "
-        "prompt_chars=%s timeout=%s max_tokens=%s",
+        "prompt_chars=%s timeout=%s max_tokens=%s schema_constrained=%s",
         LLM_PROVIDER,
         LLM_MODEL,
         endpoint,
         len(prompt),
         LLM_TIMEOUT,
         LLM_MAX_TOKENS,
+        bool(schema),
     )
     log_content_preview(logger, "Model JSON prompt", {"prompt": prompt})
 

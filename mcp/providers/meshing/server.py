@@ -220,10 +220,23 @@ def _generate_mesh(value: Any) -> dict[str, Any]:
     run_id, run_dir = _new_run_dir()
     (run_dir / "geometry_spec.json").write_text(json.dumps(spec, indent=2), encoding="utf-8")
     logger.info("Mesh generation started: run_id=%s source=%s", run_id, source_kind)
-    if source_kind == "mesh_file":
-        result = _import_existing_mesh(spec, run_id, run_dir)
-    else:
-        result = _generate_with_gmsh(spec, run_id, run_dir)
+    try:
+        if source_kind == "mesh_file":
+            result = _import_existing_mesh(spec, run_id, run_dir)
+        else:
+            result = _generate_with_gmsh(spec, run_id, run_dir)
+    except Exception as exc:
+        message = f"Meshing provider failed for {source_kind}: {exc}"
+        logger.exception("Mesh generation failed: run_id=%s source=%s", run_id, source_kind)
+        return {
+            "schema_version": "1.0",
+            "status": "failed",
+            "message": message,
+            "run_id": run_id,
+            "artifacts": _collect_artifacts(run_id, run_dir),
+            "errors": [message],
+            "warnings": [],
+        }
     logger.info(
         "Mesh generation finished: run_id=%s status=%s elements=%s",
         run_id,
@@ -879,8 +892,10 @@ def _vector(value: Any, length: int) -> tuple[float, ...]:
 def _import_gmsh():
     try:
         import gmsh
-    except ImportError as exc:
-        raise RuntimeError("The meshing provider image does not contain Gmsh.") from exc
+    except (ImportError, OSError) as exc:
+        raise RuntimeError(
+            f"Gmsh could not be loaded. Verify its native runtime libraries: {exc}"
+        ) from exc
     return gmsh
 
 

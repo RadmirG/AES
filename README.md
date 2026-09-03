@@ -87,9 +87,13 @@ execution; the artifact store owns result publication.
 
 ```mermaid
 flowchart TD
-    request["Engineering request"] --> extract["LLM interpretation"]
-    extract --> pde["Validated PDEProblemSpec"]
-    extract --> geometry["Validated GeometrySpec"]
+    request["Engineering request"] --> extract["Schema-constrained LLM interpretation"]
+    extract --> valid{"Usable typed response?"}
+    valid -->|yes| pde["Validated PDEProblemSpec"]
+    valid -->|yes| geometry["Validated GeometrySpec"]
+    valid -->|no| fallback["Explicit deterministic compatibility fallback"]
+    fallback --> pde
+    fallback --> geometry
     geometry --> mesh["Meshing MCP and MeshArtifact"]
     pde --> compatible["PDE and mesh compatibility"]
     mesh --> compatible

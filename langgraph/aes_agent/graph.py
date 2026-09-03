@@ -95,6 +95,7 @@ def _state_log_view(state: AgentState) -> Dict[str, Any]:
         "time_info": state.get("time_info", ""),
         "typed_spec_source": state.get("typed_spec_source", ""),
         "typed_spec_ambiguities": state.get("typed_spec_ambiguities", []),
+        "typed_interpretation_warnings": state.get("typed_interpretation_warnings", []),
         "typed_validation_status": state.get("typed_validation_status", ""),
         "typed_validation_errors": state.get("typed_validation_errors", []),
         "missing_information": state.get("missing_information", []),

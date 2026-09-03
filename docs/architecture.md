@@ -260,9 +260,13 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    A["User PDE and geometry request"] --> B["Structured interpretation"]
-    B --> C["Validated PDEProblemSpec"]
-    B --> D["Validated GeometrySpec"]
+    A["User PDE and geometry request"] --> B["Schema-constrained LLM interpretation"]
+    B --> BI{"Usable typed response?"}
+    BI -->|yes| C["Validated PDEProblemSpec"]
+    BI -->|yes| D["Validated GeometrySpec"]
+    BI -->|no| BF["Explicit deterministic compatibility fallback"]
+    BF --> C
+    BF --> D
     D --> E{"Geometry source"}
     E -->|primitives or CSG| F["Gmsh OpenCASCADE"]
     E -->|STEP BREP IGES| G["CAD import"]
@@ -294,6 +298,11 @@ The typed compiler is the preferred production path. Free-form LLM code
 generation is disabled by default and becomes available for unsupported
 compiler capabilities only when `AES_EXPERIMENTAL_LLM_CODE_ENABLED=true`; the
 deterministic MCP path remains for controlled provider smoke workflows.
+Natural-language interpretation is LLM-first by default. The interpreter sends
+the combined typed JSON Schema to the selected Ollama or vLLM provider and logs
+the provider, model, request timing, and selected interpretation source. If the
+model endpoint fails or returns an invalid contract, AES records the reason and
+uses the deterministic compatibility extractor only as an explicit fallback.
 
 ## Deployment Topology
 

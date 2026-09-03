@@ -277,6 +277,11 @@ PDE rules:
 - Boundary conditions refer to semantic geometry-region names.
 - Transient diffusion includes initial_condition and time with t0, t_end, dt,
   and scheme.
+- For a transient problem, initial_condition must be
+  {{"value":{{"kind":"constant|symbolic","value":"...","variables":["x","y"]}}}}
+  and time must be
+  {{"t0":0.0,"t_end":1.0,"dt":0.01,"scheme":"backward_euler|crank_nicolson"}}.
+- For a stationary problem, initial_condition and time must both be null.
 - Use this exact object shape; use null only where shown:
   {{
     "schema_version": "2.0",
@@ -305,6 +310,7 @@ Geometry rules:
 - geometry_spec.schema_version is "1.0".
 - source.kind is primitives, csg, cad, mesh_file, or surface_scan.
 - Use primitives for simple parameterized shapes and csg for boolean geometry.
+- Interpret a unit square as a rectangle with origin [0,0] and size [1,1].
 - CAD formats are step, stp, brep, iges, or igs.
 - Existing mesh formats are msh or xdmf.
 - Surface scans are stl, obj, or ply; this capability is currently a placeholder.

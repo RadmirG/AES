@@ -18,6 +18,7 @@ class AgentState(TypedDict):
     geometry_spec: Dict[str, Any]
     typed_spec_source: str
     typed_spec_ambiguities: List[str]
+    typed_interpretation_warnings: List[str]
     typed_validation_status: str
     typed_validation_errors: List[str]
     typed_validation_warnings: List[str]

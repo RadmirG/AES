@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SERVER_PATH = Path(__file__).resolve().parents[1] / "providers" / "meshing" / "server.py"
@@ -30,6 +33,79 @@ class MeshingProviderContractTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "unsupported_not_implemented")
         self.assertIn("not implemented", result["message"].lower())
+
+    def test_native_meshing_failure_returns_structured_tool_result(self):
+        geometry = _rectangle_geometry()
+        with tempfile.TemporaryDirectory() as workspace:
+            with patch.dict(os.environ, {"MESHING_WORKSPACE": workspace}):
+                with patch.object(
+                    server,
+                    "_generate_with_gmsh",
+                    side_effect=RuntimeError(
+                        "Gmsh could not be loaded: libGL.so.1 is missing"
+                    ),
+                ):
+                    result = server._generate_mesh(geometry)
+
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("libGL.so.1", result["errors"][0])
+        self.assertIn("run_id", result)
+
+
+def _rectangle_geometry():
+    return {
+        "schema_version": "1.0",
+        "dimension": 2,
+        "units": "m",
+        "source": {
+            "kind": "primitives",
+            "primitives": [
+                {
+                    "id": "domain",
+                    "shape": "rectangle",
+                    "origin": [0.0, 0.0],
+                    "size": [1.0, 1.0],
+                    "center": None,
+                    "radius": None,
+                    "axis": None,
+                    "height": None,
+                }
+            ],
+        },
+        "regions": [
+            {
+                "name": "domain",
+                "dimension": 2,
+                "selector": {
+                    "kind": "object",
+                    "reference": "domain",
+                    "bounds": None,
+                    "entity_tags": [],
+                },
+            },
+            {
+                "name": "boundary",
+                "dimension": 1,
+                "selector": {
+                    "kind": "all_boundary",
+                    "reference": "domain",
+                    "bounds": None,
+                    "entity_tags": [],
+                },
+            },
+        ],
+        "mesh": {
+            "cell_type": "triangle",
+            "order": 1,
+            "global_size": 0.1,
+            "refinements": [],
+            "quality": {
+                "minimum_scaled_jacobian": 0.0,
+                "maximum_elements": 10000,
+            },
+        },
+        "metadata": {},
+    }
 
 
 if __name__ == "__main__":

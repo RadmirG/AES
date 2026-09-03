@@ -16,6 +16,7 @@ PUBLIC_STATE_FIELDS = (
     "time_info",
     "typed_spec_source",
     "typed_spec_ambiguities",
+    "typed_interpretation_warnings",
     "typed_validation_status",
     "typed_validation_errors",
     "typed_validation_warnings",

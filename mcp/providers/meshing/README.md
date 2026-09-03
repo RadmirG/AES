@@ -56,3 +56,9 @@ curl http://127.0.0.1:8007/health
 The Compose `fenics` profile starts `meshing-mcp`, `dolfinx-mcp`, and
 `fenics-code-runner`. `meshing-mcp` is also selectable through the dedicated
 `meshing` profile.
+
+The image installs both `libGL.so.1` and GLU, which are native dependencies of
+the Python Gmsh wheel. Its Docker build imports Gmsh once and fails immediately
+if those libraries are unavailable. Runtime geometry failures are returned as
+structured MCP tool results with a run id and concrete error instead of an
+opaque HTTP 500 response.

@@ -136,7 +136,8 @@ Important state groups:
   `coefficient_info`, `source_info`, `bc_info`, `initial_condition_info`,
   `time_info`,
 - typed contracts: `pde_spec`, `geometry_spec`, `typed_spec_source`,
-  `typed_spec_ambiguities`, `typed_validation_status`, `typed_validation_errors`,
+  `typed_spec_ambiguities`, `typed_interpretation_warnings`,
+  `typed_validation_status`, `typed_validation_errors`,
   `typed_validation_warnings`, `mesh_artifact`, and `compilation_plan`,
 - clarification and validation: `missing_information`,
   `clarification_questions`, `selected_formulation`, `validation_status`,
@@ -246,8 +247,13 @@ default and can enter free-form LLM generation only when explicitly enabled.
 
 ```mermaid
 flowchart TD
-    A["Natural-language PDE request"] --> B["Typed PDEProblemSpec"]
-    A --> C["Typed GeometrySpec"]
+    A["Natural-language PDE request"] --> AI["Schema-constrained LLM interpretation"]
+    AI --> AV{"Usable typed response?"}
+    AV -->|yes| B["Typed PDEProblemSpec"]
+    AV -->|yes| C["Typed GeometrySpec"]
+    AV -->|no| AF["Deterministic compatibility fallback with warning"]
+    AF --> B
+    AF --> C
     B --> D["PDE schema and mathematical validation"]
     C --> E["Geometry validation"]
     E --> F["Meshing MCP"]
@@ -265,6 +271,15 @@ flowchart TD
     P -->|false| Q["Stop with capability report"]
     P -->|true| R["Bounded experimental LLM-code sandbox"]
 ```
+
+`AES_TYPED_INTERPRETATION_MODE=llm_first` is the default. The model receives
+the combined Pydantic JSON Schema and is responsible for interpreting the
+natural-language PDE, geometry, semantic regions, coefficients, boundary
+conditions, and time data. The compatibility parser runs only when the model
+call is unavailable or its response does not validate. Setting
+`AES_TYPED_INTERPRETATION_MODE=deterministic_only` is an explicit offline/test
+configuration and is visible as
+`typed_spec_source=deterministic_configuration`.
 
 The initial compiler release supports stationary and transient scalar
 diffusion with constant coefficients, constant sources, constant Dirichlet
@@ -342,9 +357,12 @@ flowchart LR
 ```
 
 When `AES_LLM_MODEL` is empty, the Ollama path preserves the existing
-`OLLAMA_MODEL` setting. The vLLM path uses `response_format=json_object` for
-structured graph calls and plain Chat Completions for generated Python source.
-Provider API keys are used only in the server-side LangGraph client.
+`OLLAMA_MODEL` setting. The vLLM path uses `response_format=json_schema` when a
+graph node supplies a contract, otherwise `response_format=json_object`;
+generated Python source uses plain Chat Completions. Ollama receives the same
+schema through its `format` field. The model-client logs include
+`schema_constrained=true` for typed PDE and geometry interpretation. Provider
+API keys are used only in the server-side LangGraph client.
 
 The OpenAI-compatible adapter normally uses the latest user turn as the active
 request. The controlled exception is AES-requested output clarification: when
