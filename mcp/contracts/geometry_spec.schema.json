@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aes.local/contracts/geometry_spec.schema.json",
+  "title": "AES Geometry Specification",
+  "type": "object",
+  "required": ["schema_version", "dimension", "units", "source", "regions", "mesh"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "dimension": {"type": "integer", "minimum": 1, "maximum": 3},
+    "units": {"enum": ["m", "cm", "mm"]},
+    "source": {
+      "oneOf": [
+        {"$ref": "#/$defs/primitives"},
+        {"$ref": "#/$defs/csg"},
+        {"$ref": "#/$defs/cad"},
+        {"$ref": "#/$defs/mesh_file"},
+        {"$ref": "#/$defs/surface_scan"}
+      ]
+    },
+    "regions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "dimension", "selector"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "dimension": {"type": "integer", "minimum": 0, "maximum": 3},
+          "selector": {"type": "object"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "mesh": {
+      "type": "object",
+      "required": ["cell_type", "order", "global_size", "refinements", "quality"],
+      "properties": {
+        "cell_type": {"enum": ["line", "triangle", "quadrilateral", "tetrahedron", "hexahedron"]},
+        "order": {"type": "integer", "minimum": 1, "maximum": 5},
+        "global_size": {"type": "number", "exclusiveMinimum": 0},
+        "refinements": {"type": "array", "items": {"type": "object"}},
+        "quality": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "metadata": {"type": "object"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "primitive": {
+      "type": "object",
+      "required": ["id", "shape"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "shape": {"enum": ["rectangle", "disk", "box", "sphere", "cylinder"]},
+        "origin": {"type": ["array", "null"], "items": {"type": "number"}},
+        "size": {"type": ["array", "null"], "items": {"type": "number"}},
+        "center": {"type": ["array", "null"], "items": {"type": "number"}},
+        "radius": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "axis": {"type": ["array", "null"], "items": {"type": "number"}},
+        "height": {"type": ["number", "null"], "exclusiveMinimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "primitives": {
+      "type": "object",
+      "required": ["kind", "primitives"],
+      "properties": {
+        "kind": {"const": "primitives"},
+        "primitives": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/primitive"}}
+      },
+      "additionalProperties": false
+    },
+    "csg": {
+      "type": "object",
+      "required": ["kind", "primitives", "operations"],
+      "properties": {
+        "kind": {"const": "csg"},
+        "primitives": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/primitive"}},
+        "operations": {"type": "array", "minItems": 1, "items": {"type": "object"}}
+      },
+      "additionalProperties": false
+    },
+    "cad": {
+      "type": "object",
+      "required": ["kind", "format", "artifact_path", "repair"],
+      "properties": {
+        "kind": {"const": "cad"},
+        "format": {"enum": ["step", "stp", "brep", "iges", "igs"]},
+        "artifact_path": {"type": "string", "minLength": 1},
+        "repair": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "mesh_file": {
+      "type": "object",
+      "required": ["kind", "format", "artifact_path"],
+      "properties": {
+        "kind": {"const": "mesh_file"},
+        "format": {"enum": ["msh", "xdmf"]},
+        "artifact_path": {"type": "string", "minLength": 1},
+        "tag_map": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 1}
+        },
+        "physical_data_name": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "surface_scan": {
+      "type": "object",
+      "required": ["kind", "format", "artifact_path"],
+      "properties": {
+        "kind": {"const": "surface_scan"},
+        "format": {"enum": ["stl", "obj", "ply"]},
+        "artifact_path": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    }
+  }
+}

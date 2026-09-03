@@ -294,6 +294,56 @@ class ToolNodeTests(unittest.TestCase):
             ["fenics_code_solve", "visualization_postprocess", "artifact_store"],
         )
 
+    @patch.object(
+        nodes,
+        "ollama_json",
+        side_effect=AssertionError("typed tool selection must not call Ollama"),
+    )
+    def test_typed_code_recipe_meshes_before_compilation(self, _ollama_json):
+        result = nodes.select_tools(
+            {
+                "solution_mode": "execute_generated_fenics_code",
+                "selected_formulation": "fem_problem_setup",
+                "numerical_recipe_status": "ready",
+                "numerical_recipe": {"provider": "local:fenics_code"},
+                "typed_validation_status": "valid",
+                "geometry_spec": {"schema_version": "1.0"},
+            }
+        )
+
+        self.assertEqual(
+            result["selected_tools"],
+            [
+                "mesh_geometry",
+                "fenics_code_solve",
+                "visualization_postprocess",
+                "artifact_store",
+            ],
+        )
+
+    @patch.object(nodes, "execute_tool")
+    def test_execute_tools_promotes_mesh_contract_into_state(self, execute_tool):
+        execute_tool.return_value = {
+            "tool_name": "mesh_geometry",
+            "provider": "mcp:meshing",
+            "status": "completed",
+            "error": "",
+            "output": {
+                "mesh_artifact": {
+                    "mesh_uri": "mcp://meshing/workspace/runs/test/mesh.msh",
+                    "quality": {"status": "valid", "errors": []},
+                }
+            },
+        }
+
+        result = nodes.execute_tools({"selected_tools": ["mesh_geometry"]})
+
+        self.assertEqual(result["mesh_validation_status"], "valid")
+        self.assertEqual(
+            result["mesh_artifact"]["mesh_uri"],
+            "mcp://meshing/workspace/runs/test/mesh.msh",
+        )
+
     def test_terminal_paths_select_only_artifact_store(self):
         result = nodes.select_artifact_store({"agent_status": "needs_clarification"})
 

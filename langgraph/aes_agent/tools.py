@@ -9,6 +9,9 @@ from aes_agent.artifact_store import persist_artifacts
 from aes_agent.fenics_code import execute_fenics_code_solve
 from aes_agent.fenics_mcp import execute_fenics_forward_solve
 from aes_agent.logging_config import log_content_preview
+from aes_agent.meshing import execute_mesh_geometry, mesh_artifact_from_state
+from aes_agent.specs.pde import PDEProblemSpec
+from aes_agent.specs.validation import cross_validate_pde_mesh
 from aes_agent.state import AgentState
 from aes_agent.visualization import build_visualization_artifacts
 
@@ -92,7 +95,41 @@ def run_fenics_forward_solve(state: AgentState) -> Dict[str, Any]:
 
 
 def run_fenics_code_solve(state: AgentState) -> Dict[str, Any]:
+    for result in state.get("tool_results", []):
+        if result.get("tool_name") == "mesh_geometry" and result.get("status") == "failed":
+            return {
+                "status": "failed",
+                "execution_mode": "failed",
+                "errors": ["FEniCS compilation was stopped because meshing failed."],
+                "warnings": [],
+            }
+    mesh = mesh_artifact_from_state(state)
+    pde_value = state.get("pde_spec")
+    if mesh is not None and mesh.quality.status == "valid" and isinstance(pde_value, dict):
+        try:
+            compatibility = cross_validate_pde_mesh(
+                PDEProblemSpec.model_validate(pde_value),
+                mesh,
+            )
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "execution_mode": "failed",
+                "errors": [f"PDE and mesh compatibility validation failed: {exc}"],
+                "warnings": [],
+            }
+        if compatibility.status != "valid":
+            return {
+                "status": "failed",
+                "execution_mode": "failed",
+                "errors": compatibility.errors,
+                "warnings": compatibility.warnings,
+            }
     return execute_fenics_code_solve(state)
+
+
+def run_mesh_geometry(state: AgentState) -> Dict[str, Any]:
+    return execute_mesh_geometry(state)
 
 
 def store_artifacts(state: AgentState) -> Dict[str, Any]:
@@ -157,6 +194,16 @@ VISUALIZATION_POSTPROCESS_SCHEMA: Dict[str, Any] = {
 }
 
 
+MESH_GEOMETRY_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "Compiles state.geometry_spec through the governed meshing MCP provider "
+        "and returns a validated MeshArtifact with semantic physical tags."
+    ),
+    "required_state": ["geometry_spec", "typed_validation_status"],
+}
+
+
 TOOL_REGISTRY: Dict[str, ToolDefinition] = {
     "problem_spec_exporter": ToolDefinition(
         name="problem_spec_exporter",
@@ -197,6 +244,16 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
         provider="local:fenics_code",
         handler=run_fenics_code_solve,
         input_schema=FENICS_CODE_SOLVE_SCHEMA,
+    ),
+    "mesh_geometry": ToolDefinition(
+        name="mesh_geometry",
+        description=(
+            "Generate or import a validated mesh from a typed GeometrySpec. "
+            "Supports Gmsh/OpenCASCADE CSG, STEP/BREP/IGES, and MSH/XDMF."
+        ),
+        provider="mcp:meshing",
+        handler=run_mesh_geometry,
+        input_schema=MESH_GEOMETRY_SCHEMA,
     ),
     "visualization_postprocess": ToolDefinition(
         name="visualization_postprocess",

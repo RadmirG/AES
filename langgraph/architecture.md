@@ -98,7 +98,9 @@ flowchart TD
     C -->|no| D["handle_non_engineering_request"]
     C -->|yes| E["classify_problem"]
     E --> F["extract_mathematical_structure"]
-    F --> G["check_problem_completeness"]
+    F --> FS["interpret_typed_specs"]
+    FS --> VS["validate_typed_specs"]
+    VS --> G["check_problem_completeness"]
     G --> H{"Complete enough?"}
     H -->|no| I["generate_clarification"]
     H -->|yes| J["select_formulation"]
@@ -133,6 +135,9 @@ Important state groups:
 - problem extraction: `problem_class`, `domain_info`, `pde_info`,
   `coefficient_info`, `source_info`, `bc_info`, `initial_condition_info`,
   `time_info`,
+- typed contracts: `pde_spec`, `geometry_spec`, `typed_spec_source`,
+  `typed_spec_ambiguities`, `typed_validation_status`, `typed_validation_errors`,
+  `typed_validation_warnings`, `mesh_artifact`, and `compilation_plan`,
 - clarification and validation: `missing_information`,
   `clarification_questions`, `selected_formulation`, `validation_status`,
   `validation_errors`,
@@ -144,6 +149,44 @@ Important state groups:
 
 Long-term memory, chat history, retrieval indexes, and project knowledge should
 live outside `AgentState` and be injected through explicit nodes/tools.
+
+```mermaid
+classDiagram
+    class AgentState {
+        pde_spec
+        geometry_spec
+        typed_spec_ambiguities
+        typed_validation_status
+        mesh_artifact
+        compilation_plan
+        tool_results
+    }
+    class PDEProblemSpec {
+        equation
+        boundary_conditions
+        initial_condition
+        time
+    }
+    class GeometrySpec {
+        source
+        regions
+        mesh
+    }
+    class MeshArtifact {
+        mesh_uri
+        tag_map
+        quality
+    }
+    class CompilationPlan {
+        backend
+        numerical_ir
+        capability_errors
+    }
+    AgentState --> PDEProblemSpec
+    AgentState --> GeometrySpec
+    AgentState --> MeshArtifact
+    AgentState --> CompilationPlan
+```
 
 ## Solution Modes
 
@@ -171,6 +214,8 @@ important tools are:
 
 - `fenics_code_solve`: generate/check/execute DOLFINx Python in a provider
   sandbox,
+- `mesh_geometry`: compile CSG or CAD and import/validate existing meshes
+  through the meshing MCP provider,
 - `fenics_forward_solve`: older deterministic MCP recipe path for constrained
   smoke workflows,
 - `visualization_postprocess`: create preview and viewer metadata from solver
@@ -180,7 +225,8 @@ important tools are:
 ```mermaid
 flowchart TD
     A["select_tools"] --> B["execute_tools"]
-    B --> C["fenics_code_solve"]
+    B --> M["mesh_geometry"]
+    M --> C["fenics_code_solve"]
     B --> D["visualization_postprocess"]
     B --> E["artifact_store"]
     C --> F["FEniCS code-runner MCP"]
@@ -190,39 +236,47 @@ flowchart TD
     H --> E
 ```
 
-## Generated-Code Lifecycle
+## Typed Compilation Lifecycle
 
-The LLM returns only raw Python source. It does not own the JSON contract.
-AES normalizes and checks the source, creates the structured
-`FenicsCodeCandidate`, and then executes it. User-provided code is checked but
-is not auto-rewritten.
+Supported problems use typed specifications and the versioned deterministic
+DOLFINx compiler. The LLM interprets engineering semantics but does not author
+the production solver implementation. User-provided code remains a separately
+governed mode. Unsupported compiler capabilities return a capability report by
+default and can enter free-form LLM generation only when explicitly enabled.
 
 ```mermaid
 flowchart TD
-    A["Validated numerical recipe"] --> B["LLM generates raw solve.py"]
-    B --> C["Normalize response<br/>remove fences and prose"]
-    C --> D{"Usable Python found?"}
-    D -->|"no, attempts remain"| E["Retry with exact failure classification"]
-    E --> B
-    D -->|"no, exhausted"| F["Deterministic fallback<br/>supported simple PDEs only"]
-    D -->|yes| G["Python AST syntax check"]
-    F --> G
-    G -->|invalid| H["LLM repair with syntax report"]
-    H --> C
-    G -->|valid| I["FEniCS safety allowlist"]
-    I -->|unsafe| H
-    I -->|safe| J["AES builds FenicsCodeCandidate"]
-    J --> K["Execute in fenics-code-runner"]
-    K --> L{"Return code 0?"}
-    L -->|no| M["LLM repair with stdout/stderr/diagnostics"]
-    M --> C
-    L -->|"no, repairs exhausted"| F
-    L -->|yes| N["Diagnostics, sampled u(x,y,t), artifact refs"]
+    A["Natural-language PDE request"] --> B["Typed PDEProblemSpec"]
+    A --> C["Typed GeometrySpec"]
+    B --> D["PDE schema and mathematical validation"]
+    C --> E["Geometry validation"]
+    E --> F["Meshing MCP"]
+    F --> G["Validated MeshArtifact"]
+    D --> H["PDE and mesh cross-validation"]
+    G --> H
+    H --> I["CompilationPlan and NumericalIR"]
+    I --> J{"Compiler capability?"}
+    J -->|supported| K["Versioned DOLFINx compiler"]
+    K --> L["Syntax and safety preflight"]
+    L --> M["Execute in fenics-code-runner"]
+    M --> N["Diagnostics and artifact refs"]
+    J -->|unsupported| O["Capability report"]
+    O --> P{"Experimental LLM code enabled?"}
+    P -->|false| Q["Stop with capability report"]
+    P -->|true| R["Bounded experimental LLM-code sandbox"]
 ```
 
-Initial raw-code generation is bounded by
+The initial compiler release supports stationary and transient scalar
+diffusion with constant coefficients, constant sources, constant Dirichlet
+data, rectangle primitives, and validated external meshes. Unsupported
+operators produce capability errors and may be routed explicitly to the
+experimental path.
+
+Experimental raw-code generation remains bounded by
 `DOLFINX_CODE_GENERATION_ATTEMPTS`; static/runtime repair is independently
-bounded by `DOLFINX_CODE_REPAIR_ATTEMPTS`.
+bounded by `DOLFINX_CODE_REPAIR_ATTEMPTS`. It is disabled by default through
+`AES_EXPERIMENTAL_LLM_CODE_ENABLED=false`. Deterministic compiler failures do
+not enter LLM repair unless this flag is explicitly enabled.
 The generic checker lives in `aes_agent/python_checker.py` and is intentionally
 not FEniCS-specific: it extracts raw Python, strips invalid control characters,
 and catches syntax errors before the stricter FEniCS import/call allowlist

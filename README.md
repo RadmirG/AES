@@ -2,9 +2,10 @@
 
 AES is a research prototype for turning natural-language engineering problems
 into governed numerical workflows. Its first end-to-end use case is solving
-partial differential equations with DOLFINx/FEniCS: AES interprets the problem,
-selects an output mode, generates and validates Python code, executes it in an
-isolated provider, and presents diagnostics and artifacts in a browser
+partial differential equations with DOLFINx/FEniCS: AES interprets PDE and
+geometry semantics into typed contracts, validates them, generates or imports
+a governed mesh, compiles supported problems into DOLFINx code, executes them
+in an isolated provider, and presents diagnostics and artifacts in a browser
 workbench.
 
 The project combines explicit LangGraph orchestration with local or
@@ -21,6 +22,12 @@ visualization.
 - Detects whether a request is an applicable engineering/PDE task.
 - Extracts the domain, equation, coefficients, source terms, boundary and
   initial conditions, and time parameters.
+- Produces independently validated `PDEProblemSpec` and `GeometrySpec`
+  contracts and checks their boundary-region compatibility.
+- Generates Gmsh/OpenCASCADE meshes for primitives and CSG, imports
+  STEP/BREP/IGES CAD, and validates or converts MSH/XDMF meshes.
+- Declares STL/OBJ/PLY surface reconstruction as an explicit capability
+  placeholder; AES does not guess a volume mesh from scan data.
 - Asks for missing information or the desired output when the request is
   ambiguous.
 - Produces formulation summaries, generated DOLFINx code, or executed solves.
@@ -49,6 +56,7 @@ flowchart LR
     subgraph COMPUTE["Model and Numerical Compute"]
         model["LLM provider<br/>Ollama or vLLM"]
         mcp["MCP provider layer"]
+        meshing["Gmsh/OpenCASCADE<br/>meshing provider"]
         fenics["FEniCS/DOLFINx<br/>code runner"]
     end
 
@@ -64,6 +72,7 @@ flowchart LR
     workflow --> tools
     workflow --> database
     tools --> mcp
+    mcp --> meshing
     mcp --> fenics
     tools --> artifacts
     artifacts --> workbench
@@ -78,19 +87,20 @@ execution; the artifact store owns result publication.
 
 ```mermaid
 flowchart TD
-    request["Engineering request"] --> gate["Intent and output-mode detection"]
-    gate --> extract["Problem extraction and completeness check"]
-    extract --> validate["Formulation validation"]
-    validate --> generate["Generate DOLFINx solve.py"]
-    generate --> safety["Static code safety and syntax checks"]
-    safety -->|"safe"| execute["Execute in FEniCS container through MCP"]
-    safety -->|"unsafe or invalid"| repair["Bounded LLM repair loop"]
-    repair --> generate
-    execute --> review{"Run successful?"}
-    review -->|"no"| repair
-    review -->|"yes"| visualize["Diagnostics and visualization post-processing"]
+    request["Engineering request"] --> extract["LLM interpretation"]
+    extract --> pde["Validated PDEProblemSpec"]
+    extract --> geometry["Validated GeometrySpec"]
+    geometry --> mesh["Meshing MCP and MeshArtifact"]
+    pde --> compatible["PDE and mesh compatibility"]
+    mesh --> compatible
+    compatible --> compiler["Versioned DOLFINx compiler"]
+    compiler --> safety["Syntax and API preflight"]
+    safety --> execute["Execute in FEniCS container through MCP"]
+    execute --> visualize["Diagnostics and visualization post-processing"]
     visualize --> store["Artifact store"]
     store --> response["Workbench response and result links"]
+    compiler -->|"unsupported and explicitly enabled"| experimental["Optional LLM-code sandbox"]
+    experimental --> store
 ```
 
 See [the central architecture document](docs/architecture.md) for component
@@ -118,7 +128,7 @@ AES/
 | --- | --- |
 | Orchestration and API | Python, LangGraph, LangChain integrations, FastAPI, Pydantic |
 | Models | Ollama for local development, vLLM/OpenAI-compatible API for Kubernetes |
-| Engineering tools | MCP, DOLFINx/FEniCS, PETSc, UFL |
+| Engineering tools | MCP, Gmsh, OpenCASCADE, meshio, DOLFINx/FEniCS, PETSc, UFL |
 | Web application | React, TypeScript, Vite, Nginx, VTK.js |
 | Persistence | PostgreSQL 16, pgvector, versioned SQL migrations, filesystem artifact store |
 | Deployment | Docker Compose, Docker, Kubernetes, Kustomize, NVIDIA GPUs |
@@ -197,12 +207,13 @@ The local service endpoints are:
 | AES Workbench | `http://127.0.0.1:3000` |
 | LangGraph API | `http://127.0.0.1:8002` |
 | Ollama | `http://127.0.0.1:11435` |
+| Meshing MCP | `http://127.0.0.1:8007` with the `fenics` profile |
 
 ## Optional FEniCS Execution
 
-The basic stack can classify, plan, and generate results without starting the
-FEniCS profile. Live numerical execution requires the external
-`dolfinx-mcp:latest` base image and the AES FEniCS code-runner image.
+The basic stack can classify and plan without starting the FEniCS profile.
+Live numerical execution starts the meshing MCP, external `dolfinx-mcp:latest`
+image, and AES FEniCS code runner together through the `fenics` profile.
 
 After preparing the provider image, start the full development stack with:
 

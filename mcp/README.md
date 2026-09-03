@@ -22,6 +22,7 @@ mcp/
   providers.yaml              # provider index
   providers/
     fenics/provider.yaml      # provider-owned governance manifest
+    meshing/provider.yaml     # geometry and mesh compilation
     retrieval/provider.yaml
     filesystem/provider.yaml
   contracts/
@@ -33,6 +34,7 @@ provider-owned Compose files:
 ```text
 mcp/compose.mcp.yaml
   -> providers/fenics/compose.yaml
+  -> providers/meshing/compose.yaml
   -> providers/retrieval/compose.yaml
   -> providers/filesystem/compose.yaml
 ```
@@ -45,6 +47,7 @@ The central `providers.yaml` is only a provider index:
 ```text
 mcp/providers.yaml
   -> providers/fenics/provider.yaml
+  -> providers/meshing/provider.yaml
   -> providers/retrieval/provider.yaml
   -> providers/filesystem/provider.yaml
 ```
@@ -75,9 +78,17 @@ DOLFINX_CODE_EXECUTE=true
 DOLFINX_CODE_MCP_URL=http://fenics-code-runner:8000/mcp
 ```
 
-Production defaults to live FEniCS execution and should be started with the
-`fenics` profile. Development defaults to planning mode unless
-`DOLFINX_MCP_EXECUTE=true` is exported.
+Typed geometry execution uses the meshing provider:
+
+```text
+MESHING_EXECUTE=true
+MESHING_MCP_URL=http://meshing-mcp:8000/mcp
+```
+
+Production defaults to live meshing and FEniCS execution and should be started
+with the `fenics` profile. That profile starts `meshing-mcp`, `dolfinx-mcp`,
+and `fenics-code-runner`. Development defaults to planning mode unless the
+corresponding execution flags are enabled.
 
 ## First Provider
 

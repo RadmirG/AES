@@ -22,7 +22,7 @@
     "summary": {"type": "string"},
     "code_origin": {
       "type": "string",
-      "enum": ["llm", "llm_repair", "user", "deterministic_fallback", "unknown"]
+      "enum": ["llm", "llm_repair", "user", "deterministic_compiler", "deterministic_fallback", "unknown"]
     },
     "source_file": {"const": "solve.py"},
     "python_code": {"type": "string"},
@@ -50,7 +50,7 @@
       "required": ["syntax_status", "safety_status", "errors", "warnings"],
       "properties": {
         "syntax_status": {"type": "string", "enum": ["valid", "invalid", "unknown"]},
-        "safety_status": {"type": "string", "enum": ["safe", "unsafe", "unknown"]},
+        "safety_status": {"type": "string", "enum": ["safe", "unsafe", "not_checked", "unknown"]},
         "errors": {"type": "array", "items": {"type": "string"}},
         "warnings": {"type": "array", "items": {"type": "string"}}
       },

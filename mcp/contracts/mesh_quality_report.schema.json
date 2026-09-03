@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aes.local/contracts/mesh_quality_report.schema.json",
+  "title": "AES Mesh Quality Report",
+  "type": "object",
+  "required": ["schema_version", "status", "element_count", "node_count", "metrics", "errors", "warnings"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "status": {"enum": ["valid", "invalid", "not_evaluated"]},
+    "element_count": {"type": "integer", "minimum": 0},
+    "node_count": {"type": "integer", "minimum": 0},
+    "minimum_quality": {"type": ["number", "null"]},
+    "maximum_quality": {"type": ["number", "null"]},
+    "metrics": {"type": "object", "additionalProperties": {"type": "number"}},
+    "errors": {"type": "array", "items": {"type": "string"}},
+    "warnings": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

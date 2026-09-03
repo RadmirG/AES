@@ -19,12 +19,14 @@ from aes_agent.nodes import (
     generate_formulation_summary,
     handle_non_engineering_request,
     ingest_problem,
+    interpret_typed_specs,
     prepare_numerical_recipe,
     select_artifact_store,
     select_formulation,
     select_solution_mode,
     select_tools,
     validate_formulation,
+    validate_typed_specs,
 )
 from aes_agent.routing import (
     route_after_intent,
@@ -91,6 +93,10 @@ def _state_log_view(state: AgentState) -> Dict[str, Any]:
         "bc_info": state.get("bc_info", ""),
         "initial_condition_info": state.get("initial_condition_info", ""),
         "time_info": state.get("time_info", ""),
+        "typed_spec_source": state.get("typed_spec_source", ""),
+        "typed_spec_ambiguities": state.get("typed_spec_ambiguities", []),
+        "typed_validation_status": state.get("typed_validation_status", ""),
+        "typed_validation_errors": state.get("typed_validation_errors", []),
         "missing_information": state.get("missing_information", []),
         "solution_mode": state.get("solution_mode", ""),
         "selected_formulation": state.get("selected_formulation", ""),
@@ -111,6 +117,8 @@ builder.add_node("detect_request_intent", _logged_node("detect_request_intent", 
 builder.add_node("handle_non_engineering_request", _logged_node("handle_non_engineering_request", handle_non_engineering_request))
 builder.add_node("classify_problem", _logged_node("classify_problem", classify_problem))
 builder.add_node("extract_mathematical_structure", _logged_node("extract_mathematical_structure", extract_mathematical_structure))
+builder.add_node("interpret_typed_specs", _logged_node("interpret_typed_specs", interpret_typed_specs))
+builder.add_node("validate_typed_specs", _logged_node("validate_typed_specs", validate_typed_specs))
 builder.add_node("check_problem_completeness", _logged_node("check_problem_completeness", check_problem_completeness))
 builder.add_node("generate_clarification", _logged_node("generate_clarification", generate_clarification))
 builder.add_node("generate_formulation_summary", _logged_node("generate_formulation_summary", generate_formulation_summary))
@@ -135,7 +143,9 @@ builder.add_conditional_edges(
     },
 )
 builder.add_edge("classify_problem", "extract_mathematical_structure")
-builder.add_edge("extract_mathematical_structure", "check_problem_completeness")
+builder.add_edge("extract_mathematical_structure", "interpret_typed_specs")
+builder.add_edge("interpret_typed_specs", "validate_typed_specs")
+builder.add_edge("validate_typed_specs", "check_problem_completeness")
 builder.add_conditional_edges(
     "check_problem_completeness",
     _logged_route("route_after_completeness", route_after_completeness),

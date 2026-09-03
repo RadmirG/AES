@@ -42,6 +42,7 @@ its local governance manifest.
 ```mermaid
 flowchart TD
     A["mcp/providers.yaml"] --> B["providers/fenics/provider.yaml"]
+    A --> M["providers/meshing/provider.yaml"]
     A --> C["providers/retrieval/provider.yaml"]
     A --> D["providers/filesystem/provider.yaml"]
 
@@ -60,6 +61,7 @@ This prevents the central file from becoming a second monolith.
 ```mermaid
 flowchart TD
     A["mcp/compose.mcp.yaml"] --> B["providers/fenics/compose.yaml"]
+    A --> M["providers/meshing/compose.yaml"]
     A --> C["providers/retrieval/compose.yaml"]
     A --> D["providers/filesystem/compose.yaml"]
 ```
@@ -86,6 +88,8 @@ Each provider should contain:
 Current profiles:
 
 - `fenics`: starts FEniCS/DOLFINx providers,
+- `meshing`: starts the Gmsh/OpenCASCADE meshing provider; the existing
+  `fenics` profile also activates it for complete numerical runs,
 - `retrieval`: reserved for retrieval provider,
 - `filesystem`: reserved for filesystem provider.
 
@@ -101,6 +105,12 @@ agnostic where possible:
 - `fenics_forward_solve.schema.json`,
 - `fenics_code_candidate.schema.json`,
 - `numerical_recipe.schema.json`,
+- `pde_problem_spec.schema.json`,
+- `geometry_spec.schema.json`,
+- `mesh_artifact.schema.json`,
+- `mesh_quality_report.schema.json`,
+- `numerical_ir.schema.json`,
+- `compilation_plan.schema.json`,
 - `tool_result.schema.json`.
 
 The pattern is:

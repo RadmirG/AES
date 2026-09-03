@@ -1,0 +1,49 @@
+{
+  "server": "aes-meshing-mcp",
+  "version": "0.1.0",
+  "tools": [
+    {
+      "name": "inspect_geometry",
+      "inputSchema": {
+        "type": "object",
+        "required": ["geometry_spec"],
+        "properties": {"geometry_spec": {"type": "object"}},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "generate_mesh",
+      "inputSchema": {
+        "type": "object",
+        "required": ["geometry_spec"],
+        "properties": {"geometry_spec": {"type": "object"}},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "validate_mesh",
+      "inputSchema": {
+        "type": "object",
+        "required": ["artifact_path"],
+        "properties": {
+          "artifact_path": {"type": "string"},
+          "geometry_spec": {"type": "object"},
+          "dimension": {"type": "integer", "minimum": 1, "maximum": 3}
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "convert_mesh",
+      "inputSchema": {
+        "type": "object",
+        "required": ["artifact_path", "target_format"],
+        "properties": {
+          "artifact_path": {"type": "string"},
+          "target_format": {"enum": ["msh", "xdmf"]}
+        },
+        "additionalProperties": false
+      }
+    }
+  ]
+}

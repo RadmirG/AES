@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aes.local/contracts/pde_problem_spec.schema.json",
+  "title": "AES PDE Problem Specification",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "problem_class",
+    "spatial_dimension",
+    "equation",
+    "boundary_conditions",
+    "function_space",
+    "solver",
+    "outputs"
+  ],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "problem_class": {"const": "forward_problem"},
+    "spatial_dimension": {"type": "integer", "minimum": 1, "maximum": 3},
+    "equation": {
+      "type": "object",
+      "required": ["family", "unknown", "strong_form", "diffusion", "source"],
+      "properties": {
+        "family": {
+          "enum": ["stationary_diffusion", "transient_diffusion", "custom"]
+        },
+        "unknown": {"type": "string", "minLength": 1},
+        "strong_form": {"type": "string", "minLength": 1},
+        "diffusion": {"$ref": "#/$defs/expression"},
+        "source": {"$ref": "#/$defs/expression"}
+      },
+      "additionalProperties": false
+    },
+    "boundary_conditions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "region", "type", "value"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "region": {"type": "string", "minLength": 1},
+          "type": {"enum": ["dirichlet", "neumann", "robin"]},
+          "value": {"$ref": "#/$defs/expression"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "initial_condition": {
+      "type": ["object", "null"],
+      "properties": {"value": {"$ref": "#/$defs/expression"}},
+      "required": ["value"],
+      "additionalProperties": false
+    },
+    "time": {
+      "type": ["object", "null"],
+      "properties": {
+        "t0": {"type": "number"},
+        "t_end": {"type": "number"},
+        "dt": {"type": "number", "exclusiveMinimum": 0},
+        "scheme": {"enum": ["backward_euler", "crank_nicolson"]}
+      },
+      "required": ["t0", "t_end", "dt", "scheme"],
+      "additionalProperties": false
+    },
+    "function_space": {"type": "object"},
+    "solver": {"type": "object"},
+    "outputs": {"type": "array", "items": {"type": "string"}},
+    "assumptions": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "expression": {
+      "type": "object",
+      "required": ["kind", "value", "variables"],
+      "properties": {
+        "kind": {"enum": ["constant", "symbolic"]},
+        "value": {"type": "string", "minLength": 1},
+        "variables": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    }
+  }
+}

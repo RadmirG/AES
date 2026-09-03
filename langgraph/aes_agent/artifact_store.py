@@ -35,6 +35,9 @@ def persist_artifacts(state: AgentState) -> Dict[str, Any]:
             manifest["run_id"],
         )
         manifest["artifacts"].extend(materialized_artifacts)
+        manifest["artifacts"].extend(
+            _materialize_state_contracts(state, run_dir, manifest["run_id"])
+        )
         _write_text(
             manifest_path,
             json.dumps(manifest, indent=2, sort_keys=True),
@@ -112,6 +115,9 @@ def build_artifact_manifest(state: AgentState) -> Dict[str, Any]:
         else {}
     )
     artifacts = _collect_artifact_references(fenics_result)
+    artifacts = _dedupe_artifacts(
+        [*artifacts, *_collect_tool_artifact_references(tool_results)]
+    )
     errors = _collect_errors(tool_results, fenics_result)
     warnings = _collect_warnings(tool_results, fenics_result)
 
@@ -228,6 +234,66 @@ def _safe_artifact_filename(value: str) -> str:
     if re.search(r"[^A-Za-z0-9_.-]", name):
         return ""
     return name
+
+
+def _materialize_state_contracts(
+    state: AgentState,
+    run_dir: Path,
+    run_id: str,
+) -> List[Dict[str, Any]]:
+    contracts = (
+        ("pde_problem_spec.json", "pde_spec", "pde_specification"),
+        ("geometry_spec.json", "geometry_spec", "geometry_specification"),
+        ("mesh_artifact.json", "mesh_artifact", "mesh_artifact"),
+        ("compilation_plan.json", "compilation_plan", "compilation_plan"),
+    )
+    artifacts: List[Dict[str, Any]] = []
+    for filename, state_key, kind in contracts:
+        value = state.get(state_key)
+        if not isinstance(value, dict) or not value:
+            continue
+        target = run_dir / filename
+        _write_text(target, json.dumps(value, indent=2, sort_keys=True))
+        artifacts.append(
+            {
+                "name": filename,
+                "kind": kind,
+                "status": "stored",
+                "uri": f"aes://artifacts/{run_id}/{filename}",
+                "storage": "aes_artifact_store",
+                "media_type": "application/json",
+                "producer": {"provider": "local:aes", "tool_name": "artifact_store"},
+                "metadata": {"path": str(target)},
+            }
+        )
+    return artifacts
+
+
+def _collect_tool_artifact_references(
+    tool_results: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    artifacts: List[Dict[str, Any]] = []
+    for result in tool_results:
+        output = result.get("output") or {}
+        if not isinstance(output, dict):
+            continue
+        candidates = output.get("artifacts") or []
+        if not isinstance(candidates, list):
+            continue
+        artifacts.extend(
+            _normalize_artifact_reference(item, final_status="referenced")
+            for item in candidates
+            if isinstance(item, dict)
+        )
+    return artifacts
+
+
+def _dedupe_artifacts(artifacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    unique: Dict[tuple[str, str], Dict[str, Any]] = {}
+    for artifact in artifacts:
+        key = (str(artifact.get("uri", "")), str(artifact.get("name", "")))
+        unique[key] = artifact
+    return list(unique.values())
 
 
 def _collect_artifact_references(fenics_result: Dict[str, Any]) -> List[Dict[str, Any]]:

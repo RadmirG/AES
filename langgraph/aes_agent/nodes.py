@@ -18,6 +18,7 @@ from aes_agent.prompts import (
     validate_formulation_prompt,
 )
 from aes_agent.state import AgentState
+from aes_agent.typed_problem import interpret_problem_specs, validate_problem_specs
 from aes_agent.tools import (
     execute_tool,
     list_available_tools,
@@ -191,6 +192,14 @@ def extract_mathematical_structure(state: AgentState) -> Dict[str, Any]:
     }
 
 
+def interpret_typed_specs(state: AgentState) -> Dict[str, Any]:
+    return interpret_problem_specs(state)
+
+
+def validate_typed_specs(state: AgentState) -> Dict[str, Any]:
+    return validate_problem_specs(state)
+
+
 def check_problem_completeness(state: AgentState) -> Dict[str, Any]:
     user_text = state.get("raw_user_input", "")
     snapshot = {
@@ -208,13 +217,15 @@ def check_problem_completeness(state: AgentState) -> Dict[str, Any]:
         user_text=user_text,
         snapshot=snapshot,
     )
+    typed_errors = safe_list_of_str(state.get("typed_validation_errors"))
     deterministic_missing = _deterministic_missing_information(user_text, snapshot)
-    if not deterministic_missing and _is_supported_forward_pde_state(snapshot):
+    if not deterministic_missing and not typed_errors and _is_supported_forward_pde_state(snapshot):
         return {"missing_information": []}
 
     result = ollama_json(prompt)
     missing_information = safe_list_of_str(result.get("missing_information"))
     missing_information.extend(deterministic_missing)
+    missing_information.extend(typed_errors)
 
     return {
         "missing_information": _dedupe(missing_information)
@@ -519,7 +530,15 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
         )
         and "fenics_code_solve" in available_tools
     ):
-        selected_tools = ["fenics_code_solve"]
+        selected_tools = []
+        if (
+            state.get("solution_mode") != "execute_user_fenics_code"
+            and state.get("typed_validation_status") == "valid"
+            and state.get("geometry_spec")
+            and "mesh_geometry" in available_tools
+        ):
+            selected_tools.append("mesh_geometry")
+        selected_tools.append("fenics_code_solve")
         if visualization_available:
             selected_tools.append("visualization_postprocess")
         if "artifact_store" in available_tools:
@@ -591,10 +610,36 @@ def select_artifact_store(state: AgentState) -> Dict[str, Any]:
 def execute_tools(state: AgentState) -> Dict[str, Any]:
     tool_results = []
     working_state = dict(state)
+    mesh_artifact: dict[str, Any] = {}
+    mesh_validation_status = ""
+    mesh_validation_errors: list[str] = []
+    compilation_plan = state.get("compilation_plan", {})
     for tool_name in state.get("selected_tools", []):
         working_state["tool_results"] = tool_results
         result = execute_tool(tool_name, working_state)
         tool_results.append(result)
+        if tool_name == "mesh_geometry":
+            output = result.get("output") or {}
+            candidate = output.get("mesh_artifact") if isinstance(output, dict) else None
+            if isinstance(candidate, dict):
+                mesh_artifact = candidate
+                working_state["mesh_artifact"] = candidate
+                quality = candidate.get("quality") or {}
+                mesh_validation_status = str(quality.get("status") or "")
+                mesh_validation_errors = safe_list_of_str(quality.get("errors"))
+                working_state["mesh_validation_status"] = mesh_validation_status
+                working_state["mesh_validation_errors"] = mesh_validation_errors
+            if result.get("status") == "failed" and not mesh_validation_errors:
+                mesh_validation_status = "invalid"
+                mesh_validation_errors = safe_list_of_str(output.get("errors"))
+                working_state["mesh_validation_status"] = mesh_validation_status
+                working_state["mesh_validation_errors"] = mesh_validation_errors
+        if tool_name == "fenics_code_solve":
+            output = result.get("output") or {}
+            candidate_plan = output.get("compilation_plan") if isinstance(output, dict) else None
+            if isinstance(candidate_plan, dict) and candidate_plan:
+                compilation_plan = candidate_plan
+                working_state["compilation_plan"] = candidate_plan
     tool_errors = [
         f"{result['tool_name']}: {result['error']}"
         for result in tool_results
@@ -612,6 +657,10 @@ def execute_tools(state: AgentState) -> Dict[str, Any]:
         "tool_execution_status": tool_execution_status,
         "tool_results": tool_results,
         "tool_errors": tool_errors,
+        "mesh_artifact": mesh_artifact,
+        "mesh_validation_status": mesh_validation_status,
+        "mesh_validation_errors": mesh_validation_errors,
+        "compilation_plan": compilation_plan,
     }
 
 
@@ -834,6 +883,22 @@ def _append_tool_result_section(
         message = output.get("message")
         if message:
             lines.append(f"  Message: {_artifact_value(message, limit=320)}")
+
+        mesh_artifact = output.get("mesh_artifact")
+        if isinstance(mesh_artifact, dict):
+            quality = mesh_artifact.get("quality") or {}
+            lines.append(
+                "  Mesh: "
+                f"source={_artifact_value(mesh_artifact.get('source_kind'))}, "
+                f"dimension={_artifact_value(mesh_artifact.get('dimension'))}, "
+                f"cells={_artifact_value(quality.get('element_count'))}, "
+                f"nodes={_artifact_value(quality.get('node_count'))}"
+            )
+            tag_map = mesh_artifact.get("tag_map") or {}
+            if isinstance(tag_map, dict) and tag_map:
+                lines.append(
+                    f"  Mesh regions: {_artifact_list(sorted(tag_map), limit=320)}"
+                )
 
         manifest = output.get("manifest")
         if isinstance(manifest, dict):

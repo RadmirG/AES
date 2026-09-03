@@ -1,6 +1,8 @@
 providers:
   - id: fenics
     manifest: providers/fenics/provider.yaml
+  - id: meshing
+    manifest: providers/meshing/provider.yaml
   - id: retrieval
     manifest: providers/retrieval/provider.yaml
   - id: filesystem

@@ -1,0 +1,24 @@
+services:
+  meshing-mcp:
+    build: .
+    image: aes-meshing-mcp:latest
+    container_name: meshing-mcp
+    restart: unless-stopped
+    profiles:
+      - meshing
+      - fenics
+    ports:
+      - "127.0.0.1:8007:8000"
+    volumes:
+      - ./workspace:/workspace
+    environment:
+      - MESHING_WORKSPACE=/workspace
+      - MESHING_LOG_LEVEL=${MESHING_LOG_LEVEL:-INFO}
+      - MESHING_LOG_CONTENT=${MESHING_LOG_CONTENT:-false}
+      - MESHING_MAX_ELEMENTS=${MESHING_MAX_ELEMENTS:-2000000}
+    networks:
+      - ai-stack-net
+
+networks:
+  ai-stack-net:
+    external: true

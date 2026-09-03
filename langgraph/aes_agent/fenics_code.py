@@ -9,8 +9,10 @@ import re
 import time
 from typing import Any, Dict, List, Protocol
 
+from aes_agent.compiler import build_compilation_plan, compile_dolfinx
 from aes_agent.helpers import ollama_text, safe_list_of_str
 from aes_agent.logging_config import log_content_preview
+from aes_agent.meshing import mesh_artifact_from_state, mesh_runner_inputs
 from aes_agent.prompts import (
     generate_fenics_dolfinx_code_prompt,
     repair_fenics_dolfinx_code_prompt,
@@ -22,11 +24,15 @@ from aes_agent.python_checker import (
     strip_invalid_python_control_chars,
 )
 from aes_agent.state import AgentState
+from aes_agent.specs.geometry import GeometrySpec
+from aes_agent.specs.pde import PDEProblemSpec
+from aes_agent.specs.validation import cross_validate_pde_mesh, validate_geometry_spec, validate_pde_spec
 
 
 FENICS_CODE_TOOL_NAME = "fenics_code_solve"
 FENICS_CODE_PROVIDER = "local:fenics_code"
 FENICS_CODE_WORKFLOW = "llm_generated_dolfinx_script_v1"
+FENICS_TYPED_WORKFLOW = "typed_dolfinx_compiler_v1"
 DEFAULT_SCRIPT_NAME = "solve.py"
 logger = logging.getLogger("aes_agent.fenics_code")
 
@@ -114,10 +120,11 @@ class MCPCodeExecutionClient(Protocol):
 
 
 def build_fenics_code_recipe(state: AgentState) -> Dict[str, Any]:
+    typed = state.get("typed_validation_status") == "valid"
     return {
         "schema_version": "1.0",
         "provider": FENICS_CODE_PROVIDER,
-        "workflow": FENICS_CODE_WORKFLOW,
+        "workflow": FENICS_TYPED_WORKFLOW if typed else FENICS_CODE_WORKFLOW,
         "problem_type": state.get("pde_info", ""),
         "solution_mode": state.get("solution_mode", "generate_fenics_code"),
         "execution_requested": state.get("solution_mode") in {
@@ -131,7 +138,7 @@ def build_fenics_code_recipe(state: AgentState) -> Dict[str, Any]:
             "code_origin": (
                 "user"
                 if state.get("solution_mode") == "execute_user_fenics_code"
-                else "llm"
+                else ("deterministic_compiler" if typed else "llm")
             ),
         },
         "problem": {
@@ -152,7 +159,11 @@ def build_fenics_code_recipe(state: AgentState) -> Dict[str, Any]:
             "solution.png",
         ],
         "assumptions": [
-            "Generate a complete DOLFINx Python script before attempting execution.",
+            (
+                "Compile validated typed specifications into DOLFINx Python."
+                if typed
+                else "Generate a complete DOLFINx Python script before attempting execution."
+            ),
             "Execute generated code only inside a FEniCS/DOLFINx provider sandbox.",
         ],
     }
@@ -183,7 +194,31 @@ def execute_fenics_code_solve(
     else:
         generation = generate_dolfinx_script(state, recipe)
 
-    max_repair_attempts = 0 if is_user_code else _repair_attempt_limit()
+    if generation.get("status") == "unsupported":
+        errors = safe_list_of_str(generation.get("capability_errors"))
+        safety = {
+            "status": "not_checked",
+            "syntax_status": "unknown",
+            "errors": errors,
+            "warnings": [],
+        }
+        return _build_output(
+            recipe=recipe,
+            generation=generation,
+            safety=safety,
+            execution_mode="unsupported",
+            status="unsupported",
+            errors=errors,
+            warnings=generation.get("warnings", []),
+        )
+
+    compiler_managed = (
+        generation.get("code_origin") == "deterministic_compiler"
+        and not _experimental_llm_code_enabled()
+    )
+    max_repair_attempts = (
+        0 if is_user_code or compiler_managed else _repair_attempt_limit()
+    )
     repair_attempts: List[Dict[str, Any]] = []
 
     execution_requested = bool(recipe.get("execution_requested"))
@@ -243,6 +278,7 @@ def execute_fenics_code_solve(
 
             if (
                 not is_user_code
+                and not compiler_managed
                 and not generation.get("used_fallback_after_repair")
                 and _can_use_deterministic_fallback(state)
             ):
@@ -309,7 +345,11 @@ def execute_fenics_code_solve(
                 warnings=generation["warnings"],
             )
 
-        execution = _execute_code_via_mcp(client, code)
+        execution = _execute_code_via_mcp(
+            client,
+            code,
+            inputs=mesh_runner_inputs(mesh_artifact_from_state(state)),
+        )
         errors = execution.get("errors", [])
         logger.info(
             "FEniCS code execution returned: errors=%s tool=%s",
@@ -359,6 +399,7 @@ def execute_fenics_code_solve(
 
         if (
             not is_user_code
+            and not compiler_managed
             and not generation.get("used_fallback_after_repair")
             and _can_use_deterministic_fallback(state)
         ):
@@ -386,6 +427,16 @@ def generate_dolfinx_script(
     state: AgentState,
     recipe: Dict[str, Any],
 ) -> Dict[str, Any]:
+    compiled = _typed_compiler_generation(state, recipe)
+    if compiled is not None and compiled.get("status") != "unsupported":
+        return compiled
+    if compiled is not None and not _experimental_llm_code_enabled():
+        return compiled
+    if compiled is not None:
+        logger.warning(
+            "Typed compiler is unsupported; entering explicitly enabled experimental LLM-code path."
+        )
+
     snapshot = _state_snapshot(state, recipe)
     logger.info(
         "DOLFINx script generation started: pde=%s solution_mode=%s",
@@ -472,6 +523,101 @@ def generate_dolfinx_script(
         [attempt["failure_type"] for attempt in generation_attempts],
     )
     return fallback
+
+
+def _typed_compiler_generation(
+    state: AgentState,
+    recipe: Dict[str, Any],
+) -> Dict[str, Any] | None:
+    if state.get("typed_validation_status") != "valid":
+        return None
+    pde_value = state.get("pde_spec")
+    geometry_value = state.get("geometry_spec")
+    if not isinstance(pde_value, dict) or not isinstance(geometry_value, dict):
+        return None
+    pde, pde_report = validate_pde_spec(pde_value)
+    geometry, geometry_report = validate_geometry_spec(geometry_value)
+    if pde is None or geometry is None:
+        return _unsupported_compiler_generation(
+            recipe,
+            ["Typed PDE or geometry contract could not be parsed for compilation."],
+        )
+    if pde_report.status != "valid" or geometry_report.status != "valid":
+        return _unsupported_compiler_generation(
+            recipe,
+            [*pde_report.errors, *geometry_report.errors],
+        )
+
+    mesh = mesh_artifact_from_state(state)
+    if mesh is not None and mesh.quality.status == "valid":
+        compatibility = cross_validate_pde_mesh(pde, mesh)
+        if compatibility.status != "valid":
+            logger.warning("Typed compiler mesh compatibility failed: %s", compatibility.errors)
+            return _unsupported_compiler_generation(recipe, compatibility.errors)
+    plan = build_compilation_plan(pde, geometry, mesh)
+    if plan.status != "ready":
+        logger.info("Typed compiler capability unsupported: errors=%s", plan.capability_errors)
+        return _unsupported_compiler_generation(
+            recipe,
+            plan.capability_errors,
+            compilation_plan=plan.model_dump(mode="json"),
+        )
+    try:
+        code = compile_dolfinx(pde, geometry, plan, mesh)
+    except ValueError as exc:
+        logger.warning("Typed DOLFINx compilation failed: %s", exc)
+        return _unsupported_compiler_generation(recipe, [str(exc)])
+    result = {
+        "summary": (
+            "Compiled the validated PDEProblemSpec and GeometrySpec with the "
+            "versioned deterministic DOLFINx compiler."
+        ),
+        "python_code": code,
+        "code_origin": "deterministic_compiler",
+        "model": "",
+        "expected_artifacts": _expected_artifacts(recipe),
+        "warnings": [*pde_report.warnings, *geometry_report.warnings],
+        "generation_attempts": [],
+        "repair_attempts": [],
+        "compilation_plan": plan.model_dump(mode="json"),
+    }
+    logger.info(
+        "Typed DOLFINx compilation completed: compiler_version=%s code_chars=%s mesh_uri=%s",
+        plan.compiler_version,
+        len(code),
+        plan.mesh_uri,
+    )
+    return result
+
+
+def _unsupported_compiler_generation(
+    recipe: Dict[str, Any],
+    errors: List[str],
+    *,
+    compilation_plan: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    return {
+        "status": "unsupported",
+        "summary": "The typed DOLFINx compiler does not support this validated problem yet.",
+        "python_code": "",
+        "code_origin": "deterministic_compiler",
+        "model": "",
+        "expected_artifacts": _expected_artifacts(recipe),
+        "warnings": [],
+        "generation_attempts": [],
+        "repair_attempts": [],
+        "capability_errors": list(errors),
+        "compilation_plan": compilation_plan or {},
+    }
+
+
+def _experimental_llm_code_enabled() -> bool:
+    return os.getenv("AES_EXPERIMENTAL_LLM_CODE_ENABLED", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def build_user_code_candidate(state: AgentState) -> Dict[str, Any]:
@@ -1187,6 +1333,8 @@ def _default_code_execution_client() -> MCPCodeExecutionClient | None:
 def _execute_code_via_mcp(
     client: MCPCodeExecutionClient,
     code: str,
+    *,
+    inputs: List[Dict[str, str]] | None = None,
 ) -> Dict[str, Any]:
     logger.info("FEniCS MCP code execution discovery started.")
     available_tools = {
@@ -1224,6 +1372,7 @@ def _execute_code_via_mcp(
             "filename": DEFAULT_SCRIPT_NAME,
             "code": code,
             "timeout_seconds": int(os.getenv("DOLFINX_CODE_TIMEOUT", "300")),
+            "inputs": list(inputs or []),
         },
     )
     errors = _mcp_errors_from_result(result)
@@ -1383,6 +1532,7 @@ def _build_output(
         "safety_warnings": safety["warnings"],
         "repair_attempt_count": len(repair_attempts),
         "repair_attempts": repair_attempts,
+        "compilation_plan": generation.get("compilation_plan", {}),
         "execution": execution,
         "fenics_result": {
             "schema_version": "1.0",

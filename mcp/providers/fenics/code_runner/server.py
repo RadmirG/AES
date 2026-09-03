@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -19,6 +20,7 @@ SERVER_VERSION = "0.1.0"
 TOOL_NAME = "run_python_script"
 DEFAULT_WORKSPACE = "/workspace"
 DEFAULT_FILENAME = "solve.py"
+MESHING_URI_PREFIX = "mcp://meshing/workspace/"
 LOG_FORMAT = "%(component)s | %(asctime)s | %(levelname)s | %(name)s | %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 
@@ -226,6 +228,17 @@ def _handle_request(method: str, params: dict[str, Any]) -> dict[str, Any]:
                                 "maximum": _max_timeout_seconds(),
                                 "default": _default_timeout_seconds(),
                             },
+                            "inputs": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "required": ["uri", "target"],
+                                    "properties": {
+                                        "uri": {"type": "string"},
+                                        "target": {"type": "string"},
+                                    },
+                                },
+                            },
                         },
                     },
                 }
@@ -261,12 +274,14 @@ def _run_python_script(arguments: dict[str, Any]) -> dict[str, Any]:
     run_id = _build_run_id()
     run_dir = workspace / "code-runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
+    inputs = _materialize_inputs(arguments.get("inputs"), run_dir)
     logger.info(
-        "Python script run started: run_id=%s filename=%s code_chars=%s timeout=%s run_dir=%s",
+        "Python script run started: run_id=%s filename=%s code_chars=%s timeout=%s inputs=%s run_dir=%s",
         run_id,
         filename,
         len(code),
         timeout_seconds,
+        len(inputs),
         run_dir,
     )
     _log_content_preview("Python script code", {"filename": filename, "code": code})
@@ -420,6 +435,35 @@ def _workspace_root() -> Path:
     root = Path(os.getenv("FENICS_RUNNER_WORKSPACE", DEFAULT_WORKSPACE)).resolve()
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def _materialize_inputs(value: Any, run_dir: Path) -> list[str]:
+    if value in (None, []):
+        return []
+    if not isinstance(value, list):
+        raise RpcError(-32602, "inputs must be an array.")
+    input_root = Path(os.getenv("FENICS_RUNNER_INPUT_ROOT", "/mesh-inputs")).resolve()
+    copied: list[str] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise RpcError(-32602, "Each input must be an object.")
+        uri = str(item.get("uri", ""))
+        if not uri.startswith(MESHING_URI_PREFIX):
+            raise RpcError(-32602, "Only meshing-provider input URIs are accepted.")
+        relative = uri.removeprefix(MESHING_URI_PREFIX)
+        source = (input_root / relative).resolve()
+        if source != input_root and input_root not in source.parents:
+            raise RpcError(-32602, "Input URI escapes the allowed input workspace.")
+        if not source.is_file():
+            raise RpcError(-32602, f"Input artifact does not exist: {uri}")
+        target_name = Path(str(item.get("target", ""))).name
+        if not target_name or target_name != str(item.get("target", "")):
+            raise RpcError(-32602, "Input target must be a plain filename.")
+        destination = run_dir / target_name
+        shutil.copy2(source, destination)
+        copied.append(target_name)
+        logger.info("Provider input materialized: uri=%s target=%s", uri, destination)
+    return copied
 
 
 def _safe_filename(value: str) -> str:

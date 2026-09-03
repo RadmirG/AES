@@ -1,0 +1,23 @@
+id: meshing
+name: AES Geometry and Meshing MCP Provider
+status: implemented_not_live_validated
+enabled_by_default: false
+profile: meshing
+transport: streamable-http
+url: http://meshing-mcp:8000/mcp
+public_url: http://127.0.0.1:8007/mcp
+compose_file: compose.yaml
+allowlist: allowlist.yaml
+tool_schema_snapshot: tool_schemas.snapshot.json
+workspace: workspace
+aes_wrapper_tools:
+  - mesh_geometry
+contracts:
+  - ../../contracts/geometry_spec.schema.json
+  - ../../contracts/mesh_artifact.schema.json
+  - ../../contracts/mesh_quality_report.schema.json
+notes:
+  - Primitives and CSG are compiled with Gmsh/OpenCASCADE.
+  - STEP, BREP, and IGES are imported through OpenCASCADE.
+  - Existing MSH and XDMF meshes can be inspected, validated, and converted.
+  - STL, OBJ, and PLY surface reconstruction is declared but intentionally not implemented.

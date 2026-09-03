@@ -255,6 +255,88 @@ Rules:
 """
 
 
+def interpret_typed_problem_prompt(snapshot: Dict[str, Any]) -> str:
+    return f"""
+You are the structured interpretation stage of AES.
+
+Convert the engineering request and the current extracted labels into two
+strict specifications. Return ONLY one JSON object:
+{{
+  "pde_spec": {{...}},
+  "geometry_spec": {{...}},
+  "ambiguities": ["..."]
+}}
+
+Current state:
+{json.dumps(snapshot, indent=2)}
+
+PDE rules:
+- pde_spec.schema_version is "2.0" and problem_class is "forward_problem".
+- equation.family is stationary_diffusion, transient_diffusion, or custom.
+- Expressions have kind constant or symbolic, value as a string, and variables.
+- Boundary conditions refer to semantic geometry-region names.
+- Transient diffusion includes initial_condition and time with t0, t_end, dt,
+  and scheme.
+- Use this exact object shape; use null only where shown:
+  {{
+    "schema_version": "2.0",
+    "problem_class": "forward_problem",
+    "spatial_dimension": 2,
+    "equation": {{
+      "family": "stationary_diffusion|transient_diffusion|custom",
+      "unknown": "u",
+      "strong_form": "...",
+      "diffusion": {{"kind": "constant|symbolic", "value": "...", "variables": []}},
+      "source": {{"kind": "constant|symbolic", "value": "...", "variables": []}}
+    }},
+    "boundary_conditions": [{{
+      "name": "...", "region": "...", "type": "dirichlet|neumann|robin",
+      "value": {{"kind": "constant|symbolic", "value": "...", "variables": []}}
+    }}],
+    "initial_condition": null,
+    "time": null,
+    "function_space": {{"family": "Lagrange", "degree": 1, "value_shape": []}},
+    "solver": {{"linear_solver": "cg", "preconditioner": "hypre", "relative_tolerance": 1e-8, "maximum_iterations": 1000}},
+    "outputs": ["solution.xdmf", "diagnostics.json"],
+    "assumptions": []
+  }}
+
+Geometry rules:
+- geometry_spec.schema_version is "1.0".
+- source.kind is primitives, csg, cad, mesh_file, or surface_scan.
+- Use primitives for simple parameterized shapes and csg for boolean geometry.
+- CAD formats are step, stp, brep, iges, or igs.
+- Existing mesh formats are msh or xdmf.
+- Surface scans are stl, obj, or ply; this capability is currently a placeholder.
+- Define semantic regions needed by materials and boundary conditions.
+- Include mesh.cell_type, order, global_size, refinements, and quality.
+- Do not invent a CAD or mesh file path that the user did not provide.
+- Use this exact top-level object shape:
+  {{
+    "schema_version": "1.0", "dimension": 2, "units": "m|cm|mm",
+    "source": {{...}},
+    "regions": [{{"name": "domain", "dimension": 2, "selector": {{"kind": "object", "reference": "domain", "bounds": null, "entity_tags": []}}}}],
+    "mesh": {{
+      "cell_type": "line|triangle|quadrilateral|tetrahedron|hexahedron",
+      "order": 1, "global_size": 0.05, "refinements": [],
+      "quality": {{"minimum_scaled_jacobian": 0.0, "maximum_elements": 2000000}}
+    }},
+    "metadata": {{}}
+  }}
+- Source variants are exactly:
+  primitives: {{"kind":"primitives","primitives":[{{"id":"domain","shape":"rectangle|disk|box|sphere|cylinder","origin":null,"size":null,"center":null,"radius":null,"axis":null,"height":null}}]}}
+  csg: {{"kind":"csg","primitives":[...],"operations":[{{"type":"union|difference|intersection|fragment","objects":["..."],"tools":["..."],"result":"domain"}}]}}
+  cad: {{"kind":"cad","format":"step|stp|brep|iges|igs","artifact_path":"...","repair":{{"heal_shapes":true,"remove_duplicates":true,"tolerance":1e-8}}}}
+  mesh_file: {{"kind":"mesh_file","format":"msh|xdmf","artifact_path":"...","tag_map":{{}},"physical_data_name":"name_to_read"}}
+  surface_scan: {{"kind":"surface_scan","format":"stl|obj|ply","artifact_path":"..."}}
+- Region selectors are object, boundary_of, all_boundary, bounding_box, or
+  entity_tags. Boundary-condition region names must exactly match regions.
+- Put every unresolved fact that prevents a valid mesh or solve in ambiguities.
+- Do not resolve uncertainty by inventing dimensions, region names, paths, or
+  boundary assignments.
+"""
+
+
 def generate_fenics_dolfinx_code_prompt(snapshot: Dict[str, Any]) -> str:
     return f"""
 You are a senior numerical software engineer inside AES.

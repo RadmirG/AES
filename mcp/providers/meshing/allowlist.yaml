@@ -1,0 +1,14 @@
+provider: meshing
+mode: allowlist
+allowed_tools:
+  - inspect_geometry
+  - generate_mesh
+  - validate_mesh
+  - convert_mesh
+blocked_tools:
+  - execute_geometry_script
+  - run_custom_code
+notes:
+  - Input files must resolve under the provider workspace.
+  - The LLM supplies typed specifications; it never supplies executable Gmsh code.
+  - Surface-scan formats return a structured not-implemented capability result.

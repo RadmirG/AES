@@ -185,8 +185,9 @@ AES_LLM_API_KEY=<secret>
 ```
 
 vLLM requests use `/v1/chat/completions`. Structured LangGraph calls request a
-JSON object; raw FEniCS code generation requests plain text. The public
-Workbench model remains `aes-agent` in both cases.
+JSON object. Supported PDEs are compiled from typed contracts and do not ask
+the model to author solver code. The public Workbench model remains
+`aes-agent` with either model provider.
 
 For development the default is:
 
@@ -200,8 +201,12 @@ For production the documented default is:
 AES_OLLAMA_MODEL=gemma4:26b
 ```
 
-The generated-code path is LLM-first. AES only uses its conservative fallback
-DOLFINx template when the configured LLM returns no usable Python code.
+The production solve path is typed-contract first: AES validates
+`PDEProblemSpec` and `GeometrySpec`, obtains a validated `MeshArtifact`, and
+uses the versioned deterministic DOLFINx compiler. Unsupported compiler
+features return a capability report. Set
+`AES_EXPERIMENTAL_LLM_CODE_ENABLED=true` only to opt into bounded free-form LLM
+code generation for unsupported capabilities.
 
 From the host or WSL, test AES through the direct LangGraph port:
 

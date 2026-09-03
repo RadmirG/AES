@@ -14,6 +14,17 @@ class AgentState(TypedDict):
     bc_info: str
     initial_condition_info: str
     time_info: str
+    pde_spec: Dict[str, Any]
+    geometry_spec: Dict[str, Any]
+    typed_spec_source: str
+    typed_spec_ambiguities: List[str]
+    typed_validation_status: str
+    typed_validation_errors: List[str]
+    typed_validation_warnings: List[str]
+    mesh_artifact: Dict[str, Any]
+    mesh_validation_status: str
+    mesh_validation_errors: List[str]
+    compilation_plan: Dict[str, Any]
     missing_information: List[str]
     clarification_questions: List[str]
     selected_formulation: str

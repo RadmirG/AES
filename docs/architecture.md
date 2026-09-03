@@ -12,6 +12,7 @@ flowchart TD
     A --> C["web-ui/architecture.md<br/>AES Workbench"]
     A --> D["mcp/architecture.md<br/>Provider layer"]
     A --> E["mcp/providers/fenics/architecture.md<br/>FEniCS providers"]
+    A --> ME["mcp/providers/meshing/architecture.md<br/>Geometry and meshing"]
     A --> F["mcp/providers/retrieval/architecture.md<br/>Planned retrieval provider"]
     A --> G["mcp/providers/filesystem/architecture.md<br/>Planned filesystem provider"]
     A --> H["ollama/architecture.md<br/>Model runtime"]
@@ -120,7 +121,7 @@ sequenceDiagram
     LG->>DB: Store message and create AES run
     LG->>LG: Run LangGraph StateGraph
     LG->>DB: Store checkpoints and run events
-    LG->>Model: Structured JSON or raw-code generation call
+    LG->>Model: Structured interpretation call
     Model-->>LG: Provider response
     LG->>MCP: Execute governed MCP tool if needed
     MCP-->>LG: stdout, diagnostics, provider artifact refs
@@ -147,6 +148,7 @@ browser `localStorage` and the graph invokes without a persistent checkpointer.
 | `vllm/` | Kubernetes-native production model serving, GPU resources, persistent cache, authenticated ClusterIP API | [`vllm/architecture.md`](../vllm/architecture.md) |
 | `mcp/` | Provider registry, provider manifests, allowlists, contracts, Compose provider includes | [`mcp/architecture.md`](../mcp/architecture.md) |
 | `mcp/providers/fenics/` | DOLFINx/FEniCS execution boundary, code runner, deterministic MCP smoke path | [`mcp/providers/fenics/architecture.md`](../mcp/providers/fenics/architecture.md) |
+| `mcp/providers/meshing/` | Gmsh/OpenCASCADE CSG and CAD meshing, MSH/XDMF import, semantic tags, mesh-quality validation | [`mcp/providers/meshing/architecture.md`](../mcp/providers/meshing/architecture.md) |
 | `database/` | PostgreSQL schemas, pgvector retrieval index, LangGraph checkpoints, migrations, backups, and database service roles | [`database/architecture.md`](../database/architecture.md) |
 | `deploy/` | Dev/prod Compose entrypoints and profile composition | [`deploy/architecture.md`](../deploy/architecture.md) |
 | artifact store | AES-owned run manifests, summaries, materialized artifacts, public artifact URLs | [`docs/artifact_store.md`](artifact_store.md) |
@@ -254,28 +256,27 @@ flowchart LR
 
 ## Current Main Paths
 
-### Flexible FEniCS Generated-Code Path
+### Typed PDE And Geometry Compilation Path
 
 ```mermaid
 flowchart TD
-    A["User PDE request"] --> B["LangGraph intent + problem extraction"]
-    B --> C["Requested output mode"]
-    C --> D["LLM generate raw DOLFINx solve.py"]
-    D --> E["Normalize and extract Python"]
-    E --> F{"Usable source?"}
-    F -->|"no, retry available"| D
-    F -->|"no, retries exhausted"| G["Supported deterministic fallback"]
-    F -->|yes| H["Syntax + safety validation"]
-    G --> H
-    H -->|unsafe| I["Bounded LLM repair"]
-    I --> E
-    H -->|safe| J["AES builds code candidate contract"]
-    J --> K["Run in fenics-code-runner"]
-    K --> L{"Run successful?"}
-    L -->|no| I
-    L -->|yes| M["Visualization postprocess"]
-    M --> N["Artifact store"]
-    N --> O["Final AES response + result links"]
+    A["User PDE and geometry request"] --> B["Structured interpretation"]
+    B --> C["Validated PDEProblemSpec"]
+    B --> D["Validated GeometrySpec"]
+    D --> E{"Geometry source"}
+    E -->|primitives or CSG| F["Gmsh OpenCASCADE"]
+    E -->|STEP BREP IGES| G["CAD import"]
+    E -->|MSH XDMF| H["Mesh import"]
+    E -->|STL OBJ PLY| I["Not-implemented capability report"]
+    F --> J["MeshArtifact and quality report"]
+    G --> J
+    H --> J
+    C --> K["PDE and mesh cross-validation"]
+    J --> K
+    K --> L["NumericalIR and CompilationPlan"]
+    L --> M["Versioned DOLFINx compiler"]
+    M --> N["Preflight and FEniCS execution"]
+    N --> O["Visualization and artifact store"]
 ```
 
 ### Deterministic MCP Smoke Path
@@ -289,8 +290,10 @@ flowchart TD
     E --> F["Artifact store"]
 ```
 
-The generated-code path is the preferred flexible path. The deterministic MCP
-path remains for controlled smoke workflows and provider contract validation.
+The typed compiler is the preferred production path. Free-form LLM code
+generation is disabled by default and becomes available for unsupported
+compiler capabilities only when `AES_EXPERIMENTAL_LLM_CODE_ENABLED=true`; the
+deterministic MCP path remains for controlled provider smoke workflows.
 
 ## Deployment Topology
 
@@ -309,7 +312,7 @@ flowchart TD
     F --> H["langgraph prod"]
 
     I["--profile models"] --> J["ollama-model-puller"]
-    K["--profile fenics"] --> L["dolfinx-mcp + fenics-code-runner"]
+    K["--profile fenics"] --> L["meshing-mcp + dolfinx-mcp + fenics-code-runner"]
 ```
 
 See [`deploy/architecture.md`](../deploy/architecture.md) and

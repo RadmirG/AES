@@ -16,6 +16,7 @@ from aes_agent.python_checker import (
     extract_python_code,
     python_code_from_model_result,
 )
+from aes_agent.specs.legacy import build_legacy_specs
 
 
 SAFE_CODE = """from dolfinx import fem
@@ -42,6 +43,40 @@ def _text_response(text, *, status="completed", message=""):
         "elapsed_ms": 1.0,
         "message": message,
     }
+
+
+def _typed_transient_state(*, execute=False):
+    state = {
+        "raw_user_input": (
+            "Solve the transient heat equation on [0,1]x[0,1] with "
+            "alpha=1, f=1, u=0, initial condition "
+            "sin(pi*x)*sin(pi*y), T=1, and dt=0.01."
+        ),
+        "pde_info": "time_dependent_heat_equation",
+        "domain_info": "unit_square",
+        "coefficient_info": "1",
+        "source_info": "1",
+        "bc_info": "dirichlet_boundary_condition",
+        "initial_condition_info": "sin(pi*x)*sin(pi*y)",
+        "time_info": "T=1, dt=0.01",
+    }
+    pde, geometry = build_legacy_specs(state)
+    state.update(
+        {
+            "pde_spec": pde.model_dump(mode="json"),
+            "geometry_spec": geometry.model_dump(mode="json"),
+            "typed_validation_status": "valid",
+            "solution_mode": (
+                "execute_generated_fenics_code" if execute else "generate_fenics_code"
+            ),
+            "numerical_recipe": {
+                "provider": "local:fenics_code",
+                "workflow": "typed_dolfinx_compiler_v1",
+                "execution_requested": execute,
+            },
+        }
+    )
+    return state
 
 
 class _FakeCodeRunnerClient:
@@ -209,6 +244,57 @@ class FenicsCodeTests(unittest.TestCase):
 
         self.assertTrue(result["python_code"].startswith("from dolfinx"))
         self.assertEqual(result["warnings"], [])
+
+    @patch(
+        "aes_agent.fenics_code.ollama_text",
+        side_effect=AssertionError("supported typed compilation must not call the LLM"),
+    )
+    def test_valid_typed_problem_uses_deterministic_compiler(self, _ollama_text):
+        output = execute_fenics_code_solve(
+            _typed_transient_state(),
+            execute=False,
+        )
+
+        self.assertEqual(output["execution_mode"], "generated")
+        self.assertEqual(output["code_origin"], "deterministic_compiler")
+        self.assertEqual(output["generation_attempt_count"], 0)
+        self.assertIn('COMPILER = "aes-dolfinx-', output["generated_files"][0]["content"])
+
+    @patch(
+        "aes_agent.fenics_code.ollama_text",
+        side_effect=AssertionError("unsupported typed compilation must fail closed"),
+    )
+    def test_unsupported_typed_problem_does_not_enter_llm_code_path(self, _ollama_text):
+        state = _typed_transient_state()
+        state["pde_spec"]["equation"]["source"] = {
+            "kind": "symbolic",
+            "value": "x",
+            "variables": ["x"],
+        }
+
+        output = execute_fenics_code_solve(state, execute=False)
+
+        self.assertEqual(output["execution_mode"], "unsupported")
+        self.assertEqual(output["code_origin"], "deterministic_compiler")
+        self.assertTrue(any("constant sources" in item for item in output["errors"]))
+
+    @patch(
+        "aes_agent.fenics_code.ollama_text",
+        side_effect=AssertionError("compiler runtime failures must not invoke the LLM"),
+    )
+    def test_typed_compiler_runtime_failure_does_not_repair_with_llm(self, _ollama_text):
+        client = _RuntimeFailUntilFallbackCodeRunnerClient()
+
+        output = execute_fenics_code_solve(
+            _typed_transient_state(execute=True),
+            client=client,
+            execute=True,
+        )
+
+        self.assertEqual(output["execution_mode"], "failed")
+        self.assertEqual(output["code_origin"], "deterministic_compiler")
+        self.assertEqual(output["repair_attempt_count"], 0)
+        self.assertEqual(client.calls, 1)
 
     @patch(
         "aes_agent.fenics_code.ollama_text",

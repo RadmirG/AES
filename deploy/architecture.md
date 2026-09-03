@@ -76,6 +76,8 @@ flowchart TD
     E["--profile models"] --> F["ollama-model-puller"]
     G["--profile fenics"] --> H["dolfinx-mcp"]
     G --> I["fenics-code-runner"]
+    G --> MESHER["meshing-mcp"]
+    N["--profile meshing"] --> MESHER
     J["--profile retrieval"] --> K["retrieval provider skeleton"]
     L["--profile filesystem"] --> M["filesystem provider skeleton"]
 ```
@@ -102,6 +104,7 @@ flowchart LR
     C --> D["ollama-server:11434"]
     C --> E["fenics-code-runner:8000"]
     C --> F["dolfinx-mcp:8000"]
+    C --> G["meshing-mcp:8000"]
 ```
 
 ## Common Startup

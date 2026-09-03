@@ -6,7 +6,7 @@ All FEniCS execution happens in provider containers.
 
 ```mermaid
 flowchart TD
-    A["LangGraph AES"] --> B["fenics_code_solve<br/>high-level AES tool"]
+    A["LangGraph AES"] --> B["typed DOLFINx compiler<br/>high-level AES tool"]
     A --> C["fenics_forward_solve<br/>deterministic smoke path"]
 
     B --> D["fenics-code-runner MCP"]
@@ -28,21 +28,23 @@ This provider owns two services:
 
 - `dolfinx-mcp`: external workflow-oriented MCP server used by the older
   deterministic `fenics_forward_solve` path,
-- `fenics-code-runner`: AES-owned MCP script runner used by the flexible
-  generated-code path.
+- `fenics-code-runner`: AES-owned MCP script runner used by the typed compiler
+  and the optional experimental generated-code path.
 
-The generated-code path is the preferred flexible architecture. The deterministic
-path remains useful for low-level smoke tests and constrained workflows.
+The typed compiler path is the preferred architecture. The low-level
+deterministic path remains useful for provider smoke tests and constrained
+workflows.
 
-## Generated-Code Path
+## Typed Compiler And Execution Path
 
 ```mermaid
 flowchart TD
-    A["Validated PDE request"] --> B["LLM generates DOLFINx solve.py"]
-    B --> C["AES static safety check"]
-    C --> D{"Safe?"}
-    D -->|no| E["Reject or repair generated code"]
-    D -->|yes| F["run_python_script via fenics-code-runner"]
+    A["Validated PDEProblemSpec"] --> C["Versioned DOLFINx compiler"]
+    B["Validated MeshArtifact"] --> C
+    C --> D["AES syntax and safety preflight"]
+    D --> E{"Safe?"}
+    E -->|no| R["Compiler error report"]
+    E -->|yes| F["run_python_script via fenics-code-runner"]
     F --> G["Runner writes /workspace/code-runs/<run_id>/solve.py"]
     G --> H["Execute with timeout"]
     H --> I["Capture stdout/stderr"]
@@ -55,7 +57,7 @@ flowchart TD
 The code runner exposes:
 
 ```text
-run_python_script(filename, code, timeout_seconds)
+run_python_script(filename, code, timeout_seconds, inputs)
 ```
 
 It returns:
@@ -67,6 +69,11 @@ It returns:
 - stdout/stderr,
 - diagnostics if `diagnostics.json` is produced,
 - provider artifact references for generated files.
+
+`inputs` accepts only governed `mcp://meshing/workspace/...` references. The
+runner copies the selected `mesh.msh` through a read-only mount into the
+isolated execution directory. Free-form LLM code is disabled by default and
+requires `AES_EXPERIMENTAL_LLM_CODE_ENABLED=true`.
 
 ## Deterministic MCP Path
 
@@ -128,6 +135,7 @@ DOLFINX_CODE_MCP_URL=http://fenics-code-runner:8000/mcp
 DOLFINX_CODE_EXECUTE=true|false
 DOLFINX_CODE_GENERATION_ATTEMPTS=2
 DOLFINX_CODE_REPAIR_ATTEMPTS=2
+AES_EXPERIMENTAL_LLM_CODE_ENABLED=false
 ```
 
 Production enables generated-code execution by default. Development may keep it

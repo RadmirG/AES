@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aes.local/contracts/mesh_artifact.schema.json",
+  "title": "AES Mesh Artifact",
+  "type": "object",
+  "required": ["schema_version", "status", "source_kind", "dimension", "cell_type", "mesh_uri", "tag_map", "quality", "artifacts", "provenance"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "status": {"enum": ["completed", "imported", "planned"]},
+    "source_kind": {"enum": ["primitives", "csg", "cad", "mesh_file"]},
+    "dimension": {"type": "integer", "minimum": 1, "maximum": 3},
+    "cell_type": {"type": "string"},
+    "mesh_uri": {"type": "string", "minLength": 1},
+    "cell_tags_uri": {"type": ["string", "null"]},
+    "facet_tags_uri": {"type": ["string", "null"]},
+    "tag_map": {"type": "object", "additionalProperties": {"type": "integer"}},
+    "quality": {"$ref": "mesh_quality_report.schema.json"},
+    "artifacts": {"type": "array", "items": {"type": "object"}},
+    "provenance": {"type": "object"}
+  },
+  "additionalProperties": false
+}

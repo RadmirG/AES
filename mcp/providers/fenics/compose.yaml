@@ -9,6 +9,7 @@ services:
       - "127.0.0.1:8003:8000"
     volumes:
       - ./workspace:/workspace
+      - ../meshing/workspace:/mesh-inputs:ro
     environment:
       - PYTHONUNBUFFERED=1
     command:
@@ -38,6 +39,7 @@ services:
       - FENICS_RUNNER_LOG_LEVEL=${FENICS_RUNNER_LOG_LEVEL:-INFO}
       - FENICS_RUNNER_LOG_CONTENT=${FENICS_RUNNER_LOG_CONTENT:-true}
       - FENICS_RUNNER_LOG_MAX_CHARS=${FENICS_RUNNER_LOG_MAX_CHARS:-2000}
+      - FENICS_RUNNER_INPUT_ROOT=/mesh-inputs
     networks:
       - ai-stack-net
 
