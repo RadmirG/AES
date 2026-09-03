@@ -101,3 +101,12 @@ The provider owns geometry construction and provider-workspace files. It does
 not interpret PDEs, choose boundary conditions, compile UFL, or execute a
 solver. File paths are resolved below the provider workspace and arbitrary
 geometry scripts are not accepted.
+
+## Concurrency Boundary
+
+The HTTP layer can accept concurrent MCP requests. Gmsh itself uses
+process-global model state, so all Gmsh initialize/build/finalize sessions pass
+through one provider lock. Gmsh is initialized with `interruptible=False` in
+HTTP worker threads to prevent Python signal-handler registration outside the
+main interpreter thread. Mesh-file-only operations that use `meshio` do not
+enter this Gmsh critical section.

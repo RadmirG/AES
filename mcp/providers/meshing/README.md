@@ -63,3 +63,8 @@ Xcursor, Xft, and Xinerama). Its Docker build imports and initializes Gmsh once,
 then fails immediately if those libraries are unavailable. Runtime geometry
 failures are returned as structured MCP tool results with a run id and concrete
 error instead of an opaque HTTP 500 response.
+
+MCP requests are handled concurrently, but Gmsh sessions are serialized because
+the Gmsh API owns process-global model state. Worker-thread sessions initialize
+Gmsh with `interruptible=False`, which prevents Python signal-handler
+registration outside the main interpreter thread.

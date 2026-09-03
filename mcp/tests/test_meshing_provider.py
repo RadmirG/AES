@@ -51,6 +51,33 @@ class MeshingProviderContractTests(unittest.TestCase):
         self.assertIn("libGL.so.1", result["errors"][0])
         self.assertIn("run_id", result)
 
+    def test_gmsh_session_disables_signal_handlers_and_finalizes(self):
+        class FakeGmsh:
+            def __init__(self):
+                self.initialized = False
+                self.interruptible = None
+                self.finalized = False
+
+            def initialize(self, *, interruptible):
+                self.initialized = True
+                self.interruptible = interruptible
+
+            def isInitialized(self):
+                return self.initialized
+
+            def finalize(self):
+                self.initialized = False
+                self.finalized = True
+
+        fake = FakeGmsh()
+        with patch.object(server, "_import_gmsh", return_value=fake):
+            with server._gmsh_session() as session:
+                self.assertIs(session, fake)
+                self.assertTrue(fake.initialized)
+                self.assertFalse(fake.interruptible)
+
+        self.assertTrue(fake.finalized)
+
 
 def _rectangle_geometry():
     return {

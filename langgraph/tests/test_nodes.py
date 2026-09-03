@@ -456,6 +456,8 @@ class ArtifactNodeTests(unittest.TestCase):
                 "problem_class": "forward_problem",
                 "pde_info": "time_dependent_heat_equation",
                 "domain_info": "unit_square",
+                "typed_spec_source": "llm_structured_extraction",
+                "typed_validation_status": "valid",
                 "coefficient_info": "1",
                 "source_info": "1",
                 "bc_info": "dirichlet_boundary_condition",
@@ -557,6 +559,8 @@ class ArtifactNodeTests(unittest.TestCase):
         )
 
         artifact = result["generated_artifact"]
+        self.assertIn("Typed interpretation: llm_structured_extraction", artifact)
+        self.assertIn("Typed validation: valid", artifact)
         self.assertIn("Result review", artifact)
         self.assertIn("Code origin: llm", artifact)
         self.assertIn("Generation attempts: #1 usable_code", artifact)

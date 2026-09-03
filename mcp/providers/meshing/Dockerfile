@@ -17,7 +17,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
-RUN python -c "import gmsh; gmsh.initialize(); print('gmsh', gmsh.__version__); gmsh.finalize()"
+RUN python -c "import gmsh; gmsh.initialize(interruptible=False); print('gmsh', gmsh.__version__); gmsh.finalize()"
 COPY server.py /app/server.py
 
 EXPOSE 8000

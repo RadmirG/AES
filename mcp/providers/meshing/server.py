@@ -7,9 +7,11 @@ import math
 import os
 import shutil
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 
@@ -35,6 +37,7 @@ TOOLS = {
         "required": ["artifact_path", "target_format"],
     },
 }
+GMSH_LOCK = Lock()
 
 
 def configure_logging() -> None:
@@ -189,9 +192,7 @@ def _inspect_geometry(value: Any) -> dict[str, Any]:
             "warnings": quality["warnings"],
         }
 
-    gmsh = _import_gmsh()
-    gmsh.initialize()
-    try:
+    with _gmsh_session() as gmsh:
         gmsh.model.add("aes_geometry_inspection")
         entity_map, primitive_map, top_entities = _build_occ_geometry(gmsh, spec)
         gmsh.model.occ.synchronize()
@@ -207,8 +208,6 @@ def _inspect_geometry(value: Any) -> dict[str, Any]:
             "errors": [],
             "warnings": [],
         }
-    finally:
-        gmsh.finalize()
 
 
 def _generate_mesh(value: Any) -> dict[str, Any]:
@@ -247,9 +246,7 @@ def _generate_mesh(value: Any) -> dict[str, Any]:
 
 
 def _generate_with_gmsh(spec: dict[str, Any], run_id: str, run_dir: Path) -> dict[str, Any]:
-    gmsh = _import_gmsh()
-    gmsh.initialize()
-    try:
+    with _gmsh_session() as gmsh:
         gmsh.model.add(f"aes_{run_id}")
         entity_map, primitive_map, top_entities = _build_occ_geometry(gmsh, spec)
         gmsh.model.occ.synchronize()
@@ -269,8 +266,6 @@ def _generate_with_gmsh(spec: dict[str, Any], run_id: str, run_dir: Path) -> dic
             "entities": _entity_descriptions(gmsh),
             "regions": {key: [list(item) for item in values] for key, values in region_entities.items()},
         }
-    finally:
-        gmsh.finalize()
 
     (run_dir / "tag_map.json").write_text(json.dumps(tag_map, indent=2), encoding="utf-8")
     (run_dir / "geometry_report.json").write_text(json.dumps(geometry_report, indent=2), encoding="utf-8")
@@ -897,6 +892,18 @@ def _import_gmsh():
             f"Gmsh could not be loaded. Verify its native runtime libraries: {exc}"
         ) from exc
     return gmsh
+
+
+@contextmanager
+def _gmsh_session():
+    gmsh = _import_gmsh()
+    with GMSH_LOCK:
+        gmsh.initialize(interruptible=False)
+        try:
+            yield gmsh
+        finally:
+            if gmsh.isInitialized():
+                gmsh.finalize()
 
 
 def _import_meshio():
