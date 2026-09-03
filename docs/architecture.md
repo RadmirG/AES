@@ -277,11 +277,12 @@ flowchart TD
     E -->|STEP BREP IGES| G["CAD import"]
     E -->|MSH XDMF| H["Mesh import"]
     E -->|STL OBJ PLY| I["Not-implemented capability report"]
-    F --> J["MeshArtifact and quality report"]
+    F --> J["Provider MeshArtifact and quality report"]
     G --> J
     H --> J
+    J --> JA["AES content-addressed mesh artifact"]
     C --> K["PDE and mesh cross-validation"]
-    J --> K
+    JA --> K
     K --> L["NumericalIR and CompilationPlan"]
     L --> M["Versioned DOLFINx compiler"]
     M --> N["Preflight and FEniCS execution"]

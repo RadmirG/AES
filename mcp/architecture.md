@@ -121,8 +121,15 @@ flowchart LR
     B --> C["provider MCP schema"]
     C --> D["provider result"]
     D --> E["AES tool_result contract"]
-    E --> F["artifact_store manifest"]
+    E --> F{"Artifact role"}
+    F -->|solver input| G["AES content-addressed intermediate store"]
+    F -->|run output| H["artifact_store manifest"]
 ```
+
+Provider workspace URIs are transient and resolvable only within that
+provider's storage boundary. A provider output that becomes input to another
+provider, such as a mesh passed to the FEniCS runner, is first materialized as
+an AES-owned immutable artifact and then mounted read-only into the consumer.
 
 ## Provider Lifecycle Target
 

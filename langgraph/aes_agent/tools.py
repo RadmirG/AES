@@ -9,6 +9,7 @@ from aes_agent.artifact_store import persist_artifacts
 from aes_agent.fenics_code import execute_fenics_code_solve
 from aes_agent.fenics_mcp import execute_fenics_forward_solve
 from aes_agent.logging_config import log_content_preview
+from aes_agent.mesh_artifact_store import persist_mesh_artifact
 from aes_agent.meshing import execute_mesh_geometry, mesh_artifact_from_state
 from aes_agent.specs.pde import PDEProblemSpec
 from aes_agent.specs.validation import cross_validate_pde_mesh
@@ -96,11 +97,21 @@ def run_fenics_forward_solve(state: AgentState) -> Dict[str, Any]:
 
 def run_fenics_code_solve(state: AgentState) -> Dict[str, Any]:
     for result in state.get("tool_results", []):
-        if result.get("tool_name") == "mesh_geometry" and result.get("status") == "failed":
+        tool_name = result.get("tool_name")
+        if tool_name == "mesh_geometry" and result.get("status") == "failed":
             return {
                 "status": "failed",
                 "execution_mode": "failed",
                 "errors": ["FEniCS compilation was stopped because meshing failed."],
+                "warnings": [],
+            }
+        if tool_name == "mesh_artifact_store" and result.get("status") == "failed":
+            return {
+                "status": "failed",
+                "execution_mode": "failed",
+                "errors": [
+                    "FEniCS execution was stopped because durable mesh persistence failed."
+                ],
                 "warnings": [],
             }
     mesh = mesh_artifact_from_state(state)
@@ -130,6 +141,10 @@ def run_fenics_code_solve(state: AgentState) -> Dict[str, Any]:
 
 def run_mesh_geometry(state: AgentState) -> Dict[str, Any]:
     return execute_mesh_geometry(state)
+
+
+def store_mesh_artifact(state: AgentState) -> Dict[str, Any]:
+    return persist_mesh_artifact(state)
 
 
 def store_artifacts(state: AgentState) -> Dict[str, Any]:
@@ -204,6 +219,16 @@ MESH_GEOMETRY_SCHEMA: Dict[str, Any] = {
 }
 
 
+MESH_ARTIFACT_STORE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "Copies a quality-validated transient meshing-provider bundle into the "
+        "AES-owned, content-addressed artifact store before solver execution."
+    ),
+    "required_state": ["mesh_artifact", "mesh_validation_status"],
+}
+
+
 TOOL_REGISTRY: Dict[str, ToolDefinition] = {
     "problem_spec_exporter": ToolDefinition(
         name="problem_spec_exporter",
@@ -254,6 +279,16 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
         provider="mcp:meshing",
         handler=run_mesh_geometry,
         input_schema=MESH_GEOMETRY_SCHEMA,
+    ),
+    "mesh_artifact_store": ToolDefinition(
+        name="mesh_artifact_store",
+        description=(
+            "Persist the validated mesh bundle as an AES-owned intermediate "
+            "artifact and return canonical aes:// mesh references."
+        ),
+        provider="local:mesh_artifact_store",
+        handler=store_mesh_artifact,
+        input_schema=MESH_ARTIFACT_STORE_SCHEMA,
     ),
     "visualization_postprocess": ToolDefinition(
         name="visualization_postprocess",

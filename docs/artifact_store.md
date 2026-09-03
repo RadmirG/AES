@@ -49,6 +49,22 @@ Provider references can appear in the manifest even before the referenced file
 is materialized into AES-owned storage. Browser-fetchable output requires an
 AES-owned file or a provider resource-read/copy mechanism.
 
+Meshes additionally use an immutable intermediate namespace because they are
+inputs to later solver runs, not only final outputs:
+
+```mermaid
+flowchart LR
+    A["Meshing provider scratch files"] --> B["mesh_artifact_store"]
+    B --> C["/artifacts/meshes/<sha256>"]
+    C --> D["aes://artifacts/meshes/<sha256>/mesh.msh"]
+    D --> E["FEniCS runner read-only input"]
+    D --> F["Final run mesh_artifact.json"]
+```
+
+The content-addressed mesh bundle contains the mesh, tag files, quality and
+provenance metadata, and an internal manifest. The final run references this
+bundle; it does not depend on the meshing provider workspace remaining alive.
+
 ## Stored Run Contents
 
 An AES run may store:

@@ -70,10 +70,13 @@ It returns:
 - diagnostics if `diagnostics.json` is produced,
 - provider artifact references for generated files.
 
-`inputs` accepts only governed `mcp://meshing/workspace/...` references. The
-runner copies the selected `mesh.msh` through a read-only mount into the
-isolated execution directory. Free-form LLM code is disabled by default and
-requires `AES_EXPERIMENTAL_LLM_CODE_ENABLED=true`.
+`inputs` accepts only governed `aes://artifacts/meshes/...` references. The
+validated provider mesh is first copied into the AES-owned, content-addressed
+mesh store. The runner then copies `mesh.msh` through a read-only artifact
+mount into the isolated execution directory. Provider-local
+`mcp://meshing/workspace/...` references never cross directly into the solver.
+Free-form LLM code is disabled by default and requires
+`AES_EXPERIMENTAL_LLM_CODE_ENABLED=true`.
 
 ## Deterministic MCP Path
 
@@ -113,12 +116,21 @@ the LangGraph artifact store.
 
 ```mermaid
 flowchart LR
-    A["/workspace/code-runs/<run_id>"] --> B["provider artifact refs"]
-    B --> C["LangGraph artifact_store"]
-    C --> D["/artifacts/<aes_run_id>"]
-    D --> E["/artifacts HTTP API"]
-    E --> F["web-ui result pane"]
+    A["Meshing provider scratch bundle"] --> B["mesh_artifact_store"]
+    B --> C["/artifacts/meshes/<sha256>"]
+    C --> D["fenics-code-runner read-only input"]
+    D --> E["Solver provider outputs"]
+    E --> F["artifact_store"]
+    F --> G["/artifacts/<aes_run_id>"]
+    G --> H["/artifacts HTTP API"]
+    H --> I["web-ui result pane"]
 ```
+
+The mesh is a first-class intermediate artifact. Its immutable content hash,
+quality report, semantic tag map, source geometry provenance, and bundle files
+remain reusable across solver runs. A final AES run stores its own
+`mesh_artifact.json` reference rather than treating the provider workspace as
+durable storage.
 
 Current limitation: raw `mcp://...` solution references must be copied or
 converted into AES-owned `/artifacts` before the browser can directly fetch

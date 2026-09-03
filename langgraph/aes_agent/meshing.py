@@ -13,6 +13,7 @@ from aes_agent.state import AgentState
 
 MESHING_TOOL_NAME = "mesh_geometry"
 MESHING_PROVIDER = "mcp:meshing"
+AES_MESH_URI_PREFIX = "aes://artifacts/meshes/"
 logger = logging.getLogger("aes_agent.meshing")
 
 
@@ -127,6 +128,11 @@ def mesh_artifact_from_state(state: AgentState) -> MeshArtifact | None:
 def mesh_runner_inputs(mesh: MeshArtifact | None) -> list[dict[str, str]]:
     if mesh is None or mesh.mesh_uri.startswith("builtin://") or mesh.mesh_uri.startswith("mesh://"):
         return []
+    if not mesh.mesh_uri.startswith(AES_MESH_URI_PREFIX):
+        raise ValueError(
+            "The solver accepts only AES-owned mesh artifacts. Persist the "
+            "validated provider mesh before FEniCS execution."
+        )
     return [{"uri": mesh.mesh_uri, "target": "mesh.msh"}]
 
 

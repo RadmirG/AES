@@ -4,9 +4,12 @@
 # one Python environment that can run all current repository tests and helper
 # scripts outside Docker.
 #
-# Each Python-capable subproject owns its own requirements.txt. This central
-# file only composes them.
+# Each Python-capable subproject owns its runtime requirements.txt. This
+# central file composes them and adds repository-wide development/test tools.
 
 -r langgraph/requirements.txt
 -r mcp/requirements.txt
 -r ollama/requirements.txt
+
+# Repository-wide test runner.
+pytest>=8,<10

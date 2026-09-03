@@ -20,7 +20,7 @@ SERVER_VERSION = "0.1.0"
 TOOL_NAME = "run_python_script"
 DEFAULT_WORKSPACE = "/workspace"
 DEFAULT_FILENAME = "solve.py"
-MESHING_URI_PREFIX = "mcp://meshing/workspace/"
+AES_MESH_URI_PREFIX = "aes://artifacts/meshes/"
 LOG_FORMAT = "%(component)s | %(asctime)s | %(levelname)s | %(name)s | %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 
@@ -442,15 +442,12 @@ def _materialize_inputs(value: Any, run_dir: Path) -> list[str]:
         return []
     if not isinstance(value, list):
         raise RpcError(-32602, "inputs must be an array.")
-    input_root = Path(os.getenv("FENICS_RUNNER_INPUT_ROOT", "/mesh-inputs")).resolve()
     copied: list[str] = []
     for item in value:
         if not isinstance(item, dict):
             raise RpcError(-32602, "Each input must be an object.")
         uri = str(item.get("uri", ""))
-        if not uri.startswith(MESHING_URI_PREFIX):
-            raise RpcError(-32602, "Only meshing-provider input URIs are accepted.")
-        relative = uri.removeprefix(MESHING_URI_PREFIX)
+        input_root, relative = _governed_input_location(uri)
         source = (input_root / relative).resolve()
         if source != input_root and input_root not in source.parents:
             raise RpcError(-32602, "Input URI escapes the allowed input workspace.")
@@ -464,6 +461,18 @@ def _materialize_inputs(value: Any, run_dir: Path) -> list[str]:
         copied.append(target_name)
         logger.info("Provider input materialized: uri=%s target=%s", uri, destination)
     return copied
+
+
+def _governed_input_location(uri: str) -> tuple[Path, str]:
+    if uri.startswith(AES_MESH_URI_PREFIX):
+        root = Path(
+            os.getenv("FENICS_RUNNER_ARTIFACT_ROOT", "/artifacts")
+        ).resolve() / "meshes"
+        return root.resolve(), uri.removeprefix(AES_MESH_URI_PREFIX)
+    raise RpcError(
+        -32602,
+        "Only AES-owned mesh artifact URIs are accepted as solver inputs.",
+    )
 
 
 def _safe_filename(value: str) -> str:

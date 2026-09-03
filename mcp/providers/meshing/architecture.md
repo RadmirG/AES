@@ -84,8 +84,12 @@ cells of the expected dimension.
 
 Input paths must resolve below `/workspace`; custom geometry scripts and raw
 code execution are blocked. Generated data is written below
-`/workspace/runs/<run_id>`. The FEniCS runner receives selected mesh artifacts
-through a read-only mount and copies them into its isolated run directory.
+`/workspace/runs/<run_id>`. These provider files are transient. LangGraph's
+`mesh_artifact_store` copies a validated bundle into
+`/artifacts/meshes/<sha256>` and replaces provider-local references with
+`aes://artifacts/meshes/...` URIs. The FEniCS runner receives only this
+AES-owned bundle through a read-only artifact mount and copies `mesh.msh` into
+its isolated run directory.
 
 ## Validation Boundary
 

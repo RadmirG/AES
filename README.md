@@ -94,9 +94,10 @@ flowchart TD
     valid -->|no| fallback["Explicit deterministic compatibility fallback"]
     fallback --> pde
     fallback --> geometry
-    geometry --> mesh["Meshing MCP and MeshArtifact"]
+    geometry --> mesh["Meshing MCP and provider MeshArtifact"]
+    mesh --> durableMesh["AES content-addressed mesh artifact"]
     pde --> compatible["PDE and mesh compatibility"]
-    mesh --> compatible
+    durableMesh --> compatible
     compatible --> compiler["Versioned DOLFINx compiler"]
     compiler --> safety["Syntax and API preflight"]
     safety --> execute["Execute in FEniCS container through MCP"]
@@ -281,20 +282,42 @@ Ingress.
 
 ## Development and Tests
 
-Create a Python environment with the repository-wide requirements aggregator:
+For Windows development, create the persistent named environment outside the
+repository:
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
+```powershell
+py -3.11 -m venv "$HOME\.venvs\aes_test_env"
+& "$HOME\.venvs\aes_test_env\Scripts\Activate.ps1"
 python -m pip install --upgrade pip
 python -m pip install -r aes_requirements.txt
 ```
 
-Run the LangGraph test suite:
+Reactivate it for later development sessions with:
+
+```powershell
+& "$HOME\.venvs\aes_test_env\Scripts\Activate.ps1"
+```
+
+For PyCharm, select the existing interpreter at
+`%USERPROFILE%\.venvs\aes_test_env\Scripts\python.exe`.
+
+For WSL/Linux, create the equivalent persistent virtual environment outside
+the repository:
+
+```bash
+python3 -m venv ~/.venvs/aes_test_env
+source ~/.venvs/aes_test_env/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r aes_requirements.txt
+```
+
+Run the Python test suites from the repository root:
 
 ```bash
 cd langgraph
-PYTHONPATH=. python -m unittest discover -s tests -v
+python -m pytest tests
+cd ..
+python -m pytest mcp/tests ollama/tests
 ```
 
 Component-specific setup and operational details are maintained in the linked

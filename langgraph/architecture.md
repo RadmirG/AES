@@ -217,6 +217,8 @@ important tools are:
   sandbox,
 - `mesh_geometry`: compile CSG or CAD and import/validate existing meshes
   through the meshing MCP provider,
+- `mesh_artifact_store`: materialize a validated provider mesh bundle into the
+  AES-owned, content-addressed intermediate mesh store,
 - `fenics_forward_solve`: older deterministic MCP recipe path for constrained
   smoke workflows,
 - `visualization_postprocess`: create preview and viewer metadata from solver
@@ -227,7 +229,8 @@ important tools are:
 flowchart TD
     A["select_tools"] --> B["execute_tools"]
     B --> M["mesh_geometry"]
-    M --> C["fenics_code_solve"]
+    M --> MS["mesh_artifact_store"]
+    MS --> C["fenics_code_solve"]
     B --> D["visualization_postprocess"]
     B --> E["artifact_store"]
     C --> F["FEniCS code-runner MCP"]
@@ -262,9 +265,11 @@ flowchart TD
     B --> D["PDE schema and mathematical validation"]
     C --> E["Geometry validation"]
     E --> F["Meshing MCP"]
-    F --> G["Validated MeshArtifact"]
+    F --> G["Validated provider MeshArtifact"]
+    G --> GS["AES mesh_artifact_store"]
+    GS --> GA["Immutable aes:// mesh artifact"]
     D --> H["PDE and mesh cross-validation"]
-    G --> H
+    GA --> H
     H --> I["CompilationPlan and NumericalIR"]
     I --> J{"Compiler capability?"}
     J -->|supported| K["Versioned DOLFINx compiler"]

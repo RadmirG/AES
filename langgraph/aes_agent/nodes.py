@@ -538,6 +538,8 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
             and "mesh_geometry" in available_tools
         ):
             selected_tools.append("mesh_geometry")
+            if "mesh_artifact_store" in available_tools:
+                selected_tools.append("mesh_artifact_store")
         selected_tools.append("fenics_code_solve")
         if visualization_available:
             selected_tools.append("visualization_postprocess")
@@ -595,9 +597,36 @@ def select_tools(state: AgentState) -> Dict[str, Any]:
     if not selected_tools:
         selected_tools = available_tools
 
+    selected_tools = _order_mesh_tools(selected_tools, available_tools)
+
     return {
         "selected_tools": selected_tools
     }
+
+
+def _order_mesh_tools(
+    selected_tools: list[str],
+    available_tools: list[str],
+) -> list[str]:
+    ordered = list(dict.fromkeys(selected_tools))
+    if "mesh_geometry" not in ordered:
+        return ordered
+
+    if "mesh_artifact_store" in available_tools:
+        if "mesh_artifact_store" in ordered:
+            ordered.remove("mesh_artifact_store")
+        mesh_index = ordered.index("mesh_geometry")
+        ordered.insert(mesh_index + 1, "mesh_artifact_store")
+
+    if "fenics_code_solve" in ordered:
+        ordered.remove("fenics_code_solve")
+        predecessor = (
+            "mesh_artifact_store"
+            if "mesh_artifact_store" in ordered
+            else "mesh_geometry"
+        )
+        ordered.insert(ordered.index(predecessor) + 1, "fenics_code_solve")
+    return ordered
 
 
 def select_artifact_store(state: AgentState) -> Dict[str, Any]:
@@ -610,15 +639,17 @@ def select_artifact_store(state: AgentState) -> Dict[str, Any]:
 def execute_tools(state: AgentState) -> Dict[str, Any]:
     tool_results = []
     working_state = dict(state)
-    mesh_artifact: dict[str, Any] = {}
-    mesh_validation_status = ""
-    mesh_validation_errors: list[str] = []
+    mesh_artifact: dict[str, Any] = dict(state.get("mesh_artifact") or {})
+    mesh_validation_status = str(state.get("mesh_validation_status") or "")
+    mesh_validation_errors: list[str] = safe_list_of_str(
+        state.get("mesh_validation_errors")
+    )
     compilation_plan = state.get("compilation_plan", {})
     for tool_name in state.get("selected_tools", []):
         working_state["tool_results"] = tool_results
         result = execute_tool(tool_name, working_state)
         tool_results.append(result)
-        if tool_name == "mesh_geometry":
+        if tool_name in {"mesh_geometry", "mesh_artifact_store"}:
             output = result.get("output") or {}
             candidate = output.get("mesh_artifact") if isinstance(output, dict) else None
             if isinstance(candidate, dict):

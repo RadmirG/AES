@@ -50,8 +50,28 @@ class MeshingToolTests(unittest.TestCase):
 
         self.assertEqual(output["status"], "completed")
         self.assertEqual(output["mesh_artifact"]["quality"]["status"], "valid")
-        inputs = mesh_runner_inputs_from_output(output)
-        self.assertEqual(inputs[0]["target"], "mesh.msh")
+        with self.assertRaisesRegex(ValueError, "AES-owned mesh artifacts"):
+            mesh_runner_inputs_from_output(output)
+
+    def test_runner_input_accepts_durable_aes_mesh_uri(self):
+        from aes_agent.specs.mesh import MeshArtifact
+
+        mesh = MeshArtifact.model_validate(
+            {
+                **FakeMeshingClient().call_tool("generate_mesh")["mesh_artifact"],
+                "mesh_uri": "aes://artifacts/meshes/abc123/mesh.msh",
+            }
+        )
+
+        self.assertEqual(
+            mesh_runner_inputs(mesh),
+            [
+                {
+                    "uri": "aes://artifacts/meshes/abc123/mesh.msh",
+                    "target": "mesh.msh",
+                }
+            ],
+        )
 
     def test_surface_scan_returns_explicit_placeholder_error(self):
         geometry = _geometry()

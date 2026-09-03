@@ -34,6 +34,34 @@ class ProviderManifestTests(unittest.TestCase):
             self.assertTrue(compose_path.exists())
             self.assertTrue(allowlist_path.exists())
 
+    def test_fenics_code_runner_has_read_only_aes_artifact_mount(self):
+        compose = yaml.safe_load(
+            (MCP_ROOT / "providers" / "fenics" / "compose.yaml").read_text()
+        )
+        runner = compose["services"]["fenics-code-runner"]
+
+        self.assertIn("../../../artifacts:/artifacts:ro", runner["volumes"])
+        self.assertIn(
+            "FENICS_RUNNER_ARTIFACT_ROOT=/artifacts",
+            runner["environment"],
+        )
+
+    def test_langgraph_can_stage_meshing_provider_outputs(self):
+        repository_root = MCP_ROOT.parent
+        for filename in ("langgraph.yaml", "langgraph.prod.yaml"):
+            compose = yaml.safe_load(
+                (repository_root / "langgraph" / filename).read_text()
+            )
+            service = compose["services"]["langgraph"]
+            self.assertIn(
+                "../mcp/providers/meshing/workspace:/mesh-inputs:ro",
+                service["volumes"],
+            )
+            self.assertIn(
+                "AES_MESH_PROVIDER_ROOT=/mesh-inputs",
+                service["environment"],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

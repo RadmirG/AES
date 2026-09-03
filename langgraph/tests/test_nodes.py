@@ -232,7 +232,19 @@ class ToolNodeTests(unittest.TestCase):
     ):
         result = nodes.select_tools({"selected_formulation": "weak_form"})
 
-        self.assertEqual(result["selected_tools"], nodes.list_available_tools())
+        self.assertEqual(
+            result["selected_tools"],
+            [
+                "problem_spec_exporter",
+                "workflow_plan_builder",
+                "fenics_forward_solve",
+                "mesh_geometry",
+                "mesh_artifact_store",
+                "fenics_code_solve",
+                "visualization_postprocess",
+                "artifact_store",
+            ],
+        )
 
     @patch.object(nodes, "ollama_json", return_value={"selected_tools": []})
     def test_ready_recipe_adds_fenics_tool(
@@ -315,6 +327,7 @@ class ToolNodeTests(unittest.TestCase):
             result["selected_tools"],
             [
                 "mesh_geometry",
+                "mesh_artifact_store",
                 "fenics_code_solve",
                 "visualization_postprocess",
                 "artifact_store",
@@ -342,6 +355,71 @@ class ToolNodeTests(unittest.TestCase):
         self.assertEqual(
             result["mesh_artifact"]["mesh_uri"],
             "mcp://meshing/workspace/runs/test/mesh.msh",
+        )
+
+    @patch.object(nodes, "execute_tool")
+    def test_execute_tools_hands_durable_mesh_to_solver(self, execute_tool):
+        def fake_execute(tool_name, state):
+            if tool_name == "mesh_geometry":
+                return {
+                    "tool_name": tool_name,
+                    "provider": "mcp:meshing",
+                    "status": "completed",
+                    "error": "",
+                    "output": {
+                        "mesh_artifact": {
+                            "mesh_uri": "mcp://meshing/workspace/runs/test/mesh.msh",
+                            "quality": {"status": "valid", "errors": []},
+                        }
+                    },
+                }
+            if tool_name == "mesh_artifact_store":
+                self.assertTrue(
+                    state["mesh_artifact"]["mesh_uri"].startswith(
+                        "mcp://meshing/workspace/"
+                    )
+                )
+                return {
+                    "tool_name": tool_name,
+                    "provider": "local:mesh_artifact_store",
+                    "status": "completed",
+                    "error": "",
+                    "output": {
+                        "mesh_artifact": {
+                            "mesh_uri": "aes://artifacts/meshes/abc123/mesh.msh",
+                            "quality": {"status": "valid", "errors": []},
+                        }
+                    },
+                }
+            self.assertEqual(tool_name, "fenics_code_solve")
+            self.assertEqual(
+                state["mesh_artifact"]["mesh_uri"],
+                "aes://artifacts/meshes/abc123/mesh.msh",
+            )
+            return {
+                "tool_name": tool_name,
+                "provider": "local:fenics_code",
+                "status": "completed",
+                "error": "",
+                "output": {},
+            }
+
+        execute_tool.side_effect = fake_execute
+
+        result = nodes.execute_tools(
+            {
+                "selected_tools": [
+                    "mesh_geometry",
+                    "mesh_artifact_store",
+                    "fenics_code_solve",
+                ]
+            }
+        )
+
+        self.assertEqual(result["tool_execution_status"], "completed")
+        self.assertEqual(
+            result["mesh_artifact"]["mesh_uri"],
+            "aes://artifacts/meshes/abc123/mesh.msh",
         )
 
     def test_terminal_paths_select_only_artifact_store(self):
