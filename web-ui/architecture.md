@@ -208,6 +208,13 @@ OpenAI-compatible request. The latest solve records the geometry context it
 used, preventing a newly selected geometry from being confused with an older
 solution. Raw VTP data is never sent as a computational geometry.
 
+While an AES request is running, the application-level solve state locks both
+the standard-geometry selector and geometry file input. Native disabled
+controls provide the visible interaction guard, and the application and
+component handlers independently reject stale geometry-change events. The
+geometry attached when the request starts therefore remains immutable until
+the request finishes or fails.
+
 The Workbench sends user and assistant chat turns with each request. The API
 uses the latest user turn for ordinary new requests, but reconstructs the
 active PDE request when the previous assistant turn explicitly requested AES

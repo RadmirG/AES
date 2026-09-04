@@ -17,6 +17,7 @@ export function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState("");
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [isSolveRunning, setIsSolveRunning] = useState(false);
   const [authenticationError, setAuthenticationError] = useState("");
 
   useEffect(() => {
@@ -132,6 +133,9 @@ export function App() {
   }
 
   function handleGeometryContextChange(context?: GeometryContext) {
+    if (isSolveRunning) {
+      return;
+    }
     handleConversationUpdate(activeConversation.id, (conversation) => ({
       ...conversation,
       geometryContext: context,
@@ -182,8 +186,10 @@ export function App() {
           />
           <ChatPanel
             conversation={activeConversation}
+            isRunning={isSolveRunning}
             onConversationChange={handleConversationChange}
             onConversationUpdate={handleConversationUpdate}
+            onRunningChange={setIsSolveRunning}
           />
         </div>
       </section>
@@ -191,6 +197,7 @@ export function App() {
       <section className="resultPane">
         <ResultWorkspace
           geometryContext={activeConversation.geometryContext}
+          isRunning={isSolveRunning}
           onGeometryContextChange={handleGeometryContextChange}
           result={activeConversation.result || null}
         />

@@ -10,6 +10,7 @@ import { VtkResultViewer } from "./VtkResultViewer";
 
 type Props = {
   geometryContext?: GeometryContext;
+  isRunning: boolean;
   onGeometryContextChange: (context?: GeometryContext) => void;
   resultGeometry: GeometrySpec | null;
   resultGeometryContext?: GeometryContext;
@@ -23,6 +24,7 @@ type LoadedExample = {
 
 export function GeometryExplorer({
   geometryContext,
+  isRunning,
   onGeometryContextChange,
   resultGeometry,
   resultGeometryContext,
@@ -69,7 +71,7 @@ export function GeometryExplorer({
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file) {
+    if (isRunning || !file) {
       return;
     }
     setError("");
@@ -96,6 +98,9 @@ export function GeometryExplorer({
   }
 
   function selectExample(id: string) {
+    if (isRunning) {
+      return;
+    }
     setUploadedVtp(null);
     setUploadedName("");
     setError("");
@@ -123,7 +128,11 @@ export function GeometryExplorer({
         <span
           className={`geometryAttachmentStatus ${geometryContext ? "attached" : ""}`}
         >
-          {geometryContext ? "Attached to conversation" : "Geometry comes from chat"}
+          {isRunning
+            ? "Geometry locked while AES is running"
+            : geometryContext
+              ? "Attached to conversation"
+              : "Geometry comes from chat"}
         </span>
       </header>
 
@@ -131,6 +140,7 @@ export function GeometryExplorer({
         <label>
           Standard geometry
           <select
+            disabled={isRunning}
             value={geometryContext?.source === "standard" ? geometryContext.id : ""}
             onChange={(event) => selectExample(event.target.value)}
           >
@@ -142,10 +152,13 @@ export function GeometryExplorer({
             ))}
           </select>
         </label>
-        <label className="uploadGeometryButton">
+        <label
+          className={`uploadGeometryButton ${isRunning ? "disabled" : ""}`}
+        >
           Upload GeometrySpec JSON or display-only VTP
           <input
             accept=".json,.vtp,application/json"
+            disabled={isRunning}
             onChange={handleUpload}
             type="file"
           />

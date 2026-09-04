@@ -18,12 +18,14 @@ import { GeometryExplorer } from "./GeometryExplorer";
 
 type Props = {
   geometryContext?: GeometryContext;
+  isRunning: boolean;
   onGeometryContextChange: (context?: GeometryContext) => void;
   result: WorkbenchResult | null;
 };
 
 export function ResultWorkspace({
   geometryContext,
+  isRunning,
   onGeometryContextChange,
   result,
 }: Props) {
@@ -76,6 +78,7 @@ export function ResultWorkspace({
 
       <GeometryExplorer
         geometryContext={geometryContext}
+        isRunning={isRunning}
         onGeometryContextChange={onGeometryContextChange}
         resultGeometry={aesResult?.geometry_spec || null}
         resultGeometryContext={result?.geometryContext}

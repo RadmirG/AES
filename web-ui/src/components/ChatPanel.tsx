@@ -10,11 +10,13 @@ import type {
 
 type Props = {
   conversation: Conversation;
+  isRunning: boolean;
   onConversationChange: (conversation: Conversation) => void;
   onConversationUpdate: (
     conversationId: string,
     updater: (conversation: Conversation) => Conversation,
   ) => void;
+  onRunningChange: (isRunning: boolean) => void;
 };
 
 const starterPrompt = `Solve the transient heat equation on the unit square Omega=[0,1]^2.
@@ -63,11 +65,12 @@ const progressTemplate: ProgressStep[] = progressLabels.map((step, index) => ({
 
 export function ChatPanel({
   conversation,
+  isRunning,
   onConversationChange,
   onConversationUpdate,
+  onRunningChange,
 }: Props) {
   const [input, setInput] = useState(starterPrompt);
-  const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState("");
   const [activeProgressTurnId, setActiveProgressTurnId] = useState("");
 
@@ -137,7 +140,7 @@ export function ChatPanel({
     };
     onConversationChange(nextConversation);
     setInput("");
-    setIsRunning(true);
+    onRunningChange(true);
     setError("");
     setActiveProgressTurnId(progressTurnId);
 
@@ -195,7 +198,7 @@ export function ChatPanel({
           ),
       );
     } finally {
-      setIsRunning(false);
+      onRunningChange(false);
       setActiveProgressTurnId("");
     }
   }
