@@ -204,7 +204,10 @@ current state or the complete time history. The initial 2D camera is top-down
 with parallel projection. The 3D plate camera is isometric. VTK interaction
 supports rotate, pan, zoom, and cell picking; picked semantic region actors are
 highlighted. Renderer instances are disposed and their canvases removed on
-every sample change so browser and GPU resources do not accumulate.
+every dataset change so browser and GPU resources do not accumulate. Time-step,
+section-position, section-axis, and color-scale changes update the existing VTK
+datasets and actors in place; they never recreate the render window or reset
+the active camera, so user rotation, pan, and zoom remain stable.
 
 Selecting a standard sample or uploading a `GeometrySpec` JSON attaches that
 typed contract to the current conversation. It is persisted with the local

@@ -108,6 +108,7 @@ export function VtkResultViewer({ manifest }: Props) {
 
 function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const sceneRef = useRef<SampledFieldScene | null>(null);
   const [sampleIndex, setSampleIndex] = useState(Math.max(0, field.samples.length - 1));
   const [sliceAxis, setSliceAxis] = useState<SliceAxis>(2);
   const [slicePercent, setSlicePercent] = useState(50);
@@ -153,7 +154,7 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !sample) {
+    if (!container) {
       return;
     }
     container.replaceChildren();
@@ -180,11 +181,7 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
     const colors = vtkDataArray.newInstance({
       name: `${field.field || "u"}_colors`,
       numberOfComponents: 3,
-      values: Uint8Array.from(
-        sample.values.flatMap((value) =>
-          heatRgb(value, activeRange.min, activeRange.max),
-        ),
-      ),
+      values: new Uint8Array(field.coordinates.length * 3),
     });
     const polyData = vtkPolyData.newInstance();
     polyData.setPoints(points);
@@ -221,42 +218,29 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
 
     const renderer = view.getRenderer();
     renderer.addActor(actor);
-    if (hasVolume && volumeSlice.polygonCount) {
-      const slicePoints = vtkPoints.newInstance();
-      slicePoints.setData(
-        Float32Array.from(volumeSlice.coordinates.flatMap((point) => point)),
-        3,
-      );
-      const sliceColors = vtkDataArray.newInstance({
-        name: `${field.field || "u"}_slice_colors`,
-        numberOfComponents: 3,
-        values: Uint8Array.from(
-          volumeSlice.values.flatMap((value) =>
-            heatRgb(value, activeRange.min, activeRange.max),
-          ),
-        ),
-      });
-      const sliceData = vtkPolyData.newInstance();
-      sliceData.setPoints(slicePoints);
-      sliceData.setPolys(
-        vtkCellArray.newInstance({
-          values: Uint32Array.from(volumeSlice.polygons),
-        }),
-      );
-      sliceData.getPointData().setScalars(sliceColors);
-
+    let sliceData: ReturnType<typeof vtkPolyData.newInstance> | null = null;
+    let sliceActor: ReturnType<typeof vtkActor.newInstance> | null = null;
+    if (hasVolume) {
+      sliceData = vtkPolyData.newInstance();
       const sliceMapper = vtkMapper.newInstance();
       sliceMapper.setInputData(sliceData);
       sliceMapper.setColorModeToDirectScalars();
       sliceMapper.setScalarModeToUsePointData();
-      const sliceActor = vtkActor.newInstance();
+      sliceActor = vtkActor.newInstance();
       sliceActor.setMapper(sliceMapper);
       sliceActor.getProperty().setEdgeVisibility(true);
       sliceActor.getProperty().setEdgeColor(0.18, 0.22, 0.3);
       sliceActor.getProperty().setLineWidth(1);
       sliceActor.getProperty().setInterpolationToGouraud();
+      sliceActor.setVisibility(false);
       renderer.addActor(sliceActor);
     }
+    sceneRef.current = {
+      view,
+      surfaceData: polyData,
+      sliceData,
+      sliceActor,
+    };
     renderer.resetCamera();
     const isThreeDimensional = field.coordinates.some(
       (point) => point.length > 2 && Math.abs(point[2] || 0) > 1.0e-12,
@@ -277,10 +261,64 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
     view.getRenderWindow().render();
 
     return () => {
+      if (sceneRef.current?.view === view) {
+        sceneRef.current = null;
+      }
       view.delete();
       container.replaceChildren();
     };
-  }, [activeRange, field, hasVolume, sample, surface, volumeSlice]);
+  }, [field, hasVolume, surface]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene || !sample) {
+      return;
+    }
+    scene.surfaceData.getPointData().setScalars(
+      vtkDataArray.newInstance({
+        name: `${field.field || "u"}_colors`,
+        numberOfComponents: 3,
+        values: Uint8Array.from(
+          sample.values.flatMap((value) =>
+            heatRgb(value, activeRange.min, activeRange.max),
+          ),
+        ),
+      }),
+    );
+    scene.surfaceData.modified();
+
+    if (scene.sliceData && scene.sliceActor) {
+      const hasSlice = hasVolume && volumeSlice.polygonCount > 0;
+      scene.sliceActor.setVisibility(hasSlice);
+      if (hasSlice) {
+        const slicePoints = vtkPoints.newInstance();
+        slicePoints.setData(
+          Float32Array.from(volumeSlice.coordinates.flatMap((point) => point)),
+          3,
+        );
+        scene.sliceData.setPoints(slicePoints);
+        scene.sliceData.setPolys(
+          vtkCellArray.newInstance({
+            values: Uint32Array.from(volumeSlice.polygons),
+          }),
+        );
+        scene.sliceData.getPointData().setScalars(
+          vtkDataArray.newInstance({
+            name: `${field.field || "u"}_slice_colors`,
+            numberOfComponents: 3,
+            values: Uint8Array.from(
+              volumeSlice.values.flatMap((value) =>
+                heatRgb(value, activeRange.min, activeRange.max),
+              ),
+            ),
+          }),
+        );
+        scene.sliceData.modified();
+      }
+    }
+
+    scene.view.getRenderWindow().render();
+  }, [activeRange, field.field, hasVolume, sample, volumeSlice]);
 
   return (
     <div className="sampledFieldViewer">
@@ -374,6 +412,13 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
 
 type SliceAxis = 0 | 1 | 2;
 type ColorScale = "sample" | "global";
+
+type SampledFieldScene = {
+  view: ReturnType<typeof vtkFullScreenRenderWindow.newInstance>;
+  surfaceData: ReturnType<typeof vtkPolyData.newInstance>;
+  sliceData: ReturnType<typeof vtkPolyData.newInstance> | null;
+  sliceActor: ReturnType<typeof vtkActor.newInstance> | null;
+};
 
 type TopologyCell = {
   type: number;
