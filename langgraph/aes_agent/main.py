@@ -116,9 +116,10 @@ def build_user_text_from_messages(messages: List[ChatMessage]) -> str:
     turns into one problem statement can make a new deployment/log command
     inherit an older PDE request and accidentally trigger the solver workflow.
 
-    The one safe exception is AES's own requested-output clarification. If the
-    latest user turn only selects an output mode, rebuild the active request
-    from the previous PDE turn plus that selected output mode.
+    If AES explicitly requested clarification, rebuild the active request from
+    the preceding PDE turn and the subsequent user clarification turns. This
+    preserves the problem context without folding unrelated historical chat
+    turns into a new request.
     """
     turns = [
         {
@@ -138,32 +139,54 @@ def build_user_text_from_messages(messages: List[ChatMessage]) -> str:
     latest_user_index = user_turn_indices[-1]
     latest_user_text = turns[latest_user_index]["text"]
 
-    if _is_requested_output_reply(latest_user_text) and _previous_assistant_asked_for_output(
-        turns,
-        latest_user_index,
-    ):
-        previous_problem = _previous_user_problem_text(turns, latest_user_index)
-        requested_output = _normalize_requested_output_reply(latest_user_text)
-        if previous_problem and requested_output:
-            return "\n\n".join(
-                [
-                    previous_problem,
-                    f"Requested AES output: {requested_output}",
-                ]
+    if _previous_assistant_requested_aes_clarification(turns, latest_user_index):
+        problem_index = _previous_user_problem_index(turns, latest_user_index)
+        if problem_index is not None:
+            return _build_clarified_problem_text(
+                turns,
+                problem_index=problem_index,
+                latest_user_index=latest_user_index,
             )
 
     return latest_user_text
 
 
-def _previous_user_problem_text(
+def _previous_user_problem_index(
     turns: List[Dict[str, str]],
     before_index: int,
-) -> str:
+) -> int | None:
     for index in range(before_index - 1, -1, -1):
         turn = turns[index]
         if turn["role"] == "user" and _looks_like_pde_problem_text(turn["text"]):
-            return turn["text"]
-    return ""
+            return index
+    return None
+
+
+def _previous_assistant_requested_aes_clarification(
+    turns: List[Dict[str, str]],
+    before_index: int,
+) -> bool:
+    for index in range(before_index - 1, -1, -1):
+        turn = turns[index]
+        text = turn["text"].lower()
+        if turn["role"] == "user":
+            return False
+        if turn["role"] != "assistant":
+            continue
+        if any(
+            marker in text
+            for marker in (
+                "aes clarification required",
+                "clarification questions:",
+                "agent status: needs_clarification",
+                "next action: request_clarification",
+                "requested output is not",
+                "what output do you want from aes",
+                "select_requested_output",
+            )
+        ):
+            return True
+    return False
 
 
 def _previous_assistant_asked_for_output(
@@ -177,13 +200,39 @@ def _previous_assistant_asked_for_output(
             return False
         if turn["role"] != "assistant":
             continue
-        if (
-            "requested output is not" in text
-            or "what output do you want from aes" in text
-            or "select_requested_output" in text
-        ):
-            return True
+        return any(
+            marker in text
+            for marker in (
+                "requested output is not",
+                "what output do you want from aes",
+                "select_requested_output",
+            )
+        )
     return False
+
+
+def _build_clarified_problem_text(
+    turns: List[Dict[str, str]],
+    *,
+    problem_index: int,
+    latest_user_index: int,
+) -> str:
+    parts = [turns[problem_index]["text"]]
+    for index in range(problem_index + 1, latest_user_index + 1):
+        turn = turns[index]
+        if turn["role"] != "user":
+            continue
+        if _is_requested_output_reply(
+            turn["text"]
+        ) and _previous_assistant_asked_for_output(turns, index):
+            clarification = (
+                "Requested AES output: "
+                f"{_normalize_requested_output_reply(turn['text'])}"
+            )
+        else:
+            clarification = f"Additional user clarification:\n{turn['text']}"
+        parts.append(clarification)
+    return "\n\n".join(parts)
 
 
 def _is_requested_output_reply(text: str) -> bool:

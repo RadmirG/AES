@@ -169,11 +169,25 @@ def _parse_time(time_info: str, raw: str) -> dict[str, float] | None:
     # Explicit values in the user's request take precedence over a model-created
     # legacy summary when both contain a parseable time value.
     text = f"{raw} {time_info}"
-    end = re.search(r"(?:T|t_end|final\s+time)\s*=\s*(\d+(?:\.\d+)?)", text, re.I)
-    step = re.search(r"(?:dt|time\s+step)\s*=\s*(\d+(?:\.\d+)?)", text, re.I)
+    number = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
+    start = re.search(
+        rf"(?:t_0|t0|initial\s+time|start\s+time)\s*=\s*({number})",
+        text,
+        re.I,
+    )
+    end = re.search(
+        rf"(?:t_end|final\s+time(?:\s+T)?|T)\s*=\s*({number})",
+        text,
+        re.I,
+    )
+    step = re.search(rf"(?:dt|time\s+step)\s*=\s*({number})", text, re.I)
     if not end or not step:
         return None
-    return {"t0": 0.0, "t_end": float(end.group(1)), "dt": float(step.group(1))}
+    return {
+        "t0": float(start.group(1)) if start else 0.0,
+        "t_end": float(end.group(1)),
+        "dt": float(step.group(1)),
+    }
 
 
 def _boundary_value(raw: str) -> str:

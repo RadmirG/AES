@@ -208,12 +208,18 @@ OpenAI-compatible request. The latest solve records the geometry context it
 used, preventing a newly selected geometry from being confused with an older
 solution. Raw VTP data is never sent as a computational geometry.
 
+The Workbench sends user and assistant chat turns with each request. The API
+uses the latest user turn for ordinary new requests, but reconstructs the
+active PDE request when the previous assistant turn explicitly requested AES
+clarification. Progress turns are UI-only and are never sent to LangGraph.
+
 ```mermaid
 flowchart LR
     A["Geometry described in chat"] --> R["Chat request"]
     B["Selected standard GeometrySpec"] --> C["Conversation geometry context"]
     D["Uploaded GeometrySpec JSON"] --> C
     C --> R
+    H["Prior PDE plus clarification answers"] --> R
     R --> E["LangGraph validation and solve"]
     E --> F["geometry_spec plus viewer manifest"]
     F --> G["One result-aware viewport"]

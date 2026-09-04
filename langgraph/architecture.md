@@ -307,8 +307,11 @@ configuration and is visible as
 The interpreter normalizes model-reported issues before typed validation.
 Documented defaults for time integration, finite-element space, mesh size,
 linear solver, preconditioner, and output format are non-blocking assumptions.
-Unresolved physics and geometry inputs remain blocking ambiguities and route to
-clarification.
+Claims that time values or geometry are missing are cross-checked against the
+deterministic request parser and the validated attached GeometrySpec. A model
+cannot override explicit `T_0`, `T_end` or `T`, and `dt` values or reject an
+attached geometry as absent. Unresolved physics and geometry inputs remain
+blocking ambiguities and route to clarification.
 
 The initial compiler release supports stationary and transient scalar
 diffusion with constant coefficients, constant sources, constant Dirichlet
@@ -403,9 +406,25 @@ schema through its `format` field. The model-client logs include
 API keys are used only in the server-side LangGraph client.
 
 The OpenAI-compatible adapter normally uses the latest user turn as the active
-request. The controlled exception is AES-requested output clarification: when
-AES asks what output the user wants, a short follow-up such as `execution with
-stored result artifacts` is merged with the previous PDE problem.
+request. When the immediately preceding assistant response is an explicit AES
+clarification, the adapter finds the active PDE user turn and appends every
+subsequent user clarification answer. This handles requested-output selection,
+time corrections, boundary data, coefficients, and similar follow-ups without
+mixing arbitrary older chat history into a new request.
+
+```mermaid
+flowchart TD
+    A["Latest user message"] --> B{"Prior response requested AES clarification?"}
+    B -->|no| C["Latest turn is active request"]
+    B -->|yes| D["Locate preceding PDE request"]
+    D --> E["Collect later user clarification turns"]
+    E --> F["Build one active request with labeled clarifications"]
+    C --> G["Create AgentState"]
+    F --> G
+```
+
+This is bounded API-level reconstruction. It does not yet replace the planned
+PostgreSQL-backed LangGraph checkpoint resume by conversation `thread_id`.
 
 The graph's internal `AgentState` is not returned directly to browsers. Before
 the non-streaming response is serialized, `response_projection.py` creates a

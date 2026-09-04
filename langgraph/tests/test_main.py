@@ -181,6 +181,81 @@ class ChatHistoryInputTests(unittest.TestCase):
         self.assertIn("Requested AES output", text)
         self.assertIn("execute the generated", text)
 
+    def test_aes_clarification_reply_resumes_complete_pde_context(self):
+        text = build_user_text_from_messages(
+            [
+                ChatMessage(
+                    role="user",
+                    content=(
+                        "Solve the transient heat equation on uploaded geometry. "
+                        "Use du/dt = alpha * Delta(u) + f with alpha=1 and f=1. "
+                        "Use u=0 on the boundary and initial condition "
+                        "u(x,y,0)=sin(pi*x)*sin(pi*y). "
+                        "Use final time T=1 and time step dt=0.01."
+                    ),
+                ),
+                ChatMessage(
+                    role="assistant",
+                    content=(
+                        "AES clarification required\n\nClarification questions:\n"
+                        "- Please clarify the time interval.\n\n"
+                        "Agent status: needs_clarification"
+                    ),
+                ),
+                ChatMessage(
+                    role="user",
+                    content="Use T_0=0, T_end=1, and dt=0.01.",
+                ),
+            ]
+        )
+
+        self.assertIn("transient heat equation", text)
+        self.assertIn("alpha=1 and f=1", text)
+        self.assertIn("Additional user clarification", text)
+        self.assertIn("T_0=0, T_end=1, and dt=0.01", text)
+
+    def test_repeated_aes_clarifications_keep_all_user_answers(self):
+        text = build_user_text_from_messages(
+            [
+                ChatMessage(role="user", content="Solve a transient heat equation."),
+                ChatMessage(
+                    role="assistant",
+                    content="AES clarification required\nClarification questions: time?",
+                ),
+                ChatMessage(role="user", content="Use T_end=1 and dt=0.01."),
+                ChatMessage(
+                    role="assistant",
+                    content="AES clarification required\nClarification questions: boundary?",
+                ),
+                ChatMessage(role="user", content="Use u=0 on the boundary."),
+            ]
+        )
+
+        self.assertIn("Solve a transient heat equation", text)
+        self.assertIn("T_end=1 and dt=0.01", text)
+        self.assertIn("u=0 on the boundary", text)
+
+    def test_physics_clarification_that_mentions_execution_is_not_rewritten(self):
+        text = build_user_text_from_messages(
+            [
+                ChatMessage(role="user", content="Solve a transient heat equation."),
+                ChatMessage(
+                    role="assistant",
+                    content=(
+                        "AES clarification required\n"
+                        "Clarification questions: source and requested action?"
+                    ),
+                ),
+                ChatMessage(
+                    role="user",
+                    content="Use source f=2 and execute the solve.",
+                ),
+            ]
+        )
+
+        self.assertIn("Use source f=2 and execute the solve.", text)
+        self.assertNotIn("Requested AES output", text)
+
     def test_duplicate_request_reuses_cached_result(self):
         fake_graph = _FakeGraph()
         main._RESULT_CACHE.clear()

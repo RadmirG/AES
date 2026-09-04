@@ -101,6 +101,72 @@ class TypedProblemInterpretationTests(unittest.TestCase):
         )
 
     @patch("aes_agent.typed_problem.ollama_json")
+    def test_explicit_time_restores_model_omission(self, model_json):
+        model_json.return_value = {
+            **self.model_response,
+            "pde_spec": {
+                **self.model_response["pde_spec"],
+                "time": None,
+            },
+            "ambiguities": ["Final time and dt were not specified."],
+        }
+
+        result = interpret_problem_specs(self.state)
+        validated = validate_problem_specs(result)
+
+        self.assertEqual(result["pde_spec"]["time"]["t_end"], 1.0)
+        self.assertEqual(result["pde_spec"]["time"]["dt"], 0.01)
+        self.assertEqual(result["typed_spec_ambiguities"], [])
+        self.assertTrue(
+            any(
+                "restored explicitly stated time values" in warning
+                for warning in result["typed_interpretation_warnings"]
+            )
+        )
+        self.assertEqual(validated["typed_validation_status"], "valid")
+
+    @patch("aes_agent.typed_problem.ollama_json")
+    def test_explicit_time_and_attached_geometry_override_false_model_ambiguities(
+        self,
+        model_json,
+    ):
+        attached = dict(self.model_response["geometry_spec"])
+        attached["metadata"] = {"id": "selected-standard-geometry"}
+        model_json.return_value = {
+            "pde_spec": self.model_response["pde_spec"],
+            "ambiguities": [
+                "domain_geometry_specification",
+                (
+                    "The time interval [0, t_end] and the time step dt are not "
+                    "specified. Used defaults."
+                ),
+            ],
+        }
+
+        result = interpret_problem_specs(
+            {**self.state, "requested_geometry_spec": attached}
+        )
+        validated = validate_problem_specs(result)
+
+        self.assertEqual(result["typed_spec_ambiguities"], [])
+        self.assertEqual(result["pde_spec"]["time"]["t0"], 0.0)
+        self.assertEqual(result["pde_spec"]["time"]["t_end"], 1.0)
+        self.assertEqual(result["pde_spec"]["time"]["dt"], 0.01)
+        self.assertTrue(
+            any(
+                "parsed explicit values" in warning
+                for warning in result["typed_interpretation_warnings"]
+            )
+        )
+        self.assertTrue(
+            any(
+                "validated GeometrySpec" in warning
+                for warning in result["typed_interpretation_warnings"]
+            )
+        )
+        self.assertEqual(validated["typed_validation_status"], "valid")
+
+    @patch("aes_agent.typed_problem.ollama_json")
     def test_missing_physics_ambiguity_remains_blocking(self, model_json):
         model_json.return_value = {
             **self.model_response,

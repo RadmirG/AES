@@ -126,6 +126,11 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
         )
     raw_ambiguities = _strings(response.get("ambiguities")) if isinstance(response, dict) else []
     ambiguities, default_warnings = _partition_ambiguities(raw_ambiguities)
+    ambiguities, evidence_warnings = _partition_explicit_value_ambiguities(
+        ambiguities,
+        fallback_pde,
+    )
+    default_warnings.extend(evidence_warnings)
     if requested_geometry is not None:
         ambiguities, context_warnings = _partition_supplied_geometry_ambiguities(
             ambiguities
@@ -269,12 +274,58 @@ def _partition_supplied_geometry_ambiguities(
     blocking: list[str] = []
     warnings: list[str] = []
     for item in items:
-        normalized = " ".join(item.lower().split())
+        normalized = " ".join(item.lower().replace("_", " ").split())
         refers_to_geometry = any(
             marker in normalized
             for marker in ("geometry", "uploaded", "file path", "mesh path")
         )
-        claims_missing_context = any(
+        claims_missing_context = (
+            normalized in {"domain geometry specification", "geometry specification"}
+            or any(
+                marker in normalized
+                for marker in (
+                    "not provided",
+                    "not specified",
+                    "not explicitly",
+                    "missing",
+                    "unknown",
+                )
+            )
+        )
+        if refers_to_geometry and claims_missing_context:
+            warnings.append(
+                "Ignored model geometry ambiguity because a validated GeometrySpec "
+                f"was attached: {item}"
+            )
+        else:
+            blocking.append(item)
+    return blocking, warnings
+
+
+def _partition_explicit_value_ambiguities(
+    items: list[str],
+    deterministic: PDEProblemSpec | None,
+) -> tuple[list[str], list[str]]:
+    """Reject model ambiguity claims contradicted by parsed user values."""
+
+    blocking: list[str] = []
+    warnings: list[str] = []
+    explicit_time = deterministic.time if deterministic is not None else None
+    for item in items:
+        normalized = " ".join(item.lower().replace("_", " ").split())
+        refers_to_time_values = any(
+            marker in normalized
+            for marker in (
+                "time interval",
+                "time step",
+                "final time",
+                "start time",
+                "t end",
+                "t0",
+                "dt",
+            )
+        )
+        claims_missing_or_defaulted = any(
             marker in normalized
             for marker in (
                 "not provided",
@@ -282,12 +333,16 @@ def _partition_supplied_geometry_ambiguities(
                 "not explicitly",
                 "missing",
                 "unknown",
+                "used default",
+                "defaulted",
+                "assumed",
             )
         )
-        if refers_to_geometry and claims_missing_context:
+        if explicit_time is not None and refers_to_time_values and claims_missing_or_defaulted:
             warnings.append(
-                "Ignored model geometry ambiguity because a validated GeometrySpec "
-                f"was attached: {item}"
+                "Ignored model time ambiguity because AES parsed explicit values "
+                f"from the user request (t0={explicit_time.t0:g}, "
+                f"T={explicit_time.t_end:g}, dt={explicit_time.dt:g}): {item}"
             )
         else:
             blocking.append(item)
@@ -358,18 +413,12 @@ def _preserve_explicit_time_values(
     if (
         interpreted is None
         or deterministic is None
-        or interpreted.time is None
         or deterministic.time is None
     ):
         return interpreted, []
 
     explicit = deterministic.time
     parsed = interpreted.time
-    conflicting_values = not (
-        parsed.t0 == explicit.t0
-        and parsed.t_end == explicit.t_end
-        and parsed.dt == explicit.dt
-    )
     retained_assumptions = [
         assumption
         for assumption in interpreted.assumptions
@@ -382,6 +431,21 @@ def _preserve_explicit_time_values(
         )
     ]
     removed_false_assumption = len(retained_assumptions) != len(interpreted.assumptions)
+    if parsed is None:
+        corrected = interpreted.model_copy(
+            update={"time": explicit, "assumptions": retained_assumptions}
+        )
+        return corrected, [
+            "AES restored explicitly stated time values that were omitted from "
+            f"the model interpretation (t0={explicit.t0:g}, "
+            f"T={explicit.t_end:g}, dt={explicit.dt:g})."
+        ]
+
+    conflicting_values = not (
+        parsed.t0 == explicit.t0
+        and parsed.t_end == explicit.t_end
+        and parsed.dt == explicit.dt
+    )
     if not conflicting_values and not removed_false_assumption:
         return interpreted, []
 

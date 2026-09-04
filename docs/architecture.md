@@ -289,6 +289,27 @@ because surface visualization data is not by itself a governed FEM domain.
 
 ## Current Main Paths
 
+### Active Request And Clarification Context
+
+```mermaid
+flowchart TD
+    A["OpenAI chat history"] --> B["Latest user turn"]
+    B --> C{"Previous assistant turn is an AES clarification?"}
+    C -->|no| D["Use latest user turn only"]
+    C -->|yes| E["Find active PDE request"]
+    E --> F["Append subsequent user clarification answers"]
+    F --> G["Reconstructed active engineering request"]
+    H["Attached conversation GeometrySpec"] --> I["Authoritative request context"]
+    D --> J["LangGraph invocation"]
+    G --> J
+    I --> J
+```
+
+This bounded reconstruction prevents a clarification such as `T_0=0,
+T_end=1, dt=0.01` from becoming a new standalone problem. It deliberately does
+not concatenate arbitrary older chat turns. Persistent checkpoint-backed graph
+resume remains a later architecture step.
+
 ### Typed PDE And Geometry Compilation Path
 
 ```mermaid
@@ -304,9 +325,11 @@ flowchart TD
     BA -->|none| C["Validated PDEProblemSpec"]
     BA -->|none| D["Validated GeometrySpec"]
     BA -->|supported numerical default| BW["Record assumption and warning"]
+    BA -->|reported missing value| BE{"Contradicted by explicit request or attached geometry?"}
+    BE -->|yes| BW
+    BE -->|no| BC["Blocking clarification"]
     BW --> C
     BW --> D
-    BA -->|missing physics or geometry| BC["Blocking clarification"]
     BI -->|no| BF["Explicit deterministic compatibility fallback"]
     BF --> C
     BF --> D
@@ -352,7 +375,10 @@ Interpretation issues are not all blocking. Documented defaults for numerical
 scheme, finite-element space, mesh size, solver, and output format are recorded
 as assumptions and warnings. Missing physical or mathematical problem data,
 including geometry, coefficients, boundary data, transient initial data, final
-time, or `dt`, routes to clarification.
+time, or `dt`, routes to clarification only after the claim is checked against
+deterministically parsed request values and a validated attached GeometrySpec.
+Explicit `T_0`, `T_end` or `T`, and `dt` values remain authoritative when model
+output conflicts with them.
 
 ## Deployment Topology
 

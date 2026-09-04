@@ -43,6 +43,29 @@ class TypedSpecificationTests(unittest.TestCase):
         self.assertEqual(pde_report.status, "valid")
         self.assertEqual(geometry_report.status, "valid")
 
+    def test_legacy_time_parser_accepts_explicit_t0_tend_and_dt(self):
+        pde, _ = build_legacy_specs(
+            {
+                "raw_user_input": (
+                    "Solve the transient heat equation on the unit square. "
+                    "Use T_0=-1e-1, T_end=1, and time step dt=1e-2."
+                ),
+                "pde_info": "time_dependent_heat_equation",
+                "domain_info": "unit_square",
+                "coefficient_info": "1",
+                "source_info": "1",
+                "bc_info": "dirichlet_boundary_condition",
+                "initial_condition_info": "sin(pi*x)*sin(pi*y)",
+                "time_info": "unknown_time",
+            }
+        )
+
+        self.assertIsNotNone(pde)
+        assert pde is not None and pde.time is not None
+        self.assertEqual(pde.time.t0, -0.1)
+        self.assertEqual(pde.time.t_end, 1.0)
+        self.assertEqual(pde.time.dt, 0.01)
+
     def test_transient_spec_requires_time_and_initial_condition(self):
         value = _pde_dict("transient_diffusion")
         pde, report = validate_pde_spec(value)
