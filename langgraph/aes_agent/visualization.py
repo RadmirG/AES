@@ -173,6 +173,11 @@ def _viewer_manifest(
             "diagnostics and artifact links until a .vtu, .vtp, or .vtkjs export "
             "is available."
         )
+    elif not vtk_datasets and sampled_field and sampled_field.get("topology"):
+        warnings.append(
+            "AES is rendering the computed field on the DOLFINx solver mesh "
+            "using exported VTK topology and nodal values."
+        )
     elif not vtk_datasets and sampled_field:
         warnings.append(
             "No VTK.js-readable dataset was produced yet. AES is using sampled "
@@ -209,6 +214,9 @@ def _viewer_manifest(
             "static_preview": True,
             "diagnostics_chart": True,
             "sampled_field_preview": bool(sampled_field),
+            "solver_mesh_field_preview": bool(
+                sampled_field and sampled_field.get("topology")
+            ),
             "vtkjs_interactive": bool(vtk_datasets),
             "openui_dashboard_scaffold": True,
         },
@@ -259,7 +267,7 @@ def _sampled_field_from_diagnostics(diagnostics: Dict[str, Any]) -> Dict[str, An
         if not isinstance(point, list) or len(point) < 2:
             continue
         try:
-            cleaned_coordinates.append([float(point[0]), float(point[1])])
+            cleaned_coordinates.append([float(value) for value in point[:3]])
         except (TypeError, ValueError):
             continue
 
@@ -297,17 +305,57 @@ def _sampled_field_from_diagnostics(diagnostics: Dict[str, Any]) -> Dict[str, An
         if len(cleaned_samples) > 1
         else "dof_point_cloud"
     )
+    topology = _clean_field_topology(field.get("topology"), len(cleaned_coordinates))
     return {
         "type": str(field.get("type") or default_type),
         "field": str(field.get("field") or "u"),
         "domain": str(field.get("domain") or "unit_square"),
         "space": str(field.get("space") or "P1"),
         "coordinates": cleaned_coordinates,
+        "topology": topology,
         "samples": cleaned_samples,
         "value_range": {
             "min": _float_or_zero(value_range.get("min")) if value_range else min(all_values),
             "max": _float_or_zero(value_range.get("max")) if value_range else max(all_values),
         },
+    }
+
+
+def _clean_field_topology(value: Any, point_count: int) -> Dict[str, Any]:
+    if not isinstance(value, dict) or value.get("format") != "vtk_cell_array":
+        return {}
+    raw_cells = value.get("cells")
+    raw_types = value.get("cell_types")
+    if not isinstance(raw_cells, list) or not isinstance(raw_types, list):
+        return {}
+    try:
+        cells = [int(item) for item in raw_cells]
+        cell_types = [int(item) for item in raw_types]
+    except (TypeError, ValueError):
+        return {}
+    if not cells or not cell_types:
+        return {}
+
+    offset = 0
+    parsed_count = 0
+    while offset < len(cells):
+        width = cells[offset]
+        if width <= 0 or offset + width >= len(cells):
+            return {}
+        indices = cells[offset + 1 : offset + 1 + width]
+        if any(index < 0 or index >= point_count for index in indices):
+            return {}
+        offset += width + 1
+        parsed_count += 1
+    if offset != len(cells) or parsed_count != len(cell_types):
+        return {}
+
+    return {
+        "format": "vtk_cell_array",
+        "cells": cells,
+        "cell_types": cell_types,
+        "cell_count": parsed_count,
+        "topological_dimension": int(_float_or_zero(value.get("topological_dimension"))),
     }
 
 
@@ -401,7 +449,14 @@ def _render_sampled_field_svg(
     heatmaps = []
     is_time_dependent = _sampled_field_is_time_dependent(manifest, sampled_field, samples)
     field_name = str(sampled_field.get("field") or "u")
-    solution_label = f"{field_name}(x,y,t)" if is_time_dependent else f"{field_name}(x,y)"
+    topology = sampled_field.get("topology") if isinstance(sampled_field.get("topology"), dict) else {}
+    dimension = max(1, min(3, int(_float_or_zero(topology.get("topological_dimension"))) or 2))
+    variables = ",".join(("x", "y", "z")[:dimension])
+    solution_label = (
+        f"{field_name}({variables},t)"
+        if is_time_dependent
+        else f"{field_name}({variables})"
+    )
     for index, sample in enumerate(selected_samples):
         x = 38 + index * 225
         heatmaps.append(

@@ -117,6 +117,7 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
             schema=TypedProblemInterpretation.model_json_schema(),
         )
     pde, pde_error = _parse_pde(response.get("pde_spec") if isinstance(response, dict) else None)
+    pde, explicit_value_warnings = _preserve_explicit_time_values(pde, fallback_pde)
     if requested_geometry is not None:
         geometry, geometry_error = requested_geometry, ""
     else:
@@ -138,7 +139,7 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
             pde.equation.family,
             geometry.source.kind,
             len(ambiguities),
-            len(default_warnings),
+            len(default_warnings) + len(explicit_value_warnings),
         )
         return _interpretation_result(
             pde,
@@ -146,7 +147,11 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
             source="llm_structured_extraction",
             geometry_source=("request_context" if requested_geometry else "llm_structured_extraction"),
             ambiguities=ambiguities,
-            warnings=[*requested_geometry_warnings, *default_warnings],
+            warnings=[
+                *requested_geometry_warnings,
+                *explicit_value_warnings,
+                *default_warnings,
+            ],
         )
 
     failures = [item for item in (pde_error, geometry_error) if item]
@@ -344,6 +349,61 @@ def _adapt_pde_to_geometry(
     if pde is None:
         return None
     return pde.model_copy(update={"spatial_dimension": geometry.dimension})
+
+
+def _preserve_explicit_time_values(
+    interpreted: PDEProblemSpec | None,
+    deterministic: PDEProblemSpec | None,
+) -> tuple[PDEProblemSpec | None, list[str]]:
+    if (
+        interpreted is None
+        or deterministic is None
+        or interpreted.time is None
+        or deterministic.time is None
+    ):
+        return interpreted, []
+
+    explicit = deterministic.time
+    parsed = interpreted.time
+    conflicting_values = not (
+        parsed.t0 == explicit.t0
+        and parsed.t_end == explicit.t_end
+        and parsed.dt == explicit.dt
+    )
+    retained_assumptions = [
+        assumption
+        for assumption in interpreted.assumptions
+        if not (
+            "assum" in assumption.lower()
+            and any(
+                marker in assumption.lower()
+                for marker in ("dt", "time step", "t_end", "final time")
+            )
+        )
+    ]
+    removed_false_assumption = len(retained_assumptions) != len(interpreted.assumptions)
+    if not conflicting_values and not removed_false_assumption:
+        return interpreted, []
+
+    corrected_time = parsed.model_copy(
+        update={"t0": explicit.t0, "t_end": explicit.t_end, "dt": explicit.dt}
+    )
+    corrected = interpreted.model_copy(
+        update={"time": corrected_time, "assumptions": retained_assumptions}
+    )
+    warnings = []
+    if conflicting_values:
+        warnings.append(
+            "AES preserved explicitly stated time values from the user request "
+            f"(T={explicit.t_end:g}, dt={explicit.dt:g}) instead of conflicting "
+            "model-extracted values."
+        )
+    if removed_false_assumption:
+        warnings.append(
+            "AES discarded model assumptions that incorrectly described explicit "
+            "time values as unspecified."
+        )
+    return corrected, warnings
 
 
 def _compact_error(exc: Exception, limit: int = 700) -> str:

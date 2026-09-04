@@ -49,8 +49,10 @@ flowchart TD
     G --> H["Execute with timeout"]
     H --> I["Capture stdout/stderr"]
     H --> J["Collect produced files"]
+    H --> V["Export VTK topology and nodal field series"]
     I --> K["Return MCP result"]
     J --> K
+    V --> K
     K --> L["AES result review + artifact_store"]
 ```
 
@@ -69,6 +71,13 @@ It returns:
 - stdout/stderr,
 - diagnostics if `diagnostics.json` is produced,
 - provider artifact references for generated files.
+
+The versioned compiler uses `dolfinx.plot.vtk_mesh(V)` to emit one
+function-space topology plus matching nodal solution arrays. This preserves the
+actual meshing-provider geometry in browser visualization without requiring the
+browser to parse XDMF/HDF5 or reconstruct the original CAD model. Volume-cell
+interiors remain solver data; the Workbench extracts their exterior faces for
+interactive surface rendering.
 
 `inputs` accepts only governed `aes://artifacts/meshes/...` references. The
 validated provider mesh is first copied into the AES-owned, content-addressed

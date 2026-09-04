@@ -324,7 +324,8 @@ flowchart TD
     K --> L["NumericalIR and CompilationPlan"]
     L --> M["Versioned DOLFINx compiler"]
     M --> N["Preflight and FEniCS execution"]
-    N --> O["Visualization and artifact store"]
+    N --> NA["DOLFINx VTK topology plus nodal field samples"]
+    NA --> O["Solver-mesh visualization and artifact store"]
 ```
 
 ### Deterministic MCP Smoke Path
@@ -379,7 +380,9 @@ See [`deploy/architecture.md`](../deploy/architecture.md) and
 ## Planned Extensions
 
 - Materialize provider-owned raw solution files into AES-owned `/artifacts`.
-- Add real VTK conversion for `.xdmf`/`.h5` solution outputs.
+- Optionally materialize standalone `.vtu` time-series files for external
+  post-processing; the Workbench already consumes DOLFINx VTK topology and
+  nodal field samples from the governed viewer manifest.
 - Add retrieval provider implementation for project/domain RAG.
 - Migrate Workbench chats, run progress, artifact ownership, and LangGraph
   checkpoints from process/browser memory to server-side PostgreSQL

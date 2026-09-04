@@ -193,6 +193,13 @@ export type SampledFieldDataset = {
   domain: string;
   space: string;
   coordinates: number[][];
+  topology?: {
+    format: "vtk_cell_array";
+    cells: number[];
+    cell_types: number[];
+    cell_count: number;
+    topological_dimension: number;
+  };
   samples: Array<{
     step: number;
     time: number;

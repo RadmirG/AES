@@ -170,7 +170,8 @@ flowchart TD
     VTP["Display-only VTP"] --> E
     E --> F{"Best available visualization"}
     F -->|unsolved| G["VTK geometry actors"]
-    F -->|spatial samples or VTP| H["VTK.js scalar field on solved geometry"]
+    F -->|solver topology and nodal values| H["VTK.js scalar field on solver mesh"]
+    F -->|provider VTP| HV["VTK.js provider dataset"]
     F -->|non-spatial result| HC["Dynamic result chart"]
     B --> I["Manifest and stdout actions"]
     B --> J["DiagnosticsPanel"]
@@ -185,8 +186,11 @@ The single scientific viewport has these rendering paths:
 - uploaded `GeometrySpec` JSON for supported rectangle/box and optional
   disk/cylinder-hole previews;
 - display-only uploaded VTK XML PolyData (`.vtp`);
-- VTK.js point-field rendering from `viewer_manifest.datasets.sampled_field` for
-  stationary \(u(x,y)\) and transient \(u(x,y,t)\) results;
+- topology-preserving VTK.js rendering from
+  `viewer_manifest.datasets.sampled_field`: 2D cells render directly and 3D
+  tetrahedral/hexahedral cells are reduced to their exterior faces, including
+  internal hole walls; nodal scalar colors are interpolated over those faces
+  and mesh edges remain visible;
 - provider-produced VTK XML PolyData referenced by the viewer manifest.
 - a dynamic line chart when a numerical result has a scalar history but no
   spatial dataset.

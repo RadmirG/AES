@@ -24,7 +24,7 @@ def compile_dolfinx(
         raise ValueError("Compilation plan is not ready.")
 
     mesh_setup = _mesh_setup(geometry, mesh)
-    bc_setup = _boundary_setup(pde, mesh)
+    bc_setup = _boundary_setup(pde, geometry, mesh)
     common = _common_prefix(mesh_setup, pde)
     if pde.equation.family == "stationary_diffusion":
         body = _stationary_body(pde, bc_setup)
@@ -44,7 +44,7 @@ import numpy as np
 import ufl
 from mpi4py import MPI
 from petsc4py import PETSc
-from dolfinx import fem, io, mesh
+from dolfinx import fem, io, mesh, plot
 from dolfinx.fem.petsc import LinearProblem
 
 COMPILER = "aes-dolfinx-{COMPILER_VERSION}"
@@ -52,6 +52,23 @@ COMPILER = "aes-dolfinx-{COMPILER_VERSION}"
 V = fem.functionspace(msh, ("{pde.function_space.family}", {pde.function_space.degree}))
 u = ufl.TrialFunction(V)
 v = ufl.TestFunction(V)
+vtk_topology, vtk_cell_types, vtk_coordinates = plot.vtk_mesh(V)
+field_topology = {{
+    "format": "vtk_cell_array",
+    "cells": vtk_topology.tolist(),
+    "cell_types": vtk_cell_types.tolist(),
+    "cell_count": int(len(vtk_cell_types)),
+    "topological_dimension": int(msh.topology.dim),
+}}
+
+def field_values(function):
+    function.x.scatter_forward()
+    values = np.real(function.x.array)
+    if len(values) != len(vtk_coordinates):
+        raise RuntimeError(
+            f"VTK point/value mismatch: {{len(vtk_coordinates)}} points, {{len(values)}} values"
+        )
+    return values.tolist()
 '''
 
 
@@ -87,11 +104,22 @@ facet_tags = None
 '''
 
 
-def _boundary_setup(pde: PDEProblemSpec, mesh_artifact: MeshArtifact | None) -> str:
+def _boundary_setup(
+    pde: PDEProblemSpec,
+    geometry: GeometrySpec,
+    mesh_artifact: MeshArtifact | None,
+) -> str:
     snippets: list[str] = []
+    regions = {region.name: region for region in geometry.regions}
     for index, condition in enumerate(pde.boundary_conditions):
         value = _constant_number(condition.value.value, "Dirichlet boundary value")
-        if mesh_artifact is None or mesh_artifact.mesh_uri.startswith("builtin://"):
+        region = regions.get(condition.region)
+        is_all_boundary = region is not None and region.selector.kind == "all_boundary"
+        if (
+            mesh_artifact is None
+            or mesh_artifact.mesh_uri.startswith("builtin://")
+            or is_all_boundary
+        ):
             locate = f'''facets_{index} = mesh.locate_entities_boundary(
     msh, msh.topology.dim - 1, lambda x: np.full(x.shape[1], True, dtype=bool)
 )
@@ -129,8 +157,7 @@ problem = LinearProblem(
     petsc_options={{"ksp_type": "cg", "pc_type": "hypre"}},
 )
 problem.solve()
-coordinates = V.tabulate_dof_coordinates()[:, :msh.geometry.dim]
-values = np.real(u_sol.x.array).tolist()
+values = field_values(u_sol)
 with io.XDMFFile(msh.comm, "solution.xdmf", "w") as xdmf:
     xdmf.write_mesh(msh)
     xdmf.write_function(u_sol)
@@ -141,7 +168,14 @@ diagnostics = {{
     "solution_min": float(np.min(np.real(u_sol.x.array))),
     "solution_max": float(np.max(np.real(u_sol.x.array))),
     "solution_mean": float(np.mean(np.real(u_sol.x.array))),
-    "field_samples": {{"coordinates": coordinates.tolist(), "samples": [{{"values": values}}]}},
+    "field_samples": {{
+        "type": "fem_mesh",
+        "field": "u",
+        "space": "{pde.function_space.family} P{pde.function_space.degree}",
+        "coordinates": vtk_coordinates.tolist(),
+        "topology": field_topology,
+        "samples": [{{"step": 0, "time": 0.0, "values": values}}],
+    }},
 }}
 Path("diagnostics.json").write_text(json.dumps(diagnostics, indent=2), encoding="utf-8")
 print(json.dumps(diagnostics, indent=2))
@@ -173,14 +207,13 @@ problem = LinearProblem(
     petsc_options_prefix="aes_transient_",
     petsc_options={{"ksp_type": "cg", "pc_type": "hypre"}},
 )
-coordinates = V.tabulate_dof_coordinates()[:, :msh.geometry.dim]
-samples = [{{"time": t0, "step": 0, "values": np.real(u_previous.x.array).tolist()}}]
+samples = [{{"time": t0, "step": 0, "values": field_values(u_previous)}}]
 sample_stride = max(1, num_steps // 10)
 for step in range(1, num_steps + 1):
     problem.solve()
     u_previous.x.array[:] = u_sol.x.array
     if step % sample_stride == 0 or step == num_steps:
-        samples.append({{"time": t0 + step * dt, "step": step, "values": np.real(u_sol.x.array).tolist()}})
+        samples.append({{"time": t0 + step * dt, "step": step, "values": field_values(u_sol)}})
 with io.XDMFFile(msh.comm, "solution.xdmf", "w") as xdmf:
     xdmf.write_mesh(msh)
     xdmf.write_function(u_sol, t_end)
@@ -194,7 +227,14 @@ diagnostics = {{
     "solution_min": float(np.min(np.real(u_sol.x.array))),
     "solution_max": float(np.max(np.real(u_sol.x.array))),
     "solution_mean": float(np.mean(np.real(u_sol.x.array))),
-    "field_samples": {{"coordinates": coordinates.tolist(), "samples": samples}},
+    "field_samples": {{
+        "type": "fem_mesh_time_series",
+        "field": "u",
+        "space": "{pde.function_space.family} P{pde.function_space.degree}",
+        "coordinates": vtk_coordinates.tolist(),
+        "topology": field_topology,
+        "samples": samples,
+    }},
 }}
 Path("diagnostics.json").write_text(json.dumps(diagnostics, indent=2), encoding="utf-8")
 print(json.dumps(diagnostics, indent=2))

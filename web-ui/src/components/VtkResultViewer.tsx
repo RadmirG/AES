@@ -109,6 +109,10 @@ export function VtkResultViewer({ manifest }: Props) {
 function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [sampleIndex, setSampleIndex] = useState(Math.max(0, field.samples.length - 1));
+  const surface = useMemo(
+    () => buildSurfacePolygons(field.topology),
+    [field.topology],
+  );
   const safeSampleIndex = Math.min(
     Math.max(0, sampleIndex),
     Math.max(0, field.samples.length - 1),
@@ -117,7 +121,9 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
   const lastSample = field.samples[field.samples.length - 1];
   const isTimeDependent =
     field.samples.length > 1 || String(field.type || "").toLowerCase().includes("time");
-  const fieldLabel = `${field.field || "u"}(${isTimeDependent ? "x,y,t" : "x,y"})`;
+  const spatialDimension = field.topology?.topological_dimension || 2;
+  const spatialVariables = ["x", "y", "z"].slice(0, spatialDimension).join(",");
+  const fieldLabel = `${field.field || "u"}(${spatialVariables}${isTimeDependent ? ",t" : ""})`;
 
   useEffect(() => {
     setSampleIndex(Math.max(0, field.samples.length - 1));
@@ -149,11 +155,6 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
       ),
       3,
     );
-    const vertices = vtkCellArray.newInstance({
-      values: Uint32Array.from(
-        field.coordinates.flatMap((_point, index) => [1, index]),
-      ),
-    });
     const range = field.value_range || valueRange(sample.values);
     const colors = vtkDataArray.newInstance({
       name: `${field.field || "u"}_colors`,
@@ -164,7 +165,17 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
     });
     const polyData = vtkPolyData.newInstance();
     polyData.setPoints(points);
-    polyData.setVerts(vertices);
+    if (surface.polygonCount) {
+      polyData.setPolys(vtkCellArray.newInstance({ values: surface.values }));
+    } else {
+      polyData.setVerts(
+        vtkCellArray.newInstance({
+          values: Uint32Array.from(
+            field.coordinates.flatMap((_point, index) => [1, index]),
+          ),
+        }),
+      );
+    }
     polyData.getPointData().setScalars(colors);
 
     const mapper = vtkMapper.newInstance();
@@ -173,7 +184,14 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
     mapper.setScalarModeToUsePointData();
     const actor = vtkActor.newInstance();
     actor.setMapper(mapper);
-    actor.getProperty().setPointSize(7);
+    if (surface.polygonCount) {
+      actor.getProperty().setEdgeVisibility(true);
+      actor.getProperty().setEdgeColor(0.16, 0.2, 0.27);
+      actor.getProperty().setLineWidth(1);
+      actor.getProperty().setInterpolationToGouraud();
+    } else {
+      actor.getProperty().setPointSize(7);
+    }
 
     const renderer = view.getRenderer();
     renderer.addActor(actor);
@@ -200,7 +218,7 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
       view.delete();
       container.replaceChildren();
     };
-  }, [field, sample]);
+  }, [field, sample, surface]);
 
   return (
     <div className="sampledFieldViewer">
@@ -208,7 +226,10 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
         <div>
           <strong>Sampled solution field {fieldLabel}</strong>
           <span>
-            {field.space || "FEM"} samples, {field.coordinates.length} spatial points
+            {field.space || "FEM"}, {field.coordinates.length} points
+            {surface.polygonCount
+              ? `, ${surface.polygonCount} exterior mesh faces`
+              : ", point samples (mesh topology unavailable)"}
           </span>
         </div>
         <span>{isTimeDependent ? `t = ${formatNumber(sample?.time ?? 0)}` : "stationary"}</span>
@@ -243,6 +264,77 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
       </div>
     </div>
   );
+}
+
+type SurfacePolygons = {
+  values: Uint32Array;
+  polygonCount: number;
+};
+
+function buildSurfacePolygons(
+  topology: SampledFieldDataset["topology"],
+): SurfacePolygons {
+  if (!topology || topology.format !== "vtk_cell_array") {
+    return { values: new Uint32Array(), polygonCount: 0 };
+  }
+
+  const directFaces: number[][] = [];
+  const volumeFaces = new Map<string, { face: number[]; count: number }>();
+  const addVolumeFace = (face: number[]) => {
+    const key = [...face].sort((left, right) => left - right).join(":");
+    const existing = volumeFaces.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      volumeFaces.set(key, { face, count: 1 });
+    }
+  };
+
+  let offset = 0;
+  let cellIndex = 0;
+  while (offset < topology.cells.length && cellIndex < topology.cell_types.length) {
+    const width = topology.cells[offset];
+    const points = topology.cells.slice(offset + 1, offset + width + 1);
+    const cellType = topology.cell_types[cellIndex];
+
+    // VTK linear and quadratic surface cells. Higher-order edge nodes are not
+    // needed to recover the exterior polygon used for result visualization.
+    if ((cellType === 5 || cellType === 22) && points.length >= 3) {
+      directFaces.push(points.slice(0, 3));
+    } else if ((cellType === 9 || cellType === 23) && points.length >= 4) {
+      directFaces.push(points.slice(0, 4));
+    } else if ((cellType === 10 || cellType === 24) && points.length >= 4) {
+      const [a, b, c, d] = points;
+      addVolumeFace([a, c, b]);
+      addVolumeFace([a, b, d]);
+      addVolumeFace([b, c, d]);
+      addVolumeFace([c, a, d]);
+    } else if ((cellType === 12 || cellType === 25) && points.length >= 8) {
+      const [a, b, c, d, e, f, g, h] = points;
+      addVolumeFace([a, d, c, b]);
+      addVolumeFace([e, f, g, h]);
+      addVolumeFace([a, b, f, e]);
+      addVolumeFace([b, c, g, f]);
+      addVolumeFace([c, d, h, g]);
+      addVolumeFace([d, a, e, h]);
+    }
+
+    offset += width + 1;
+    cellIndex += 1;
+  }
+
+  const exteriorFaces = [
+    ...directFaces,
+    ...Array.from(volumeFaces.values())
+      .filter((entry) => entry.count === 1)
+      .map((entry) => entry.face),
+  ];
+  return {
+    values: Uint32Array.from(
+      exteriorFaces.flatMap((face) => [face.length, ...face]),
+    ),
+    polygonCount: exteriorFaces.length,
+  };
 }
 
 type SeriesPoint = {

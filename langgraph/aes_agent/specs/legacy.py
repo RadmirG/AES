@@ -166,7 +166,9 @@ def _rectangle_bounds(raw: str) -> tuple[float, float, float, float]:
 
 
 def _parse_time(time_info: str, raw: str) -> dict[str, float] | None:
-    text = f"{time_info} {raw}"
+    # Explicit values in the user's request take precedence over a model-created
+    # legacy summary when both contain a parseable time value.
+    text = f"{raw} {time_info}"
     end = re.search(r"(?:T|t_end|final\s+time)\s*=\s*(\d+(?:\.\d+)?)", text, re.I)
     step = re.search(r"(?:dt|time\s+step)\s*=\s*(\d+(?:\.\d+)?)", text, re.I)
     if not end or not step:

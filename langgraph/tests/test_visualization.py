@@ -32,6 +32,15 @@ class VisualizationPostprocessTests(unittest.TestCase):
         self.assertIn("Numerical solution field u(x,y,t)", generated["preview.svg"])
         self.assertIn("sampled_field", manifest["datasets"])
         self.assertTrue(manifest["capabilities"]["sampled_field_preview"])
+        self.assertTrue(manifest["capabilities"]["solver_mesh_field_preview"])
+        self.assertEqual(
+            manifest["datasets"]["sampled_field"]["coordinates"][3],
+            [1.0, 1.0, 0.1],
+        )
+        self.assertEqual(
+            manifest["datasets"]["sampled_field"]["topology"]["cell_count"],
+            2,
+        )
 
     def test_stationary_sampled_field_preview_uses_spatial_label(self):
         output = build_visualization_artifacts(_state_with_completed_stationary_fenics_code())
@@ -104,11 +113,18 @@ def _state_with_completed_fenics_code():
                                     "domain": "unit_square",
                                     "space": "P1",
                                     "coordinates": [
-                                        [0.0, 0.0],
-                                        [1.0, 0.0],
-                                        [0.0, 1.0],
-                                        [1.0, 1.0],
+                                        [0.0, 0.0, 0.0],
+                                        [1.0, 0.0, 0.0],
+                                        [0.0, 1.0, 0.1],
+                                        [1.0, 1.0, 0.1],
                                     ],
+                                    "topology": {
+                                        "format": "vtk_cell_array",
+                                        "cells": [3, 0, 1, 2, 3, 1, 3, 2],
+                                        "cell_types": [5, 5],
+                                        "cell_count": 2,
+                                        "topological_dimension": 2,
+                                    },
                                     "samples": [
                                         {
                                             "step": 0,

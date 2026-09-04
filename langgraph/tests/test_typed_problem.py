@@ -67,6 +67,40 @@ class TypedProblemInterpretationTests(unittest.TestCase):
         self.assertTrue(validated["compilation_plan"])
 
     @patch("aes_agent.typed_problem.ollama_json")
+    def test_explicit_time_values_override_conflicting_model_values(self, model_json):
+        response = {
+            **self.model_response,
+            "pde_spec": {
+                **self.model_response["pde_spec"],
+                "time": {
+                    "t0": 0.0,
+                    "t_end": 1.0,
+                    "dt": 0.1,
+                    "scheme": "backward_euler",
+                },
+                "assumptions": [
+                    "dt is assumed to be 0.1 because it was not specified.",
+                    "Backward Euler is used as a numerical default.",
+                ],
+            },
+        }
+        model_json.return_value = response
+
+        result = interpret_problem_specs(self.state)
+
+        self.assertEqual(result["pde_spec"]["time"]["dt"], 0.01)
+        self.assertEqual(
+            result["pde_spec"]["assumptions"],
+            ["Backward Euler is used as a numerical default."],
+        )
+        self.assertTrue(
+            any(
+                "preserved explicitly stated time values" in warning
+                for warning in result["typed_interpretation_warnings"]
+            )
+        )
+
+    @patch("aes_agent.typed_problem.ollama_json")
     def test_missing_physics_ambiguity_remains_blocking(self, model_json):
         model_json.return_value = {
             **self.model_response,

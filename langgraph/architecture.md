@@ -364,11 +364,20 @@ classDiagram
     FenicsCodeCandidate *-- StaticValidation
 ```
 
-For generated-code runs, scripts should write sampled field data for the
-numerical solution into `diagnostics.json` under `field_samples`: stationary
-problems provide \(u(x,y)\), while transient problems provide \(u(x,y,t)\).
-The visualization layer can then render the actual sampled solution field in
-the Workbench even before a full VTK `.vtu` or `.vtkjs` conversion exists.
+Compiled solver runs write a topology-preserving visualization contract under
+`diagnostics.json.field_samples`. `dolfinx.plot.vtk_mesh(V)` supplies the VTK
+cell array, cell types, and function-space coordinates once; stationary and
+transient samples supply nodal values on exactly those points. The Workbench
+therefore renders \(u\) on the actual triangular or tetrahedral solver mesh,
+including holes and exterior faces, rather than displaying disconnected DOF
+markers. For transient problems, topology remains fixed and only the nodal
+scalar array changes with the time control.
+
+An aggregate boundary region with selector `all_boundary` is compiled using
+`mesh.locate_entities_boundary` over the actual solver mesh. It does not rely
+on one overlapping Gmsh physical tag, which ensures conditions such as
+\(u=0\) apply to the complete exterior even when named faces and `hole_wall`
+tags coexist.
 
 ## API Boundary
 

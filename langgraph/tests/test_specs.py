@@ -72,7 +72,28 @@ class TypedSpecificationTests(unittest.TestCase):
         ast.parse(code)
         self.assertIn("mesh.create_rectangle", code)
         self.assertIn("LinearProblem", code)
+        self.assertIn("plot.vtk_mesh(V)", code)
+        self.assertIn('"topology": field_topology', code)
         self.assertIn('"compiler": COMPILER', code)
+
+    def test_compiler_locates_aggregate_exterior_boundary_without_overlapping_tag(self):
+        pde = PDEProblemSpec.model_validate(_pde_dict("stationary_diffusion"))
+        geometry = GeometrySpec.model_validate(_rectangle_geometry_dict())
+        mesh = MeshArtifact(
+            status="completed",
+            source_kind="csg",
+            dimension=2,
+            cell_type="triangle",
+            mesh_uri="aes://artifacts/meshes/test/mesh.msh",
+            tag_map={"domain": 1, "boundary": 2},
+            quality=MeshQualityReport(status="valid", element_count=10, node_count=8),
+        )
+        plan = build_compilation_plan(pde, geometry, mesh)
+
+        code = compile_dolfinx(pde, geometry, plan, mesh)
+
+        self.assertIn("mesh.locate_entities_boundary", code)
+        self.assertNotIn("facet_tags.find(2)", code)
 
     def test_cross_validation_requires_boundary_tag(self):
         pde = PDEProblemSpec.model_validate(_pde_dict("stationary_diffusion"))
