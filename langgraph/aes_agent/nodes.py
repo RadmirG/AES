@@ -151,7 +151,15 @@ def extract_mathematical_structure(state: AgentState) -> Dict[str, Any]:
     problem_class = state.get("problem_class", "")
     pde_info = state.get("pde_info", "")
     fallback = _extract_structure_from_text(user_text, pde_info)
-    if _has_supported_structure(fallback, pde_info):
+    requested_geometry = state.get("requested_geometry_spec")
+    geometry_is_attached = isinstance(requested_geometry, dict) and bool(
+        requested_geometry
+    )
+    if _has_supported_structure(
+        fallback,
+        pde_info,
+        geometry_is_attached=geometry_is_attached,
+    ):
         return fallback
 
     prompt = extract_mathematical_structure_prompt(
@@ -1796,11 +1804,18 @@ def _has_valid_typed_problem(state: dict[str, Any]) -> bool:
     )
 
 
-def _has_supported_structure(structure: dict[str, str], pde_info: str) -> bool:
+def _has_supported_structure(
+    structure: dict[str, str],
+    pde_info: str,
+    *,
+    geometry_is_attached: bool = False,
+) -> bool:
     state = {"pde_info": pde_info, **structure}
     if not (_is_stationary_problem(state) or _is_time_dependent_problem(state)):
         return False
-    if _is_unknown(str(structure.get("domain_info", ""))):
+    if not geometry_is_attached and _is_unknown(
+        str(structure.get("domain_info", ""))
+    ):
         return False
     if _is_unknown(str(structure.get("bc_info", ""))):
         return False

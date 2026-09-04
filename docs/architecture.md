@@ -318,10 +318,12 @@ flowchart TD
     AB -->|no| B["Schema-constrained PDE and geometry interpretation"]
     AB -->|yes| AG["Validate attached authoritative geometry"]
     AG --> AP["Schema-constrained PDE-only interpretation"]
-    AP --> C
+    AP --> AR["Reconcile model candidate with explicit request evidence"]
+    AG --> AR
     AG --> D
     B --> BI{"Usable typed response?"}
-    BI -->|yes| BA{"Interpretation issue?"}
+    BI -->|yes| AR
+    AR --> BA{"Interpretation issue?"}
     BA -->|none| C["Validated PDEProblemSpec"]
     BA -->|none| D["Validated GeometrySpec"]
     BA -->|supported numerical default| BW["Record assumption and warning"]
@@ -377,8 +379,11 @@ as assumptions and warnings. Missing physical or mathematical problem data,
 including geometry, coefficients, boundary data, transient initial data, final
 time, or `dt`, routes to clarification only after the claim is checked against
 deterministically parsed request values and a validated attached GeometrySpec.
-Explicit `T_0`, `T_end` or `T`, and `dt` values remain authoritative when model
-output conflicts with them.
+The model response is a candidate contract: attached geometry fixes spatial
+dimension, while explicit diffusion, source, whole-boundary, initial-condition,
+`T_0`, `T_end` or `T`, and `dt` values remain authoritative when model output
+conflicts with them. A 3D initial field may validly be independent of `z`; that
+does not require clarification.
 
 ## Deployment Topology
 

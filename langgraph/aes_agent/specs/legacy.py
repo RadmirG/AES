@@ -44,8 +44,16 @@ def _build_pde_spec(state: dict[str, Any]) -> PDEProblemSpec | None:
         return None
 
     raw = str(state.get("raw_user_input", ""))
-    coefficient = _clean_scalar(state.get("coefficient_info"), default="1")
-    source = _clean_scalar(state.get("source_info"), default="0")
+    dimension = _spatial_dimension(state)
+    spatial_variables = ["x", "y", "z"][:dimension]
+    coefficient = _explicit_named_scalar(
+        raw,
+        ("alpha", "a", "k", "diffusion coefficient"),
+    ) or _clean_scalar(state.get("coefficient_info"), default="1")
+    source = _explicit_named_scalar(raw, ("f", "source")) or _clean_scalar(
+        state.get("source_info"),
+        default="0",
+    )
     boundary_value = _boundary_value(raw)
     boundary_type = _boundary_type(str(state.get("bc_info", "")))
 
@@ -55,7 +63,10 @@ def _build_pde_spec(state: dict[str, Any]) -> PDEProblemSpec | None:
         initial_text = str(state.get("initial_condition_info", "")).strip()
         if initial_text and not initial_text.startswith("unknown_"):
             initial = InitialConditionSpec(
-                value=expression_from_text(initial_text, variables=["x", "y"])
+                value=expression_from_text(
+                    _normalize_math_expression(initial_text),
+                    variables=spatial_variables,
+                )
             )
         parsed_time = _parse_time(str(state.get("time_info", "")), raw)
         if parsed_time:
@@ -63,19 +74,22 @@ def _build_pde_spec(state: dict[str, Any]) -> PDEProblemSpec | None:
 
     try:
         return PDEProblemSpec(
-            spatial_dimension=_spatial_dimension(state),
+            spatial_dimension=dimension,
             equation=EquationSpec(
                 family=family,
                 strong_form=strong_form,
-                diffusion=expression_from_text(coefficient, variables=["x", "y"]),
-                source=expression_from_text(source, variables=["x", "y", "t"]),
+                diffusion=expression_from_text(coefficient, variables=spatial_variables),
+                source=expression_from_text(source, variables=[*spatial_variables, "t"]),
             ),
             boundary_conditions=[
                 BoundaryConditionSpec(
                     name="primary_boundary_condition",
                     region="boundary",
                     type=boundary_type,
-                    value=expression_from_text(boundary_value, variables=["x", "y", "t"]),
+                    value=expression_from_text(
+                        boundary_value,
+                        variables=[*spatial_variables, "t"],
+                    ),
                 )
             ],
             initial_condition=initial,
@@ -169,7 +183,7 @@ def _parse_time(time_info: str, raw: str) -> dict[str, float] | None:
     # Explicit values in the user's request take precedence over a model-created
     # legacy summary when both contain a parseable time value.
     text = f"{raw} {time_info}"
-    number = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
+    number = r"[-+]?(?:\d+\.\d+|\d+|\.\d+)(?:[eE][-+]?\d+)?"
     start = re.search(
         rf"(?:t_0|t0|initial\s+time|start\s+time)\s*=\s*({number})",
         text,
@@ -223,3 +237,22 @@ def _clean_scalar(value: Any, *, default: str) -> str:
         return default
     match = re.search(r"(?:=\s*)?(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*$", text)
     return match.group(1) if match else text
+
+
+def _explicit_named_scalar(raw: str, names: tuple[str, ...]) -> str:
+    number = r"[-+]?(?:\d+\.\d+|\d+|\.\d+)(?:[eE][-+]?\d+)?"
+    matches: list[tuple[int, str]] = []
+    for name in names:
+        pattern = rf"(?<![\w]){re.escape(name)}\s*(?:=|is)\s*({number})"
+        matches.extend(
+            (match.start(), match.group(1))
+            for match in re.finditer(pattern, raw, re.IGNORECASE)
+        )
+    return max(matches, default=(-1, ""), key=lambda item: item[0])[1]
+
+
+def _normalize_math_expression(value: str) -> str:
+    normalized = value.strip()
+    normalized = re.sub(r"\bsin\(pi([xyz])\)", r"sin(pi*\1)", normalized)
+    normalized = re.sub(r"\)(?=(?:sin|cos|exp|sqrt)\s*\()", ")*", normalized)
+    return normalized

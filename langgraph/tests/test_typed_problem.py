@@ -237,6 +237,81 @@ class TypedProblemInterpretationTests(unittest.TestCase):
         self.assertEqual(validated["typed_validation_status"], "valid")
 
     @patch("aes_agent.typed_problem.ollama_json")
+    def test_attached_3d_geometry_and_explicit_physics_reconcile_bad_model_candidate(
+        self,
+        model_json,
+    ):
+        state = {
+            **self.state,
+            "raw_user_input": (
+                "Solve the transient heat equation on uploaded 3D geometry. "
+                "Use du/dt = alpha * Delta(u) + f with alpha=1 and f=1. "
+                "Use u=0 on the boundary. Use initial condition "
+                "u(x,y,z,0)=sin(pi*x)sin(pi*y). Use final time T=1 and "
+                "time step dt=0.01."
+            ),
+            "domain_info": "domain_symbolically_specified",
+            "coefficient_info": "constant_coefficient_given",
+            "initial_condition_info": "sin(pi*x)sin(pi*y)",
+            "requested_geometry_spec": _attached_3d_geometry(),
+        }
+        bad_pde = {
+            **self.model_response["pde_spec"],
+            "spatial_dimension": 1,
+            "boundary_conditions": [
+                {
+                    "name": "bc1",
+                    "region": "boundary",
+                    "type": "dirichlet",
+                    "value": {
+                        "kind": "symbolic",
+                        "value": "not-a-valid-boundary-value",
+                        "variables": [],
+                    },
+                }
+            ],
+            "initial_condition": None,
+            "time": {
+                "t0": 0.0,
+                "t_end": 0.1,
+                "dt": 0.01,
+                "scheme": "backward_euler",
+            },
+        }
+        model_json.return_value = {
+            "pde_spec": bad_pde,
+            "ambiguities": [
+                "domain_geometry_file_path",
+                "initial_condition_z_dependence",
+                (
+                    "The user did not specify a time interval or time step for "
+                    "the simulation."
+                ),
+            ],
+        }
+
+        result = interpret_problem_specs(state)
+        validated = validate_problem_specs(result)
+
+        pde = result["pde_spec"]
+        self.assertEqual(pde["spatial_dimension"], 3)
+        self.assertEqual(pde["equation"]["diffusion"]["value"], "1")
+        self.assertEqual(pde["equation"]["source"]["value"], "1")
+        self.assertEqual(pde["boundary_conditions"][0]["value"]["value"], "0")
+        self.assertEqual(
+            pde["initial_condition"]["value"]["value"],
+            "sin(pi*x)*sin(pi*y)",
+        )
+        self.assertEqual(pde["time"]["t_end"], 1.0)
+        self.assertEqual(pde["time"]["dt"], 0.01)
+        self.assertEqual(result["typed_spec_ambiguities"], [])
+        self.assertEqual(validated["typed_validation_status"], "valid")
+        warnings = " ".join(result["typed_interpretation_warnings"])
+        self.assertIn("model PDE dimension from 1 to 3", warnings)
+        self.assertIn("explicitly stated initial condition", warnings)
+        self.assertIn("whole-boundary condition", warnings)
+
+    @patch("aes_agent.typed_problem.ollama_json")
     def test_invalid_attached_geometry_is_not_replaced_by_model_geometry(self, model_json):
         result = interpret_problem_specs(
             {
@@ -253,6 +328,42 @@ class TypedProblemInterpretationTests(unittest.TestCase):
         self.assertEqual(result["geometry_spec_source"], "request_context_invalid")
         self.assertEqual(result["geometry_spec"], {})
         self.assertIn("Attached geometry is invalid", result["typed_spec_ambiguities"][0])
+
+
+def _attached_3d_geometry() -> dict:
+    return {
+        "schema_version": "1.0",
+        "dimension": 3,
+        "units": "m",
+        "source": {
+            "kind": "mesh_file",
+            "format": "msh",
+            "artifact_path": "aes://artifacts/meshes/example/mesh.msh",
+        },
+        "regions": [
+            {
+                "name": "domain",
+                "dimension": 3,
+                "selector": {"kind": "object", "reference": "domain"},
+            },
+            {
+                "name": "boundary",
+                "dimension": 2,
+                "selector": {"kind": "all_boundary", "reference": "domain"},
+            },
+        ],
+        "mesh": {
+            "cell_type": "tetrahedron",
+            "order": 1,
+            "global_size": 0.08,
+            "refinements": [],
+            "quality": {
+                "minimum_scaled_jacobian": 0.0,
+                "maximum_elements": 2000000,
+            },
+        },
+        "metadata": {"id": "plate-with-hole-solid-3d"},
+    }
 
 
 if __name__ == "__main__":

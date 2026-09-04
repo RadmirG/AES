@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 from pydantic import Field
@@ -116,19 +117,31 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
             interpret_typed_problem_prompt(state),
             schema=TypedProblemInterpretation.model_json_schema(),
         )
-    pde, pde_error = _parse_pde(response.get("pde_spec") if isinstance(response, dict) else None)
-    pde, explicit_value_warnings = _preserve_explicit_time_values(pde, fallback_pde)
+    pde, pde_error = _parse_pde(
+        response.get("pde_spec") if isinstance(response, dict) else None
+    )
     if requested_geometry is not None:
         geometry, geometry_error = requested_geometry, ""
     else:
         geometry, geometry_error = _parse_geometry(
             response.get("geometry_spec") if isinstance(response, dict) else None
         )
-    raw_ambiguities = _strings(response.get("ambiguities")) if isinstance(response, dict) else []
+    pde, explicit_value_warnings = _reconcile_interpreted_pde(
+        pde,
+        fallback_pde,
+        requested_geometry,
+        str(state.get("raw_user_input", "")),
+    )
+    raw_ambiguities = (
+        _strings(response.get("ambiguities"))
+        if isinstance(response, dict)
+        else []
+    )
     ambiguities, default_warnings = _partition_ambiguities(raw_ambiguities)
     ambiguities, evidence_warnings = _partition_explicit_value_ambiguities(
         ambiguities,
         fallback_pde,
+        str(state.get("raw_user_input", "")),
     )
     default_warnings.extend(evidence_warnings)
     if requested_geometry is not None:
@@ -280,12 +293,24 @@ def _partition_supplied_geometry_ambiguities(
             for marker in ("geometry", "uploaded", "file path", "mesh path")
         )
         claims_missing_context = (
-            normalized in {"domain geometry specification", "geometry specification"}
+            normalized
+            in {
+                "domain geometry specification",
+                "geometry specification",
+                "domain geometry file path",
+                "geometry file path",
+                "geometry path",
+                "mesh path",
+                "uploaded geometry",
+            }
             or any(
                 marker in normalized
                 for marker in (
                     "not provided",
                     "not specified",
+                    "did not specify",
+                    "not supplied",
+                    "not given",
                     "not explicitly",
                     "missing",
                     "unknown",
@@ -305,12 +330,18 @@ def _partition_supplied_geometry_ambiguities(
 def _partition_explicit_value_ambiguities(
     items: list[str],
     deterministic: PDEProblemSpec | None,
+    raw_user_input: str = "",
 ) -> tuple[list[str], list[str]]:
     """Reject model ambiguity claims contradicted by parsed user values."""
 
     blocking: list[str] = []
     warnings: list[str] = []
     explicit_time = deterministic.time if deterministic is not None else None
+    explicit_initial = (
+        deterministic.initial_condition
+        if deterministic is not None and _has_explicit_initial_condition(raw_user_input)
+        else None
+    )
     for item in items:
         normalized = " ".join(item.lower().replace("_", " ").split())
         refers_to_time_values = any(
@@ -330,6 +361,10 @@ def _partition_explicit_value_ambiguities(
             for marker in (
                 "not provided",
                 "not specified",
+                "did not specify",
+                "not specify",
+                "not supplied",
+                "not given",
                 "not explicitly",
                 "missing",
                 "unknown",
@@ -344,8 +379,29 @@ def _partition_explicit_value_ambiguities(
                 f"from the user request (t0={explicit_time.t0:g}, "
                 f"T={explicit_time.t_end:g}, dt={explicit_time.dt:g}): {item}"
             )
-        else:
-            blocking.append(item)
+            continue
+
+        refers_to_initial = "initial condition" in normalized
+        asks_for_unused_coordinate_dependence = any(
+            marker in normalized
+            for marker in (
+                "initial condition z dependence",
+                "z dependence",
+                "z independence",
+            )
+        )
+        if explicit_initial is not None and (
+            (refers_to_initial and claims_missing_or_defaulted)
+            or asks_for_unused_coordinate_dependence
+        ):
+            warnings.append(
+                "Ignored model initial-condition ambiguity because AES parsed an "
+                "explicit initial field from the user request. A field on a 3D "
+                f"domain may validly be independent of z: {item}"
+            )
+            continue
+
+        blocking.append(item)
     return blocking, warnings
 
 
@@ -404,6 +460,137 @@ def _adapt_pde_to_geometry(
     if pde is None:
         return None
     return pde.model_copy(update={"spatial_dimension": geometry.dimension})
+
+
+def _reconcile_interpreted_pde(
+    interpreted: PDEProblemSpec | None,
+    deterministic: PDEProblemSpec | None,
+    authoritative_geometry: GeometrySpec | None,
+    raw_user_input: str,
+) -> tuple[PDEProblemSpec | None, list[str]]:
+    """Reconcile an LLM candidate with authoritative deterministic evidence."""
+
+    if interpreted is None:
+        return None, []
+
+    reconciled = interpreted
+    warnings: list[str] = []
+
+    if (
+        authoritative_geometry is not None
+        and reconciled.spatial_dimension != authoritative_geometry.dimension
+    ):
+        model_dimension = reconciled.spatial_dimension
+        reconciled = reconciled.model_copy(
+            update={"spatial_dimension": authoritative_geometry.dimension}
+        )
+        warnings.append(
+            "AES corrected the model PDE dimension from "
+            f"{model_dimension} to {authoritative_geometry.dimension} because the "
+            "validated attached GeometrySpec is authoritative."
+        )
+
+    reconciled, time_warnings = _preserve_explicit_time_values(
+        reconciled,
+        deterministic,
+    )
+    warnings.extend(time_warnings)
+    if reconciled is None or deterministic is None:
+        return reconciled, warnings
+
+    equation_updates: dict[str, Any] = {}
+    if _has_explicit_diffusion(raw_user_input) and (
+        reconciled.equation.diffusion != deterministic.equation.diffusion
+    ):
+        equation_updates["diffusion"] = deterministic.equation.diffusion
+        warnings.append(
+            "AES preserved the explicitly stated diffusion coefficient instead "
+            "of the conflicting model value."
+        )
+    if _has_explicit_source(raw_user_input) and (
+        reconciled.equation.source != deterministic.equation.source
+    ):
+        equation_updates["source"] = deterministic.equation.source
+        warnings.append(
+            "AES preserved the explicitly stated source instead of the conflicting "
+            "model value."
+        )
+    if equation_updates:
+        reconciled = reconciled.model_copy(
+            update={
+                "equation": reconciled.equation.model_copy(update=equation_updates)
+            }
+        )
+
+    if (
+        _has_explicit_initial_condition(raw_user_input)
+        and deterministic.initial_condition is not None
+        and reconciled.initial_condition != deterministic.initial_condition
+    ):
+        reconciled = reconciled.model_copy(
+            update={"initial_condition": deterministic.initial_condition}
+        )
+        warnings.append(
+            "AES restored the explicitly stated initial condition that was omitted "
+            "or changed by the model."
+        )
+
+    if (
+        _has_explicit_aggregate_boundary_condition(raw_user_input)
+        and reconciled.boundary_conditions != deterministic.boundary_conditions
+    ):
+        reconciled = reconciled.model_copy(
+            update={"boundary_conditions": deterministic.boundary_conditions}
+        )
+        warnings.append(
+            "AES preserved the explicitly stated whole-boundary condition instead "
+            "of the conflicting model value."
+        )
+
+    return reconciled, warnings
+
+
+def _has_explicit_diffusion(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?<![\w])(?:alpha|a|k|diffusion\s+coefficient)\s*(?:=|is)",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _has_explicit_source(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?<![\w])(?:f|source)\s*(?:=|is)",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _has_explicit_initial_condition(text: str) -> bool:
+    return bool(
+        re.search(r"\binitial\s+condition\b", text, re.IGNORECASE)
+        or re.search(r"\bu\s*\([^)]*,\s*0\s*\)\s*=", text, re.IGNORECASE)
+    )
+
+
+def _has_explicit_aggregate_boundary_condition(text: str) -> bool:
+    return bool(
+        re.search(r"\bhomogeneous\s+dirichlet\b", text, re.IGNORECASE)
+        or re.search(
+            r"\bdirichlet\b[^.\n]*\b(?:the\s+)?boundary\b",
+            text,
+            re.IGNORECASE,
+        )
+        or re.search(
+            r"\bu\s*=\s*[^,;.\n]+\s+on\s+(?:the\s+)?boundary\b",
+            text,
+            re.IGNORECASE,
+        )
+    )
 
 
 def _preserve_explicit_time_values(

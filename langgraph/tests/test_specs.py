@@ -66,6 +66,35 @@ class TypedSpecificationTests(unittest.TestCase):
         self.assertEqual(pde.time.t_end, 1.0)
         self.assertEqual(pde.time.dt, 0.01)
 
+    def test_legacy_spec_prefers_explicit_raw_physics_and_normalizes_initial(self):
+        pde, _ = build_legacy_specs(
+            {
+                "raw_user_input": (
+                    "Solve the transient heat equation on uploaded 3D geometry. "
+                    "Use alpha=1 and f=1. Use u=0 on the boundary. "
+                    "Use initial condition u(x,y,z,0)=sin(pi*x)sin(pi*y). "
+                    "Use final time T=1 and time step dt=0.01."
+                ),
+                "pde_info": "time_dependent_heat_equation",
+                "domain_info": "domain_symbolically_specified",
+                "coefficient_info": "constant_coefficient_given",
+                "source_info": "unknown_source",
+                "bc_info": "dirichlet_boundary_condition",
+                "initial_condition_info": "sin(pi*x)sin(pi*y)",
+                "time_info": "unknown_time",
+            }
+        )
+
+        self.assertIsNotNone(pde)
+        assert pde is not None and pde.initial_condition is not None
+        self.assertEqual(pde.spatial_dimension, 3)
+        self.assertEqual(pde.equation.diffusion.value, "1")
+        self.assertEqual(pde.equation.source.value, "1")
+        self.assertEqual(
+            pde.initial_condition.value.value,
+            "sin(pi*x)*sin(pi*y)",
+        )
+
     def test_transient_spec_requires_time_and_initial_condition(self):
         value = _pde_dict("transient_diffusion")
         pde, report = validate_pde_spec(value)

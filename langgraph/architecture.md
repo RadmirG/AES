@@ -257,10 +257,12 @@ flowchart TD
     AG -->|no| AI["Schema-constrained PDE and geometry interpretation"]
     AG -->|yes| GV["Validate attached GeometrySpec"]
     GV --> PI["Schema-constrained PDE-only interpretation"]
-    PI --> B
+    PI --> RC["Reconcile model candidate with explicit request evidence"]
+    GV --> RC
     GV --> C
     AI --> AV{"Usable typed response?"}
-    AV -->|yes| AS{"Interpretation issue?"}
+    AV -->|yes| RC
+    RC --> AS{"Interpretation issue?"}
     AS -->|none| B["Typed PDEProblemSpec"]
     AS -->|none| C["Typed GeometrySpec"]
     AS -->|supported numerical default| AW["Assumption and non-blocking warning"]
@@ -304,14 +306,22 @@ call is unavailable or its response does not validate. Setting
 configuration and is visible as
 `typed_spec_source=deterministic_configuration`.
 
-The interpreter normalizes model-reported issues before typed validation.
+The interpreter treats model output as a candidate contract and reconciles it
+before typed validation. A validated attached GeometrySpec is authoritative for
+spatial dimension. Explicit request values are authoritative for diffusion,
+source, whole-boundary conditions, initial data, and time values, so a model
+cannot erase or rewrite them. For example, on a 3D plate,
+`u0(x,y,z)=sin(pi*x)*sin(pi*y)` is a valid field that is constant through the
+thickness and does not require artificial `z` dependence.
+
+The interpreter then normalizes model-reported issues before typed validation.
 Documented defaults for time integration, finite-element space, mesh size,
 linear solver, preconditioner, and output format are non-blocking assumptions.
 Claims that time values or geometry are missing are cross-checked against the
-deterministic request parser and the validated attached GeometrySpec. A model
-cannot override explicit `T_0`, `T_end` or `T`, and `dt` values or reject an
-attached geometry as absent. Unresolved physics and geometry inputs remain
-blocking ambiguities and route to clarification.
+deterministic request parser and the validated attached GeometrySpec. False
+claims about missing initial data or required coordinate dependence are also
+discarded when an explicit initial field was parsed. Unresolved physics and
+geometry inputs remain blocking ambiguities and route to clarification.
 
 The initial compiler release supports stationary and transient scalar
 diffusion with constant coefficients, constant sources, constant Dirichlet

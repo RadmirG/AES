@@ -922,6 +922,38 @@ class ExtractionFallbackTests(unittest.TestCase):
         )
         self.assertEqual(result["time_info"], "T=1, dt=0.01")
 
+    @patch.object(
+        nodes,
+        "ollama_json",
+        side_effect=AssertionError(
+            "an attached geometry must satisfy the legacy domain requirement"
+        ),
+    )
+    def test_attached_geometry_avoids_redundant_legacy_structure_model_call(
+        self,
+        _ollama_json,
+    ):
+        result = nodes.extract_mathematical_structure(
+            {
+                "raw_user_input": (
+                    "Solve the transient heat equation on uploaded geometry. "
+                    "Use alpha=1 and f=1. Use u=0 on the boundary. "
+                    "Use initial condition u(x,y,0)=sin(pi*x)sin(pi*y). "
+                    "Use final time T=1 and time step dt=0.01."
+                ),
+                "problem_class": "forward_problem",
+                "pde_info": "time_dependent_heat_equation",
+                "requested_geometry_spec": {"schema_version": "1.0"},
+            }
+        )
+
+        self.assertEqual(result["domain_info"], "unknown_domain")
+        self.assertEqual(result["coefficient_info"], "1")
+        self.assertEqual(result["source_info"], "1")
+        self.assertEqual(result["bc_info"], "dirichlet_boundary_condition")
+        self.assertEqual(result["initial_condition_info"], "sin(pi*x)*sin(pi*y)")
+        self.assertEqual(result["time_info"], "T=1, dt=0.01")
+
     @patch.object(nodes, "ollama_json", return_value={"missing_information": []})
     def test_completeness_detects_steady_transient_contradiction(
         self,
