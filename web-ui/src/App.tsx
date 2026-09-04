@@ -10,7 +10,7 @@ import {
   saveStoredActiveConversationId,
   saveStoredConversations,
 } from "./storage";
-import type { Conversation, WorkbenchUser } from "./types";
+import type { Conversation, GeometryContext, WorkbenchUser } from "./types";
 
 export function App() {
   const [user, setUser] = useState<WorkbenchUser | null>(null);
@@ -131,6 +131,14 @@ export function App() {
     }
   }
 
+  function handleGeometryContextChange(context?: GeometryContext) {
+    handleConversationUpdate(activeConversation.id, (conversation) => ({
+      ...conversation,
+      geometryContext: context,
+      updatedAt: new Date().toISOString(),
+    }));
+  }
+
   if (isCheckingSession) {
     return (
       <main className="loginShell">
@@ -181,7 +189,11 @@ export function App() {
       </section>
 
       <section className="resultPane">
-        <ResultWorkspace result={activeConversation.result || null} />
+        <ResultWorkspace
+          geometryContext={activeConversation.geometryContext}
+          onGeometryContextChange={handleGeometryContextChange}
+          result={activeConversation.result || null}
+        />
       </section>
     </main>
   );

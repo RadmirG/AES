@@ -14,9 +14,11 @@ class AgentState(TypedDict):
     bc_info: str
     initial_condition_info: str
     time_info: str
+    requested_geometry_spec: Dict[str, Any]
     pde_spec: Dict[str, Any]
     geometry_spec: Dict[str, Any]
     typed_spec_source: str
+    geometry_spec_source: str
     typed_spec_ambiguities: List[str]
     typed_interpretation_warnings: List[str]
     typed_validation_status: str

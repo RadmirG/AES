@@ -1,7 +1,11 @@
 import "@kitware/vtk.js/Rendering/Profiles/Geometry";
 import vtkActor from "@kitware/vtk.js/Rendering/Core/Actor";
+import vtkCellArray from "@kitware/vtk.js/Common/Core/CellArray";
+import vtkDataArray from "@kitware/vtk.js/Common/Core/DataArray";
 import vtkMapper from "@kitware/vtk.js/Rendering/Core/Mapper";
 import vtkFullScreenRenderWindow from "@kitware/vtk.js/Rendering/Misc/FullScreenRenderWindow";
+import vtkPoints from "@kitware/vtk.js/Common/Core/Points";
+import vtkPolyData from "@kitware/vtk.js/Common/DataModel/PolyData";
 import vtkXMLPolyDataReader from "@kitware/vtk.js/IO/XML/XMLPolyDataReader";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { publicArtifactUrl } from "../artifacts";
@@ -20,6 +24,7 @@ export function VtkResultViewer({ manifest }: Props) {
     [manifest],
   );
   const sampledField = manifest.datasets.sampled_field;
+  const diagnosticSeries = useMemo(() => seriesFromManifest(manifest), [manifest]);
 
   useEffect(() => {
     if (!containerRef.current || !dataset) {
@@ -73,8 +78,12 @@ export function VtkResultViewer({ manifest }: Props) {
   }, [dataset]);
 
   if (!dataset) {
-    if (sampledField && sampledField.samples?.length && sampledField.coordinates?.length) {
+    if (hasSpatialField(sampledField)) {
       return <SampledFieldViewer field={sampledField} />;
+    }
+
+    if (diagnosticSeries.length) {
+      return <ResultSeriesChart points={diagnosticSeries} />;
     }
 
     return (
@@ -98,7 +107,7 @@ export function VtkResultViewer({ manifest }: Props) {
 }
 
 function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [sampleIndex, setSampleIndex] = useState(Math.max(0, field.samples.length - 1));
   const safeSampleIndex = Math.min(
     Math.max(0, sampleIndex),
@@ -115,11 +124,82 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
   }, [field]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !sample) {
+    const container = containerRef.current;
+    if (!container || !sample) {
       return;
     }
-    drawSampledField(canvas, field, sample);
+    container.replaceChildren();
+    const view = vtkFullScreenRenderWindow.newInstance({
+      container,
+      containerStyle: {
+        height: "100%",
+        width: "100%",
+        position: "relative",
+      },
+      background: [0.97, 0.98, 1.0],
+    });
+    const points = vtkPoints.newInstance();
+    points.setData(
+      Float32Array.from(
+        field.coordinates.flatMap((point) => [
+          point[0] || 0,
+          point[1] || 0,
+          point[2] || 0,
+        ]),
+      ),
+      3,
+    );
+    const vertices = vtkCellArray.newInstance({
+      values: Uint32Array.from(
+        field.coordinates.flatMap((_point, index) => [1, index]),
+      ),
+    });
+    const range = field.value_range || valueRange(sample.values);
+    const colors = vtkDataArray.newInstance({
+      name: `${field.field || "u"}_colors`,
+      numberOfComponents: 3,
+      values: Uint8Array.from(
+        sample.values.flatMap((value) => heatRgb(value, range.min, range.max)),
+      ),
+    });
+    const polyData = vtkPolyData.newInstance();
+    polyData.setPoints(points);
+    polyData.setVerts(vertices);
+    polyData.getPointData().setScalars(colors);
+
+    const mapper = vtkMapper.newInstance();
+    mapper.setInputData(polyData);
+    mapper.setColorModeToDirectScalars();
+    mapper.setScalarModeToUsePointData();
+    const actor = vtkActor.newInstance();
+    actor.setMapper(mapper);
+    actor.getProperty().setPointSize(7);
+
+    const renderer = view.getRenderer();
+    renderer.addActor(actor);
+    renderer.resetCamera();
+    const isThreeDimensional = field.coordinates.some(
+      (point) => point.length > 2 && Math.abs(point[2] || 0) > 1.0e-12,
+    );
+    if (!isThreeDimensional) {
+      const bounds = polyData.getBounds();
+      const centerX = (bounds[0] + bounds[1]) / 2;
+      const centerY = (bounds[2] + bounds[3]) / 2;
+      const span = Math.max(bounds[1] - bounds[0], bounds[3] - bounds[2], 1.0e-6);
+      const camera = renderer.getActiveCamera();
+      camera.setFocalPoint(centerX, centerY, 0);
+      camera.setPosition(centerX, centerY, 2 * span);
+      camera.setViewUp(0, 1, 0);
+      camera.setParallelProjection(true);
+      camera.setParallelScale(span * 0.58);
+      renderer.resetCameraClippingRange();
+    }
+    view.getRenderWindow().render();
+
+    return () => {
+      view.delete();
+      container.replaceChildren();
+    };
   }, [field, sample]);
 
   return (
@@ -133,13 +213,16 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
         </div>
         <span>{isTimeDependent ? `t = ${formatNumber(sample?.time ?? 0)}` : "stationary"}</span>
       </div>
-      <canvas
-        ref={canvasRef}
-        className="fieldCanvas"
-        width={720}
-        height={420}
-        aria-label="Sampled FEM solution field"
+      <div
+        ref={containerRef}
+        className="sampledFieldVtkContainer"
+        aria-label="Interactive sampled FEM solution field"
       />
+      <div className="fieldLegend" aria-label="Solution value color scale">
+        <span>min {formatNumber(field.value_range?.min ?? valueRange(sample?.values || []).min)}</span>
+        <i />
+        <span>max {formatNumber(field.value_range?.max ?? valueRange(sample?.values || []).max)}</span>
+      </div>
       <div className="fieldControls">
         {isTimeDependent ? (
           <>
@@ -158,6 +241,49 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
           <span>stationary solution sample</span>
         )}
       </div>
+    </div>
+  );
+}
+
+type SeriesPoint = {
+  x: number;
+  y: number;
+  label: string;
+};
+
+function ResultSeriesChart({ points }: { points: SeriesPoint[] }) {
+  const width = 760;
+  const height = 420;
+  const padding = 54;
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const xmin = Math.min(...xs);
+  const xmax = Math.max(...xs);
+  const ymin = Math.min(...ys);
+  const ymax = Math.max(...ys);
+  const xrange = xmax - xmin || 1;
+  const yrange = ymax - ymin || 1;
+  const path = points
+    .map((point, index) => {
+      const x = padding + ((point.x - xmin) / xrange) * (width - 2 * padding);
+      const y = height - padding - ((point.y - ymin) / yrange) * (height - 2 * padding);
+      return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(" ");
+  return (
+    <div className="resultSeriesChart">
+      <div className="sampledFieldHeader">
+        <div>
+          <strong>Numerical result history</strong>
+          <span>{points[0]?.label || "diagnostic value"}</span>
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Numerical result chart">
+        <rect x={padding} y={padding} width={width - 2 * padding} height={height - 2 * padding} />
+        <path d={path} />
+        <text x={padding} y={height - 17}>x {formatNumber(xmin)} to {formatNumber(xmax)}</text>
+        <text x={padding + 220} y={height - 17}>value {formatNumber(ymin)} to {formatNumber(ymax)}</text>
+      </svg>
     </div>
   );
 }
@@ -243,6 +369,9 @@ function drawLegend(
 }
 
 function valueRange(values: number[]) {
+  if (!values.length) {
+    return { min: 0, max: 1 };
+  }
   return {
     min: Math.min(...values),
     max: Math.max(...values),
@@ -250,6 +379,11 @@ function valueRange(values: number[]) {
 }
 
 function heatColor(value: number, vmin: number, vmax: number) {
+  const rgb = heatRgb(value, vmin, vmax);
+  return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+}
+
+function heatRgb(value: number, vmin: number, vmax: number) {
   const stops = [
     [37, 99, 235],
     [6, 182, 212],
@@ -264,7 +398,85 @@ function heatColor(value: number, vmin: number, vmax: number) {
   const rgb = stops[index].map((channel, channelIndex) =>
     Math.round(channel + (stops[index + 1][channelIndex] - channel) * local),
   );
-  return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+  return rgb;
+}
+
+function hasSpatialField(
+  field: SampledFieldDataset | undefined,
+): field is SampledFieldDataset {
+  if (!field?.coordinates?.length || !field.samples?.length) {
+    return false;
+  }
+  return (
+    field.coordinates.every(
+      (point) =>
+        Array.isArray(point) &&
+        point.length >= 2 &&
+        point.slice(0, 3).every(Number.isFinite),
+    ) &&
+    field.samples.every(
+      (sample) =>
+        Array.isArray(sample.values) &&
+        sample.values.length === field.coordinates.length,
+    )
+  );
+}
+
+function seriesFromManifest(manifest: AesViewerManifest): SeriesPoint[] {
+  const sampled = manifest.datasets.sampled_field;
+  if (sampled?.samples?.length) {
+    return sampled.samples
+      .filter((sample) => sample.values?.length)
+      .map((sample, index) => ({
+        x: Number.isFinite(sample.time) ? sample.time : sample.step ?? index,
+        y: Math.max(...sample.values),
+        label: `max(${sampled.field || "u"})`,
+      }));
+  }
+
+  const diagnostics = asRecord(manifest.diagnostics);
+  const script = asRecord(diagnostics.script);
+  for (const candidate of [script.time_series, diagnostics.time_series]) {
+    if (!Array.isArray(candidate)) {
+      continue;
+    }
+    const points = candidate
+      .map((value, index) => diagnosticPoint(value, index))
+      .filter((value): value is SeriesPoint => Boolean(value));
+    if (points.length) {
+      return points;
+    }
+  }
+  return [];
+}
+
+function diagnosticPoint(value: unknown, index: number): SeriesPoint | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return { x: index, y: value, label: "diagnostic value" };
+  }
+  const row = asRecord(value);
+  const x = firstFinite(row.time, row.t, row.step, index);
+  const entries: Array<[string, unknown]> = [
+    ["max", row.max],
+    ["mean", row.mean],
+    ["residual", row.residual],
+    ["value", row.value],
+  ];
+  const selected = entries.find((entry) => Number.isFinite(Number(entry[1])));
+  return selected
+    ? { x, y: Number(selected[1]), label: selected[0] }
+    : null;
+}
+
+function firstFinite(...values: unknown[]) {
+  const value = values.map(Number).find(Number.isFinite);
+  return value ?? 0;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function formatNumber(value: number) {

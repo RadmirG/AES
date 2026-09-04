@@ -276,6 +276,23 @@ a:hover {
   background: rgba(255, 255, 255, 0.97);
 }
 
+.attachedGeometryNotice {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #b7e4d5;
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-size: 12px;
+}
+
+.attachedGeometryNotice span {
+  color: var(--text-muted);
+}
+
 .composer textarea {
   min-height: 96px;
   max-height: 220px;
@@ -481,6 +498,22 @@ a:hover {
   font-size: 12px;
 }
 
+.geometryAttachmentStatus {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.geometryAttachmentStatus.attached {
+  border-color: #b7e4d5;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
 .viewerModeSwitch {
   display: inline-flex;
   border: 1px solid var(--border);
@@ -556,6 +589,15 @@ a:hover {
   padding: 8px 11px;
   background: var(--bg-muted);
   color: var(--text-muted);
+  font-size: 12px;
+}
+
+.geometryNotice {
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  padding: 9px 11px;
+  background: #fffbeb;
+  color: #92400e;
   font-size: 12px;
 }
 
@@ -748,6 +790,63 @@ a:hover {
 .sampledFieldViewer {
   display: grid;
   gap: 12px;
+}
+
+.sampledFieldVtkContainer {
+  width: 100%;
+  height: min(56vh, 580px);
+  min-height: 440px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.fieldLegend {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.fieldLegend i {
+  height: 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2563eb, #06b6d4, #10b981, #facc15, #ef4444);
+}
+
+.resultSeriesChart {
+  display: grid;
+  gap: 12px;
+}
+
+.resultSeriesChart svg {
+  width: 100%;
+  min-height: 360px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.resultSeriesChart rect {
+  fill: #ffffff;
+  stroke: var(--border);
+}
+
+.resultSeriesChart path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.resultSeriesChart text {
+  fill: var(--text-muted);
+  font-size: 14px;
 }
 
 .sampledFieldHeader {

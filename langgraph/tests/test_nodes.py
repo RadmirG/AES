@@ -58,6 +58,36 @@ class ValidationNodeTests(unittest.TestCase):
         self.assertEqual(result["validation_status"], "valid")
         self.assertEqual(result["validation_errors"], [])
 
+    @patch.object(
+        nodes,
+        "ollama_json",
+        side_effect=AssertionError("a validated typed problem must not be revalidated"),
+    )
+    def test_valid_typed_problem_overrides_unknown_legacy_domain_across_gates(
+        self,
+        _ollama_json,
+    ):
+        state = {
+            "problem_class": "forward_problem",
+            "pde_info": "time_dependent_heat_equation",
+            "domain_info": "unknown_domain",
+            "bc_info": "dirichlet_boundary_condition",
+            "selected_formulation": "fem_problem_setup",
+            "typed_validation_status": "valid",
+            "typed_validation_errors": [],
+            "pde_spec": {"schema_version": "1.0"},
+            "geometry_spec": {"schema_version": "1.0"},
+        }
+
+        completeness = nodes.check_problem_completeness(state)
+        formulation = nodes.select_formulation(state)
+        validation = nodes.validate_formulation(state)
+
+        self.assertEqual(completeness["missing_information"], [])
+        self.assertEqual(formulation["selected_formulation"], "fem_problem_setup")
+        self.assertEqual(validation["validation_status"], "valid")
+        self.assertEqual(validation["validation_errors"], [])
+
 
 class ClarificationNodeTests(unittest.TestCase):
     @patch.object(nodes, "ollama_json", return_value={})

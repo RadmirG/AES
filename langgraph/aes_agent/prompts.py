@@ -350,6 +350,73 @@ Geometry rules:
 """
 
 
+def interpret_pde_for_geometry_prompt(
+    snapshot: Dict[str, Any],
+    geometry_spec: Dict[str, Any],
+) -> str:
+    region_names = [
+        str(region.get("name"))
+        for region in geometry_spec.get("regions", [])
+        if isinstance(region, dict) and region.get("name")
+    ]
+    return f"""
+You are the structured PDE interpretation stage of AES.
+
+The client supplied an already typed geometry. It is authoritative and must not
+be reconstructed from the request text. Extract only the PDE specification and
+return ONLY one JSON object:
+{{
+  "pde_spec": {{...}},
+  "ambiguities": ["..."]
+}}
+
+Current state:
+{json.dumps(snapshot, indent=2)}
+
+Authoritative geometry:
+{json.dumps(geometry_spec, indent=2)}
+
+PDE rules:
+- pde_spec.schema_version is "2.0" and problem_class is "forward_problem".
+- pde_spec.spatial_dimension must be {geometry_spec.get("dimension")}.
+- equation.family is stationary_diffusion, transient_diffusion, or custom.
+- Expressions have kind constant or symbolic, value as a string, and variables.
+- Boundary-condition region names must be selected from {json.dumps(region_names)}.
+- When the request says "on the boundary" or "all boundaries", use the
+  aggregate region named "boundary".
+- Transient diffusion includes initial_condition and time with t0, t_end, dt,
+  and scheme. A documented default such as backward_euler belongs in
+  pde_spec.assumptions and is not a blocking ambiguity.
+- Stationary diffusion has null initial_condition and null time.
+- Do not report missing geometry, geometry paths, dimensions, or region names as
+  ambiguities: those facts are supplied by the authoritative GeometrySpec.
+- Put only unresolved physics that prevents a solve in ambiguities.
+- Use this exact object shape:
+  {{
+    "schema_version": "2.0",
+    "problem_class": "forward_problem",
+    "spatial_dimension": {geometry_spec.get("dimension")},
+    "equation": {{
+      "family": "stationary_diffusion|transient_diffusion|custom",
+      "unknown": "u",
+      "strong_form": "...",
+      "diffusion": {{"kind": "constant|symbolic", "value": "...", "variables": []}},
+      "source": {{"kind": "constant|symbolic", "value": "...", "variables": []}}
+    }},
+    "boundary_conditions": [{{
+      "name": "...", "region": "...", "type": "dirichlet|neumann|robin",
+      "value": {{"kind": "constant|symbolic", "value": "...", "variables": []}}
+    }}],
+    "initial_condition": null,
+    "time": null,
+    "function_space": {{"family": "Lagrange", "degree": 1, "value_shape": []}},
+    "solver": {{"linear_solver": "cg", "preconditioner": "hypre", "relative_tolerance": 1e-8, "maximum_iterations": 1000}},
+    "outputs": ["solution.xdmf", "diagnostics.json"],
+    "assumptions": []
+  }}
+"""
+
+
 def generate_fenics_dolfinx_code_prompt(snapshot: Dict[str, Any]) -> str:
     return f"""
 You are a senior numerical software engineer inside AES.

@@ -66,9 +66,11 @@ from aes_agent.response_projection import build_public_aes_result
 class _FakeGraph:
     def __init__(self):
         self.calls = 0
+        self.last_state = None
 
-    def invoke(self, _state):
+    def invoke(self, state):
         self.calls += 1
+        self.last_state = state
         return {
             "generated_artifact": f"result {self.calls}",
             "agent_status": "ok",
@@ -213,6 +215,33 @@ class ChatHistoryInputTests(unittest.TestCase):
 
             self.assertEqual(fake_graph.calls, 2)
             self.assertNotEqual(first, second)
+        finally:
+            main.graph = old_graph
+            main._RESULT_CACHE.clear()
+
+    def test_duplicate_text_cache_is_isolated_by_attached_geometry(self):
+        fake_graph = _FakeGraph()
+        main._RESULT_CACHE.clear()
+        try:
+            old_graph = main.graph
+            main.graph = fake_graph
+            first_geometry = {"schema_version": "1.0", "metadata": {"id": "square"}}
+            second_geometry = {"schema_version": "1.0", "metadata": {"id": "plate"}}
+
+            main.run_aes_agent(
+                "Solve heat on the attached geometry.",
+                requested_geometry_spec=first_geometry,
+            )
+            main.run_aes_agent(
+                "Solve heat on the attached geometry.",
+                requested_geometry_spec=second_geometry,
+            )
+
+            self.assertEqual(fake_graph.calls, 2)
+            self.assertEqual(
+                fake_graph.last_state["requested_geometry_spec"],
+                second_geometry,
+            )
         finally:
             main.graph = old_graph
             main._RESULT_CACHE.clear()
@@ -398,6 +427,27 @@ class PublicResponseProjectionTests(unittest.TestCase):
 
         self.assertEqual(public["pde_spec"], pde_spec)
 
+    def test_projection_keeps_geometry_spec_for_result_viewer(self):
+        geometry_spec = {
+            "schema_version": "1.0",
+            "dimension": 2,
+            "units": "m",
+            "source": {"kind": "primitives", "primitives": []},
+            "regions": [],
+            "mesh": {},
+        }
+
+        public = build_public_aes_result(
+            {
+                "geometry_spec": geometry_spec,
+                "geometry_spec_source": "request_context",
+                "tool_results": [],
+            }
+        )
+
+        self.assertEqual(public["geometry_spec"], geometry_spec)
+        self.assertEqual(public["geometry_spec_source"], "request_context")
+
     def test_chat_completion_returns_projected_result(self):
         internal_result = {
             "generated_artifact": "completed",
@@ -423,16 +473,23 @@ class PublicResponseProjectionTests(unittest.TestCase):
             messages=[main.ChatMessage(role="user", content="Solve Poisson.")],
         )
 
+        geometry_spec = {"schema_version": "1.0", "metadata": {"id": "sample"}}
+        request.geometry_spec = geometry_spec
         with patch.object(main, "auth_enabled", return_value=False), patch.object(
             main,
             "run_aes_agent",
             return_value=internal_result,
-        ):
+        ) as run_agent:
             response = main.chat_completions(request, _FakeRequest())
 
         serialized = json.dumps(response["aes_result"])
         self.assertNotIn("generated_files", serialized)
         self.assertLess(len(serialized), 10_000)
+        run_agent.assert_called_once_with(
+            "Solve Poisson.",
+            cache_scope="authentication-disabled",
+            requested_geometry_spec=geometry_spec,
+        )
 
 
 if __name__ == "__main__":

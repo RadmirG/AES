@@ -201,6 +201,9 @@ def validate_typed_specs(state: AgentState) -> Dict[str, Any]:
 
 
 def check_problem_completeness(state: AgentState) -> Dict[str, Any]:
+    if _has_valid_typed_problem(state):
+        return {"missing_information": []}
+
     user_text = state.get("raw_user_input", "")
     snapshot = {
         "problem_class": state.get("problem_class", ""),
@@ -1769,6 +1772,8 @@ def _deterministic_missing_information(
 
 
 def _is_supported_forward_pde_state(state: dict[str, Any]) -> bool:
+    if _has_valid_typed_problem(state):
+        return True
     if str(state.get("problem_class", "")).lower() != "forward_problem":
         return False
     if not (_is_stationary_problem(state) or _is_time_dependent_problem(state)):
@@ -1778,6 +1783,17 @@ def _is_supported_forward_pde_state(state: dict[str, Any]) -> bool:
     if _is_unknown(str(state.get("bc_info", ""))):
         return False
     return True
+
+
+def _has_valid_typed_problem(state: dict[str, Any]) -> bool:
+    return (
+        state.get("typed_validation_status") == "valid"
+        and isinstance(state.get("pde_spec"), dict)
+        and bool(state.get("pde_spec"))
+        and isinstance(state.get("geometry_spec"), dict)
+        and bool(state.get("geometry_spec"))
+        and not safe_list_of_str(state.get("typed_validation_errors"))
+    )
 
 
 def _has_supported_structure(structure: dict[str, str], pde_info: str) -> bool:

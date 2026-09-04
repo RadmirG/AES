@@ -10,7 +10,7 @@ flowchart TD
     A["HTTP request<br/>/v1/chat/completions or /invoke"] --> AUTH["Session authentication"]
     AUTH --> B["FastAPI adapter"]
     B --> C["OpenAI chat adapter"]
-    C --> D["Active AES request"]
+    C --> D["Active AES request plus optional GeometrySpec"]
     D --> E["LangGraph StateGraph"]
     E --> F["Provider-neutral model calls"]
     E --> G["AES tool registry"]
@@ -135,7 +135,8 @@ Important state groups:
 - problem extraction: `problem_class`, `domain_info`, `pde_info`,
   `coefficient_info`, `source_info`, `bc_info`, `initial_condition_info`,
   `time_info`,
-- typed contracts: `pde_spec`, `geometry_spec`, `typed_spec_source`,
+- typed contracts: `requested_geometry_spec`, `pde_spec`, `geometry_spec`,
+  `typed_spec_source`, `geometry_spec_source`,
   `typed_spec_ambiguities`, `typed_interpretation_warnings`,
   `typed_validation_status`, `typed_validation_errors`,
   `typed_validation_warnings`, `mesh_artifact`, and `compilation_plan`,
@@ -154,8 +155,10 @@ live outside `AgentState` and be injected through explicit nodes/tools.
 ```mermaid
 classDiagram
     class AgentState {
+        requested_geometry_spec
         pde_spec
         geometry_spec
+        geometry_spec_source
         typed_spec_ambiguities
         typed_validation_status
         mesh_artifact
@@ -250,7 +253,12 @@ default and can enter free-form LLM generation only when explicitly enabled.
 
 ```mermaid
 flowchart TD
-    A["Natural-language PDE request"] --> AI["Schema-constrained LLM interpretation"]
+    A["Natural-language PDE request"] --> AG{"Attached GeometrySpec?"}
+    AG -->|no| AI["Schema-constrained PDE and geometry interpretation"]
+    AG -->|yes| GV["Validate attached GeometrySpec"]
+    GV --> PI["Schema-constrained PDE-only interpretation"]
+    PI --> B
+    GV --> C
     AI --> AV{"Usable typed response?"}
     AV -->|yes| AS{"Interpretation issue?"}
     AS -->|none| B["Typed PDEProblemSpec"]
@@ -282,10 +290,15 @@ flowchart TD
     P -->|true| R["Bounded experimental LLM-code sandbox"]
 ```
 
-`AES_TYPED_INTERPRETATION_MODE=llm_first` is the default. The model receives
-the combined Pydantic JSON Schema and is responsible for interpreting the
-natural-language PDE, geometry, semantic regions, coefficients, boundary
-conditions, and time data. The compatibility parser runs only when the model
+`AES_TYPED_INTERPRETATION_MODE=llm_first` is the default. Without an attached
+geometry, the model receives the combined Pydantic JSON Schema and interprets
+the natural-language PDE and geometry. With an attached geometry, AES validates
+that GeometrySpec first and asks the model only for a PDEProblemSpec constrained
+to its dimension and semantic region names. AES adds an aggregate `boundary`
+region when the supplied contract does not define one, so phrases such as
+"u=0 on the boundary" map deterministically. Model claims that an uploaded path
+is missing are ignored only after the supplied GeometrySpec validates; missing
+physics remains blocking. The compatibility parser runs only when the model
 call is unavailable or its response does not validate. Setting
 `AES_TYPED_INTERPRETATION_MODE=deterministic_only` is an explicit offline/test
 configuration and is visible as

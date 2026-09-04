@@ -20,6 +20,7 @@ export type Conversation = {
   createdAt: string;
   updatedAt: string;
   turns: ChatTurn[];
+  geometryContext?: GeometryContext;
   result?: WorkbenchResult;
 };
 
@@ -65,6 +66,8 @@ export type AesResult = {
   initial_condition_info?: string;
   time_info?: string;
   pde_spec?: PDEProblemSpec;
+  geometry_spec?: GeometrySpec;
+  geometry_spec_source?: string;
 };
 
 export type ExpressionSpec = {
@@ -145,6 +148,13 @@ export type GeometryExampleIndexItem = {
   spec: string;
 };
 
+export type GeometryContext = {
+  source: "standard" | "uploaded_spec";
+  id: string;
+  name: string;
+  spec: GeometrySpec;
+};
+
 export type ChatCompletionResponse = {
   choices: Array<{
     message: {
@@ -197,4 +207,5 @@ export type SampledFieldDataset = {
 export type WorkbenchResult = {
   assistantText: string;
   aesResult?: AesResult;
+  geometryContext?: GeometryContext;
 };

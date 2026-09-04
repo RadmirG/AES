@@ -6,17 +6,27 @@ import {
   resultLinks,
   visualizationManifestUrl,
 } from "../artifacts";
-import type { AesViewerManifest, WorkbenchResult } from "../types";
+import type {
+  AesViewerManifest,
+  GeometryContext,
+  WorkbenchResult,
+} from "../types";
 import { ArtifactPanel } from "./ArtifactPanel";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { EquationSummary } from "./EquationSummary";
 import { GeometryExplorer } from "./GeometryExplorer";
 
 type Props = {
+  geometryContext?: GeometryContext;
+  onGeometryContextChange: (context?: GeometryContext) => void;
   result: WorkbenchResult | null;
 };
 
-export function ResultWorkspace({ result }: Props) {
+export function ResultWorkspace({
+  geometryContext,
+  onGeometryContextChange,
+  result,
+}: Props) {
   const [viewerManifest, setViewerManifest] = useState<AesViewerManifest | null>(null);
   const [viewerError, setViewerError] = useState("");
 
@@ -64,7 +74,13 @@ export function ResultWorkspace({ result }: Props) {
         </header>
       )}
 
-      <GeometryExplorer solutionManifest={viewerManifest} />
+      <GeometryExplorer
+        geometryContext={geometryContext}
+        onGeometryContextChange={onGeometryContextChange}
+        resultGeometry={aesResult?.geometry_spec || null}
+        resultGeometryContext={result?.geometryContext}
+        solutionManifest={viewerManifest}
+      />
 
       {viewerError ? <div className="viewerError">{viewerError}</div> : null}
 

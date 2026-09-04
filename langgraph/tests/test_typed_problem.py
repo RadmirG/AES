@@ -102,6 +102,58 @@ class TypedProblemInterpretationTests(unittest.TestCase):
 
         self.assertEqual(result["typed_spec_source"], "deterministic_configuration")
 
+    @patch("aes_agent.typed_problem.ollama_json")
+    def test_attached_geometry_is_authoritative_and_geometry_ambiguities_do_not_block(
+        self,
+        model_json,
+    ):
+        attached = dict(self.model_response["geometry_spec"])
+        attached["metadata"] = {"id": "selected-standard-geometry"}
+        attached["regions"] = [
+            region for region in attached["regions"] if region["name"] != "boundary"
+        ]
+        model_json.return_value = {
+            "pde_spec": self.model_response["pde_spec"],
+            "ambiguities": [
+                "The uploaded geometry file path is not provided in the current state."
+            ],
+        }
+
+        result = interpret_problem_specs(
+            {**self.state, "requested_geometry_spec": attached}
+        )
+        validated = validate_problem_specs(result)
+
+        self.assertEqual(result["geometry_spec_source"], "request_context")
+        self.assertEqual(result["geometry_spec"]["metadata"]["id"], "selected-standard-geometry")
+        self.assertIn(
+            "boundary",
+            [region["name"] for region in result["geometry_spec"]["regions"]],
+        )
+        self.assertEqual(result["typed_spec_ambiguities"], [])
+        self.assertTrue(
+            any("Ignored model geometry ambiguity" in item for item in result["typed_interpretation_warnings"])
+        )
+        self.assertEqual(validated["typed_validation_status"], "valid")
+
+    @patch("aes_agent.typed_problem.ollama_json")
+    def test_invalid_attached_geometry_is_not_replaced_by_model_geometry(self, model_json):
+        result = interpret_problem_specs(
+            {
+                **self.state,
+                "requested_geometry_spec": {
+                    "schema_version": "1.0",
+                    "dimension": 2,
+                    "source": {"kind": "mesh_file", "format": "msh"},
+                },
+            }
+        )
+
+        model_json.assert_not_called()
+        self.assertEqual(result["geometry_spec_source"], "request_context_invalid")
+        self.assertEqual(result["geometry_spec"], {})
+        self.assertIn("Attached geometry is invalid", result["typed_spec_ambiguities"][0])
+
 
 if __name__ == "__main__":
     unittest.main()

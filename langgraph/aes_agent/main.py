@@ -66,6 +66,7 @@ _LOGIN_RATE_LIMITER = LoginRateLimiter(
 
 class Query(BaseModel):
     text: str
+    geometry_spec: Dict[str, Any] | None = None
 
 
 class ChatMessage(BaseModel):
@@ -78,6 +79,7 @@ class ChatCompletionRequest(BaseModel):
     messages: List[ChatMessage]
     stream: bool = False
     temperature: float | None = None
+    geometry_spec: Dict[str, Any] | None = None
 
 
 class LoginRequest(BaseModel):
@@ -279,11 +281,16 @@ def run_aes_agent(
     user_text: str,
     *,
     cache_scope: str = "anonymous",
+    requested_geometry_spec: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """
     Internal helper that runs the LangGraph graph.
     """
-    cache_key = _result_cache_key(user_text, cache_scope=cache_scope)
+    cache_key = _result_cache_key(
+        user_text,
+        cache_scope=cache_scope,
+        requested_geometry_spec=requested_geometry_spec,
+    )
     cached_result = _get_cached_result(cache_key)
     if cached_result is not None:
         logger.info(
@@ -311,6 +318,7 @@ def run_aes_agent(
         "bc_info": "",
         "initial_condition_info": "",
         "time_info": "",
+        "requested_geometry_spec": copy.deepcopy(requested_geometry_spec or {}),
         "missing_information": [],
         "clarification_questions": [],
         "selected_formulation": "",
@@ -373,8 +381,19 @@ def _summarize_result_for_log(result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _result_cache_key(user_text: str, *, cache_scope: str) -> str:
-    cache_input = f"{cache_scope}\0{user_text.strip()}"
+def _result_cache_key(
+    user_text: str,
+    *,
+    cache_scope: str,
+    requested_geometry_spec: Dict[str, Any] | None = None,
+) -> str:
+    geometry_json = json.dumps(
+        requested_geometry_spec or {},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    cache_input = f"{cache_scope}\0{user_text.strip()}\0{geometry_json}"
     return hashlib.sha256(cache_input.encode("utf-8")).hexdigest()
 
 
@@ -587,7 +606,11 @@ def logout(request: Request, response: Response):
 def invoke(query: Query, request: Request):
     user = require_authenticated_user(request)
     logger.info("Direct /invoke request received: text_chars=%s", len(query.text))
-    return run_aes_agent(query.text, cache_scope=user.id)
+    return run_aes_agent(
+        query.text,
+        cache_scope=user.id,
+        requested_geometry_spec=query.geometry_spec,
+    )
 
 
 @app.get("/artifacts/{run_id}/{artifact_path:path}")
@@ -644,7 +667,29 @@ def chat_completions(request: ChatCompletionRequest, http_request: Request):
             detail="No user message found in request.messages."
         )
 
-    result = run_aes_agent(user_text, cache_scope=user.id)
+    if request.geometry_spec:
+        geometry_bytes = len(
+            json.dumps(request.geometry_spec, ensure_ascii=False).encode("utf-8")
+        )
+        if geometry_bytes > 262_144:
+            raise HTTPException(
+                status_code=413,
+                detail="Attached GeometrySpec exceeds the 256 KiB request limit.",
+            )
+        geometry_source = request.geometry_spec.get("source")
+        logger.info(
+            "Chat request includes attached GeometrySpec: bytes=%s source=%s",
+            geometry_bytes,
+            geometry_source.get("kind", "unknown")
+            if isinstance(geometry_source, dict)
+            else "unknown",
+        )
+
+    result = run_aes_agent(
+        user_text,
+        cache_scope=user.id,
+        requested_geometry_spec=request.geometry_spec,
+    )
     assistant_text = build_assistant_text(result)
     public_result = build_public_aes_result(result)
     public_result_bytes = len(

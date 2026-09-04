@@ -150,6 +150,7 @@ export function ChatPanel({
           model: "aes-agent",
           stream: false,
           messages: [...requestMessages, { role: "user", content: text }],
+          geometry_spec: conversation.geometryContext?.spec,
         }),
       });
       if (!response.ok) {
@@ -170,7 +171,11 @@ export function ChatPanel({
           ),
           { role: "assistant", content: assistantText, createdAt: finishedAt },
         ],
-        result: { assistantText, aesResult: data.aes_result },
+        result: {
+          assistantText,
+          aesResult: data.aes_result,
+          geometryContext: conversation.geometryContext,
+        },
         updatedAt: finishedAt,
       }));
     } catch (requestError) {
@@ -213,6 +218,12 @@ export function ChatPanel({
       {error ? <div className="errorBox">{error}</div> : null}
 
       <form className="composer" onSubmit={submit}>
+        {conversation.geometryContext ? (
+          <div className="attachedGeometryNotice">
+            <span>Attached geometry</span>
+            <strong>{conversation.geometryContext.name}</strong>
+          </div>
+        ) : null}
         <textarea
           value={input}
           onChange={(event) => setInput(event.target.value)}

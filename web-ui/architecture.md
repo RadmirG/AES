@@ -19,7 +19,9 @@ flowchart TD
     H --> D
     H --> E
     SAMPLES["Versioned GeometrySpec samples"] --> E
-    UPLOAD["Local GeometrySpec JSON or VTP"] --> E
+    UPLOAD["Local GeometrySpec JSON or display-only VTP"] --> E
+    E --> CTX["Conversation geometry context"]
+    CTX --> D
     D --> CACHE["Compact per-user local chat cache"]
     E --> I["/artifacts/..."]
     I --> B
@@ -37,7 +39,7 @@ flowchart TD
 - persisted AES progress turns,
 - result workspace,
 - KaTeX rendering of the solved PDE and its conditions,
-- standard-geometry selection and local geometry upload,
+- persistent standard-geometry selection and local GeometrySpec upload,
 - artifact links and diagnostics rendering,
 - VTK.js geometry and numerical-result rendering,
 - Nginx proxy for `/api/`, `/v1/`, and `/artifacts/`.
@@ -115,6 +117,7 @@ Saved conversations contain:
 - persisted progress turns,
 - compact latest `aes_result`,
 - artifact/result links.
+- an optional attached GeometrySpec for subsequent solve requests.
 
 The Workbench never persists raw graph/tool payloads, inline generated files,
 or sampled numerical arrays in `localStorage`. The API response projection and
@@ -160,11 +163,15 @@ flowchart TD
     B --> C["EquationSummary"]
     C --> D["KaTeX equation and conditions"]
     B --> E["GeometryExplorer"]
-    S["GeometrySpec sample"] --> E
-    U["Local JSON or VTP upload"] --> E
-    E --> F{"Viewport mode"}
-    F -->|geometry| G["VTK PolyData geometry actors"]
-    F -->|solution| H["VtkResultViewer"]
+    S["Selected GeometrySpec sample"] --> CXT["Conversation attachment"]
+    U["Uploaded GeometrySpec JSON"] --> CXT
+    CXT --> API["POST geometry_spec with chat request"]
+    API --> E
+    VTP["Display-only VTP"] --> E
+    E --> F{"Best available visualization"}
+    F -->|unsolved| G["VTK geometry actors"]
+    F -->|spatial samples or VTP| H["VTK.js scalar field on solved geometry"]
+    F -->|non-spatial result| HC["Dynamic result chart"]
     B --> I["Manifest and stdout actions"]
     B --> J["DiagnosticsPanel"]
     B --> K["ArtifactPanel"]
@@ -177,10 +184,12 @@ The single scientific viewport has these rendering paths:
   `GeometrySpec` samples;
 - uploaded `GeometrySpec` JSON for supported rectangle/box and optional
   disk/cylinder-hole previews;
-- uploaded VTK XML PolyData (`.vtp`);
-- sampled-field rendering from `viewer_manifest.datasets.sampled_field` for
+- display-only uploaded VTK XML PolyData (`.vtp`);
+- VTK.js point-field rendering from `viewer_manifest.datasets.sampled_field` for
   stationary \(u(x,y)\) and transient \(u(x,y,t)\) results;
 - provider-produced VTK XML PolyData referenced by the viewer manifest.
+- a dynamic line chart when a numerical result has a scalar history but no
+  spatial dataset.
 
 The initial 2D camera is top-down with parallel projection. The 3D plate camera
 is isometric. VTK interaction supports rotate, pan, zoom, and cell picking;
@@ -188,9 +197,23 @@ picked semantic region actors are highlighted. Renderer instances are disposed
 and their canvases removed on every sample change so browser and GPU resources
 do not accumulate.
 
-The sample/upload selector currently controls visual inspection. Binding a
-selected browser geometry to a subsequent solve requires a separate authenticated
-geometry-upload API and is intentionally outside this browser-only slice.
+Selecting a standard sample or uploading a `GeometrySpec` JSON attaches that
+typed contract to the current conversation. It is persisted with the local
+conversation cache and sent as `geometry_spec` in the authenticated
+OpenAI-compatible request. The latest solve records the geometry context it
+used, preventing a newly selected geometry from being confused with an older
+solution. Raw VTP data is never sent as a computational geometry.
+
+```mermaid
+flowchart LR
+    A["Geometry described in chat"] --> R["Chat request"]
+    B["Selected standard GeometrySpec"] --> C["Conversation geometry context"]
+    D["Uploaded GeometrySpec JSON"] --> C
+    C --> R
+    R --> E["LangGraph validation and solve"]
+    E --> F["geometry_spec plus viewer manifest"]
+    F --> G["One result-aware viewport"]
+```
 
 Run-level shortcuts are placed below the viewer and expose only
 `viewer_manifest.json` and `stdout.txt`. The full artifact inventory remains a

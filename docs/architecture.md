@@ -234,27 +234,36 @@ flowchart LR
 
 ### Typed Problem And Geometry Presentation
 
-The public response retains the bounded `pde_spec` contract needed to display
-what AES actually solved. The Workbench does not reverse-engineer mathematics
-from assistant prose. KaTeX renders the equation and conditions, while VTK.js
-owns geometry and solution interaction in one scientific viewport.
+The public response retains bounded `pde_spec` and `geometry_spec` contracts
+needed to display what AES actually solved. The Workbench does not
+reverse-engineer mathematics or geometry from assistant prose. KaTeX renders
+the equation and conditions, while VTK.js owns geometry and solution
+interaction in one scientific viewport.
 
 ```mermaid
 flowchart LR
-    A["Validated PDEProblemSpec"] --> B["Public aes_result projection"]
+    A["Text-defined geometry"] --> LLM["LLM PDE and geometry interpretation"]
+    S["Selected sample or uploaded GeometrySpec"] --> CTX["Conversation geometry context"]
+    CTX --> API["Chat request geometry_spec"]
+    API --> VAL["Authoritative GeometrySpec validation"]
+    LLM --> P["Validated PDEProblemSpec"]
+    VAL --> P
+    P --> B["Public aes_result projection"]
     B --> C["KaTeX formulation card"]
-    D["Canonical or uploaded GeometrySpec"] --> E["VTK.js geometry actors"]
-    F["Viewer manifest and field data"] --> G["VTK.js solution renderer"]
-    E --> H["Scientific viewport"]
-    G --> H
-    H --> I["Manifest and stdout actions"]
+    B --> E["Validated GeometrySpec"]
+    B --> F["Viewer manifest and result data"]
+    E --> H["Single scientific viewport"]
+    F --> H
+    H --> I["Spatial field, VTK dataset, or dynamic chart"]
+    I --> J["Manifest and stdout actions"]
 ```
 
 The canonical geometry catalog is `examples/geometries/`. Its four YAML/JSON
 fixtures are shared by contract tests, native Gmsh integration tests, and the
-browser sample selector. Local browser uploads support typed JSON and VTK XML
-PolyData (`.vtp`) for inspection; uploading a geometry into a governed solve is
-a separate future authenticated API boundary.
+browser sample selector. Selecting a sample or uploading typed JSON attaches
+the GeometrySpec to the current conversation and sends it through the
+authenticated chat API. VTK XML PolyData (`.vtp`) uploads remain display-only,
+because surface visualization data is not by itself a governed FEM domain.
 
 ## Design Principles
 
@@ -284,7 +293,12 @@ a separate future authenticated API boundary.
 
 ```mermaid
 flowchart TD
-    A["User PDE and geometry request"] --> B["Schema-constrained LLM interpretation"]
+    A["User PDE request"] --> AB{"Attached GeometrySpec?"}
+    AB -->|no| B["Schema-constrained PDE and geometry interpretation"]
+    AB -->|yes| AG["Validate attached authoritative geometry"]
+    AG --> AP["Schema-constrained PDE-only interpretation"]
+    AP --> C
+    AG --> D
     B --> BI{"Usable typed response?"}
     BI -->|yes| BA{"Interpretation issue?"}
     BA -->|none| C["Validated PDEProblemSpec"]
