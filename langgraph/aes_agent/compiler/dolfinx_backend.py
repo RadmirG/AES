@@ -208,12 +208,10 @@ problem = LinearProblem(
     petsc_options={{"ksp_type": "cg", "pc_type": "hypre"}},
 )
 samples = [{{"time": t0, "step": 0, "values": field_values(u_previous)}}]
-sample_stride = max(1, num_steps // 10)
 for step in range(1, num_steps + 1):
     problem.solve()
     u_previous.x.array[:] = u_sol.x.array
-    if step % sample_stride == 0 or step == num_steps:
-        samples.append({{"time": t0 + step * dt, "step": step, "values": field_values(u_sol)}})
+    samples.append({{"time": t0 + step * dt, "step": step, "values": field_values(u_sol)}})
 with io.XDMFFile(msh.comm, "solution.xdmf", "w") as xdmf:
     xdmf.write_mesh(msh)
     xdmf.write_function(u_sol, t_end)

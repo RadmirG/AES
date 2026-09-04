@@ -1088,12 +1088,6 @@ time_series = []
 dof_coordinates = V.tabulate_dof_coordinates()[:, :2]
 field_samples = []
 sample_interval = max(1, num_steps // 10)
-sample_steps = sorted(
-    set(
-        [0, 1, num_steps]
-        + [max(1, int(round(num_steps * fraction))) for fraction in (0.1, 0.2, 0.4, 0.6, 0.8)]
-    )
-)
 
 
 def solution_stats(function, step, time_value):
@@ -1115,9 +1109,8 @@ def field_sample(function, step, time_value):
     }}
 
 
-if 0 in sample_steps:
-    time_series.append(solution_stats(u_n, 0, 0.0))
-    field_samples.append(field_sample(u_n, 0, 0.0))
+time_series.append(solution_stats(u_n, 0, 0.0))
+field_samples.append(field_sample(u_n, 0, 0.0))
 
 
 for step in range(1, num_steps + 1):
@@ -1125,8 +1118,7 @@ for step in range(1, num_steps + 1):
     u_n.x.array[:] = u_sol.x.array
     if step == 1 or step % sample_interval == 0 or step == num_steps:
         time_series.append(solution_stats(u_sol, step, step * dt))
-    if step in sample_steps:
-        field_samples.append(field_sample(u_sol, step, step * dt))
+    field_samples.append(field_sample(u_sol, step, step * dt))
 
 with io.XDMFFile(msh.comm, "solution.xdmf", "w") as xdmf:
     xdmf.write_mesh(msh)

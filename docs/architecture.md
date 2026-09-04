@@ -349,9 +349,19 @@ flowchart TD
     K --> L["NumericalIR and CompilationPlan"]
     L --> M["Versioned DOLFINx compiler"]
     M --> N["Preflight and FEniCS execution"]
-    N --> NA["DOLFINx VTK topology plus nodal field samples"]
-    NA --> O["Solver-mesh visualization and artifact store"]
+    N --> NA["DOLFINx volume topology plus every nodal time state"]
+    NA --> NB["2D field or 3D shell and movable interior section"]
+    NB --> O["Solver-mesh visualization and artifact store"]
 ```
+
+For transient solves, the visualization contract retains the initial field and
+every computed time step rather than a diagnostic subset. Two-dimensional
+fields render directly on the solver cells. Three-dimensional unstructured
+tetrahedral or hexahedral fields retain their volume topology: the Workbench
+shows a translucent exterior surface together with a movable X/Y/Z cut plane
+whose colors are interpolated from the volume nodal solution. This exposes the
+interior numerical field without pretending that boundary values represent the
+whole workpiece.
 
 ### Deterministic MCP Smoke Path
 

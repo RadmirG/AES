@@ -20,7 +20,7 @@
   "mesh": {
     "cell_type": "tetrahedron",
     "order": 1,
-    "global_size": 0.08,
+    "global_size": 0.025,
     "refinements": [],
     "quality": {"minimum_scaled_jacobian": 0.0, "maximum_elements": 2000000}
   },
@@ -30,4 +30,3 @@
     "description": "Unit square plate represented as a solid with thickness 0.1."
   }
 }
-

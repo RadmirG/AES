@@ -46,3 +46,17 @@ def test_hole_examples_expose_a_semantic_hole_wall():
             "reference": "hole",
         }
 
+
+def test_plate_solids_request_multiple_mesh_layers_through_thickness():
+    for example_id in ("unit-plate-solid-3d", "plate-with-hole-solid-3d"):
+        value = json.loads(
+            (EXAMPLE_ROOT / example_id / "geometry.json").read_text(encoding="utf-8")
+        )
+        plate = next(
+            primitive
+            for primitive in value["source"]["primitives"]
+            if primitive["shape"] == "box"
+        )
+        thickness = float(plate["size"][2])
+
+        assert float(value["mesh"]["global_size"]) <= thickness / 4.0

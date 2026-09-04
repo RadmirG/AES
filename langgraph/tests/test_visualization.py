@@ -58,6 +58,28 @@ class VisualizationPostprocessTests(unittest.TestCase):
         self.assertEqual(manifest["datasets"]["sampled_field"]["type"], "dof_point_cloud")
         self.assertTrue(manifest["capabilities"]["sampled_field_preview"])
 
+    def test_visualization_manifest_preserves_every_transient_field_state(self):
+        state = _state_with_completed_fenics_code()
+        samples = [
+            {
+                "step": step,
+                "time": step * 0.01,
+                "values": [0.0, step / 100.0, step / 100.0, 0.0],
+            }
+            for step in range(101)
+        ]
+        state["tool_results"][0]["output"]["fenics_result"]["diagnostics"]["script"][
+            "field_samples"
+        ]["samples"] = samples
+
+        output = build_visualization_artifacts(state)
+        generated = {item["name"]: item["content"] for item in output["generated_files"]}
+        manifest = json.loads(generated["viewer_manifest.json"])
+        exported = manifest["datasets"]["sampled_field"]["samples"]
+
+        self.assertEqual(len(exported), 101)
+        self.assertEqual([sample["step"] for sample in exported], list(range(101)))
+
     def test_visualization_artifacts_skip_without_completed_solver_result(self):
         output = build_visualization_artifacts({"tool_results": []})
 

@@ -472,6 +472,7 @@ class FenicsCodeTests(unittest.TestCase):
         self.assertIn('petsc_options_prefix="aes_heat_"', script)
         self.assertIn('"field_samples"', script)
         self.assertIn("field_sample(u_sol", script)
+        self.assertNotIn("sample_steps", script)
 
     def test_fallback_poisson_script_sets_petsc_options_prefix(self):
         script = _fallback_dolfinx_script(

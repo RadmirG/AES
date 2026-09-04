@@ -897,6 +897,65 @@ a:hover {
   width: 100%;
 }
 
+.volumeControls {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.7fr) minmax(260px, 2fr) minmax(140px, 0.8fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-muted);
+}
+
+.volumeControls label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.volumeControls select {
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+.slicePositionControl {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.slicePositionLabel {
+  grid-column: 1 / -1;
+}
+
+.slicePositionControl input {
+  width: 100%;
+}
+
+.volumeSliceStatus {
+  align-self: center;
+  padding-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+@media (max-width: 1280px) {
+  .volumeControls {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .slicePositionControl,
+  .volumeSliceStatus {
+    grid-column: 1 / -1;
+  }
+}
+
 .viewerPlaceholder {
   display: grid;
   place-content: center;

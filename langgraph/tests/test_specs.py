@@ -128,6 +128,34 @@ class TypedSpecificationTests(unittest.TestCase):
         self.assertIn('"topology": field_topology', code)
         self.assertIn('"compiler": COMPILER', code)
 
+    def test_transient_compiler_exports_every_solved_time_step(self):
+        value = _pde_dict("transient_diffusion")
+        value["initial_condition"] = {
+            "value": {
+                "kind": "symbolic",
+                "value": "sin(pi*x)*sin(pi*y)",
+                "variables": ["x", "y"],
+            }
+        }
+        value["time"] = {
+            "t0": 0.0,
+            "t_end": 1.0,
+            "dt": 0.01,
+            "scheme": "backward_euler",
+        }
+        pde = PDEProblemSpec.model_validate(value)
+        geometry = GeometrySpec.model_validate(_rectangle_geometry_dict())
+        plan = build_compilation_plan(pde, geometry)
+
+        code = compile_dolfinx(pde, geometry, plan)
+
+        ast.parse(code)
+        self.assertNotIn("sample_stride", code)
+        self.assertIn(
+            'samples.append({"time": t0 + step * dt, "step": step',
+            code,
+        )
+
     def test_compiler_locates_aggregate_exterior_boundary_without_overlapping_tag(self):
         pde = PDEProblemSpec.model_validate(_pde_dict("stationary_diffusion"))
         geometry = GeometrySpec.model_validate(_rectangle_geometry_dict())

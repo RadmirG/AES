@@ -170,7 +170,8 @@ flowchart TD
     VTP["Display-only VTP"] --> E
     E --> F{"Best available visualization"}
     F -->|unsolved| G["VTK geometry actors"]
-    F -->|solver topology and nodal values| H["VTK.js scalar field on solver mesh"]
+    F -->|solver topology and all nodal time states| H["VTK.js scalar field on solver mesh"]
+    H --> HS["3D translucent shell plus interpolated interior section"]
     F -->|provider VTP| HV["VTK.js provider dataset"]
     F -->|non-spatial result| HC["Dynamic result chart"]
     B --> I["Manifest and stdout actions"]
@@ -187,19 +188,23 @@ The single scientific viewport has these rendering paths:
   disk/cylinder-hole previews;
 - display-only uploaded VTK XML PolyData (`.vtp`);
 - topology-preserving VTK.js rendering from
-  `viewer_manifest.datasets.sampled_field`: 2D cells render directly and 3D
-  tetrahedral/hexahedral cells are reduced to their exterior faces, including
-  internal hole walls; nodal scalar colors are interpolated over those faces
-  and mesh edges remain visible;
+  `viewer_manifest.datasets.sampled_field`: 2D cells render directly; for 3D
+  tetrahedral/hexahedral meshes the viewer renders a translucent exterior shell
+  for context and an opaque, movable X/Y/Z interior section computed from the
+  volume cells. Nodal scalar values are linearly interpolated at every section
+  intersection and mesh edges remain visible;
 - provider-produced VTK XML PolyData referenced by the viewer manifest.
 - a dynamic line chart when a numerical result has a scalar history but no
   spatial dataset.
 
-The initial 2D camera is top-down with parallel projection. The 3D plate camera
-is isometric. VTK interaction supports rotate, pan, zoom, and cell picking;
-picked semantic region actors are highlighted. Renderer instances are disposed
-and their canvases removed on every sample change so browser and GPU resources
-do not accumulate.
+The solution time control exposes every field state exported by the solver,
+including the initial field and every solved time step. For 3D data, users can
+choose the section axis and position and can normalize colors to either the
+current state or the complete time history. The initial 2D camera is top-down
+with parallel projection. The 3D plate camera is isometric. VTK interaction
+supports rotate, pan, zoom, and cell picking; picked semantic region actors are
+highlighted. Renderer instances are disposed and their canvases removed on
+every sample change so browser and GPU resources do not accumulate.
 
 Selecting a standard sample or uploading a `GeometrySpec` JSON attaches that
 typed contract to the current conversation. It is persisted with the local

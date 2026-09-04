@@ -109,6 +109,9 @@ export function VtkResultViewer({ manifest }: Props) {
 function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [sampleIndex, setSampleIndex] = useState(Math.max(0, field.samples.length - 1));
+  const [sliceAxis, setSliceAxis] = useState<SliceAxis>(2);
+  const [slicePercent, setSlicePercent] = useState(50);
+  const [colorScale, setColorScale] = useState<ColorScale>("sample");
   const surface = useMemo(
     () => buildSurfacePolygons(field.topology),
     [field.topology],
@@ -122,6 +125,25 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
   const isTimeDependent =
     field.samples.length > 1 || String(field.type || "").toLowerCase().includes("time");
   const spatialDimension = field.topology?.topological_dimension || 2;
+  const volumeCellCount = useMemo(
+    () => countVolumeCells(field.topology),
+    [field.topology],
+  );
+  const hasVolume = spatialDimension === 3 && volumeCellCount > 0;
+  const activeRange = useMemo(
+    () =>
+      colorScale === "global" && field.value_range
+        ? field.value_range
+        : valueRange(sample?.values || []),
+    [colorScale, field.value_range, sample],
+  );
+  const volumeSlice = useMemo(
+    () =>
+      hasVolume && sample
+        ? buildVolumeSlice(field, sample.values, sliceAxis, slicePercent / 100)
+        : emptyVolumeSlice(),
+    [field, hasVolume, sample, sliceAxis, slicePercent],
+  );
   const spatialVariables = ["x", "y", "z"].slice(0, spatialDimension).join(",");
   const fieldLabel = `${field.field || "u"}(${spatialVariables}${isTimeDependent ? ",t" : ""})`;
 
@@ -155,12 +177,13 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
       ),
       3,
     );
-    const range = field.value_range || valueRange(sample.values);
     const colors = vtkDataArray.newInstance({
       name: `${field.field || "u"}_colors`,
       numberOfComponents: 3,
       values: Uint8Array.from(
-        sample.values.flatMap((value) => heatRgb(value, range.min, range.max)),
+        sample.values.flatMap((value) =>
+          heatRgb(value, activeRange.min, activeRange.max),
+        ),
       ),
     });
     const polyData = vtkPolyData.newInstance();
@@ -189,12 +212,51 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
       actor.getProperty().setEdgeColor(0.16, 0.2, 0.27);
       actor.getProperty().setLineWidth(1);
       actor.getProperty().setInterpolationToGouraud();
+      if (hasVolume) {
+        actor.getProperty().setOpacity(0.16);
+      }
     } else {
       actor.getProperty().setPointSize(7);
     }
 
     const renderer = view.getRenderer();
     renderer.addActor(actor);
+    if (hasVolume && volumeSlice.polygonCount) {
+      const slicePoints = vtkPoints.newInstance();
+      slicePoints.setData(
+        Float32Array.from(volumeSlice.coordinates.flatMap((point) => point)),
+        3,
+      );
+      const sliceColors = vtkDataArray.newInstance({
+        name: `${field.field || "u"}_slice_colors`,
+        numberOfComponents: 3,
+        values: Uint8Array.from(
+          volumeSlice.values.flatMap((value) =>
+            heatRgb(value, activeRange.min, activeRange.max),
+          ),
+        ),
+      });
+      const sliceData = vtkPolyData.newInstance();
+      sliceData.setPoints(slicePoints);
+      sliceData.setPolys(
+        vtkCellArray.newInstance({
+          values: Uint32Array.from(volumeSlice.polygons),
+        }),
+      );
+      sliceData.getPointData().setScalars(sliceColors);
+
+      const sliceMapper = vtkMapper.newInstance();
+      sliceMapper.setInputData(sliceData);
+      sliceMapper.setColorModeToDirectScalars();
+      sliceMapper.setScalarModeToUsePointData();
+      const sliceActor = vtkActor.newInstance();
+      sliceActor.setMapper(sliceMapper);
+      sliceActor.getProperty().setEdgeVisibility(true);
+      sliceActor.getProperty().setEdgeColor(0.18, 0.22, 0.3);
+      sliceActor.getProperty().setLineWidth(1);
+      sliceActor.getProperty().setInterpolationToGouraud();
+      renderer.addActor(sliceActor);
+    }
     renderer.resetCamera();
     const isThreeDimensional = field.coordinates.some(
       (point) => point.length > 2 && Math.abs(point[2] || 0) > 1.0e-12,
@@ -218,7 +280,7 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
       view.delete();
       container.replaceChildren();
     };
-  }, [field, sample, surface]);
+  }, [activeRange, field, hasVolume, sample, surface, volumeSlice]);
 
   return (
     <div className="sampledFieldViewer">
@@ -227,7 +289,9 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
           <strong>Sampled solution field {fieldLabel}</strong>
           <span>
             {field.space || "FEM"}, {field.coordinates.length} points
-            {surface.polygonCount
+            {hasVolume
+              ? `, ${volumeCellCount} volume cells, ${surface.polygonCount} exterior faces`
+              : surface.polygonCount
               ? `, ${surface.polygonCount} exterior mesh faces`
               : ", point samples (mesh topology unavailable)"}
           </span>
@@ -240,10 +304,52 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
         aria-label="Interactive sampled FEM solution field"
       />
       <div className="fieldLegend" aria-label="Solution value color scale">
-        <span>min {formatNumber(field.value_range?.min ?? valueRange(sample?.values || []).min)}</span>
+        <span>min {formatNumber(activeRange.min)}</span>
         <i />
-        <span>max {formatNumber(field.value_range?.max ?? valueRange(sample?.values || []).max)}</span>
+        <span>max {formatNumber(activeRange.max)}</span>
       </div>
+      {hasVolume ? (
+        <div className="volumeControls" aria-label="Volumetric result controls">
+          <label>
+            Interior section
+            <select
+              value={sliceAxis}
+              onChange={(event) =>
+                setSliceAxis(Number(event.target.value) as SliceAxis)
+              }
+            >
+              <option value={0}>X plane</option>
+              <option value={1}>Y plane</option>
+              <option value={2}>Z plane</option>
+            </select>
+          </label>
+          <label className="slicePositionControl">
+            <span className="slicePositionLabel">Plane position</span>
+            <input
+              type="range"
+              min={1}
+              max={99}
+              step={1}
+              value={slicePercent}
+              onChange={(event) => setSlicePercent(Number(event.target.value))}
+            />
+            <span className="slicePositionValue">{slicePercent}%</span>
+          </label>
+          <label>
+            Color scale
+            <select
+              value={colorScale}
+              onChange={(event) => setColorScale(event.target.value as ColorScale)}
+            >
+              <option value="sample">Current step</option>
+              <option value="global">All steps</option>
+            </select>
+          </label>
+          <span className="volumeSliceStatus">
+            {volumeSlice.polygonCount} intersected volume cells
+          </span>
+        </div>
+      ) : null}
       <div className="fieldControls">
         {isTimeDependent ? (
           <>
@@ -264,6 +370,207 @@ function SampledFieldViewer({ field }: { field: SampledFieldDataset }) {
       </div>
     </div>
   );
+}
+
+type SliceAxis = 0 | 1 | 2;
+type ColorScale = "sample" | "global";
+
+type TopologyCell = {
+  type: number;
+  points: number[];
+};
+
+type VolumeSlice = {
+  coordinates: number[][];
+  values: number[];
+  polygons: number[];
+  polygonCount: number;
+};
+
+function emptyVolumeSlice(): VolumeSlice {
+  return { coordinates: [], values: [], polygons: [], polygonCount: 0 };
+}
+
+function topologyCells(
+  topology: SampledFieldDataset["topology"],
+): TopologyCell[] {
+  if (!topology || topology.format !== "vtk_cell_array") {
+    return [];
+  }
+  const cells: TopologyCell[] = [];
+  let offset = 0;
+  let cellIndex = 0;
+  while (offset < topology.cells.length && cellIndex < topology.cell_types.length) {
+    const width = topology.cells[offset];
+    if (!Number.isInteger(width) || width <= 0 || offset + width >= topology.cells.length) {
+      break;
+    }
+    cells.push({
+      type: topology.cell_types[cellIndex],
+      points: topology.cells.slice(offset + 1, offset + width + 1),
+    });
+    offset += width + 1;
+    cellIndex += 1;
+  }
+  return cells;
+}
+
+function countVolumeCells(topology: SampledFieldDataset["topology"]) {
+  return topologyCells(topology).filter((cell) => volumeCellDefinition(cell)).length;
+}
+
+function volumeCellDefinition(cell: TopologyCell) {
+  if ((cell.type === 10 || cell.type === 24) && cell.points.length >= 4) {
+    return {
+      points: cell.points.slice(0, 4),
+      edges: [
+        [0, 1],
+        [0, 2],
+        [0, 3],
+        [1, 2],
+        [1, 3],
+        [2, 3],
+      ],
+    };
+  }
+  if ((cell.type === 12 || cell.type === 25) && cell.points.length >= 8) {
+    return {
+      points: cell.points.slice(0, 8),
+      edges: [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [3, 0],
+        [4, 5],
+        [5, 6],
+        [6, 7],
+        [7, 4],
+        [0, 4],
+        [1, 5],
+        [2, 6],
+        [3, 7],
+      ],
+    };
+  }
+  return null;
+}
+
+function buildVolumeSlice(
+  field: SampledFieldDataset,
+  sampleValues: number[],
+  axis: SliceAxis,
+  fraction: number,
+): VolumeSlice {
+  const axisValues = field.coordinates
+    .map((point) => Number(point[axis] || 0))
+    .filter(Number.isFinite);
+  if (!axisValues.length) {
+    return emptyVolumeSlice();
+  }
+  const minimum = Math.min(...axisValues);
+  const maximum = Math.max(...axisValues);
+  const span = maximum - minimum;
+  if (!(span > 0)) {
+    return emptyVolumeSlice();
+  }
+  const plane = minimum + Math.max(0, Math.min(1, fraction)) * span;
+  const epsilon = Math.max(span * 1.0e-9, 1.0e-12);
+  const planeAxes: Array<[number, number]> = [
+    [1, 2],
+    [0, 2],
+    [0, 1],
+  ];
+  const [horizontal, vertical] = planeAxes[axis];
+  const result = emptyVolumeSlice();
+
+  for (const cell of topologyCells(field.topology)) {
+    const definition = volumeCellDefinition(cell);
+    if (!definition) {
+      continue;
+    }
+    const intersections: Array<{ point: number[]; value: number }> = [];
+    const addIntersection = (point: number[], value: number) => {
+      const duplicate = intersections.some((entry) =>
+        entry.point.every(
+          (coordinate, index) => Math.abs(coordinate - point[index]) <= epsilon,
+        ),
+      );
+      if (!duplicate) {
+        intersections.push({ point, value });
+      }
+    };
+
+    for (const [localA, localB] of definition.edges) {
+      const indexA = definition.points[localA];
+      const indexB = definition.points[localB];
+      const pointA = point3(field.coordinates[indexA]);
+      const pointB = point3(field.coordinates[indexB]);
+      if (!pointA || !pointB) {
+        continue;
+      }
+      const distanceA = pointA[axis] - plane;
+      const distanceB = pointB[axis] - plane;
+      const valueA = Number(sampleValues[indexA] ?? 0);
+      const valueB = Number(sampleValues[indexB] ?? 0);
+
+      if (Math.abs(distanceA) <= epsilon) {
+        addIntersection(pointA, valueA);
+      }
+      if (Math.abs(distanceB) <= epsilon) {
+        addIntersection(pointB, valueB);
+      }
+      if (distanceA * distanceB < 0) {
+        const interpolation = (plane - pointA[axis]) / (pointB[axis] - pointA[axis]);
+        addIntersection(
+          pointA.map(
+            (coordinate, index) =>
+              coordinate + interpolation * (pointB[index] - coordinate),
+          ),
+          valueA + interpolation * (valueB - valueA),
+        );
+      }
+    }
+
+    if (intersections.length < 3) {
+      continue;
+    }
+    const centerHorizontal =
+      intersections.reduce((sum, entry) => sum + entry.point[horizontal], 0) /
+      intersections.length;
+    const centerVertical =
+      intersections.reduce((sum, entry) => sum + entry.point[vertical], 0) /
+      intersections.length;
+    intersections.sort(
+      (left, right) =>
+        Math.atan2(
+          left.point[vertical] - centerVertical,
+          left.point[horizontal] - centerHorizontal,
+        ) -
+        Math.atan2(
+          right.point[vertical] - centerVertical,
+          right.point[horizontal] - centerHorizontal,
+        ),
+    );
+
+    const start = result.coordinates.length;
+    result.coordinates.push(...intersections.map((entry) => entry.point));
+    result.values.push(...intersections.map((entry) => entry.value));
+    result.polygons.push(
+      intersections.length,
+      ...intersections.map((_entry, index) => start + index),
+    );
+    result.polygonCount += 1;
+  }
+
+  return result;
+}
+
+function point3(value: number[] | undefined): number[] | null {
+  if (!Array.isArray(value) || value.length < 2) {
+    return null;
+  }
+  const point = [Number(value[0]), Number(value[1]), Number(value[2] || 0)];
+  return point.every(Number.isFinite) ? point : null;
 }
 
 type SurfacePolygons = {

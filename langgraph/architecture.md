@@ -380,10 +380,12 @@ classDiagram
 Compiled solver runs write a topology-preserving visualization contract under
 `diagnostics.json.field_samples`. `dolfinx.plot.vtk_mesh(V)` supplies the VTK
 cell array, cell types, and function-space coordinates once; stationary and
-transient samples supply nodal values on exactly those points. The Workbench
-therefore renders \(u\) on the actual triangular or tetrahedral solver mesh,
-including holes and exterior faces, rather than displaying disconnected DOF
-markers. For transient problems, topology remains fixed and only the nodal
+transient samples supply nodal values on exactly those points. Transient runs
+export the initial field and every solved time step, while keeping the shared
+topology only once. The Workbench therefore renders \(u\) on the actual
+triangular, tetrahedral, or hexahedral solver mesh rather than displaying
+disconnected DOF markers. For 3D cells it derives a translucent exterior shell
+and interpolated interior cut plane; topology remains fixed and only the nodal
 scalar array changes with the time control.
 
 An aggregate boundary region with selector `all_boundary` is compiled using
