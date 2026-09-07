@@ -10,6 +10,44 @@ from aes_agent import nodes
 
 
 class ValidationNodeTests(unittest.TestCase):
+    def test_heat_sink_prompt_preserves_decimal_and_initial_temperature(self):
+        prompt = (
+            "Solve the transient heat equation on the attached 3D finned heat sink. "
+            "Use alpha=0.01, f=0, u=100 on base_bottom, initial temperature u=20, "
+            "final time T=1, and dt=0.01."
+        )
+
+        classification = nodes._classify_problem_from_text(prompt)
+        structure = nodes._extract_structure_from_text(
+            prompt,
+            classification["pde_info"],
+        )
+
+        self.assertEqual(classification["problem_class"], "forward_problem")
+        self.assertEqual(classification["pde_info"], "time_dependent_heat_equation")
+        self.assertEqual(structure["coefficient_info"], "0.01")
+        self.assertEqual(structure["source_info"], "0")
+        self.assertEqual(structure["bc_info"], "dirichlet_boundary_condition")
+        self.assertEqual(structure["initial_condition_info"], "20")
+        self.assertEqual(structure["time_info"], "T=1, dt=0.01")
+
+    def test_modified_laplacian_prompt_extracts_symbolic_coefficient_and_rhs(self):
+        prompt = (
+            "Solve -a(x)Delta(u)=1 on the attached geometry, a(x)=xy/20. "
+            "Use u(x,y,0)=sin(pi*x)sin(pi*y) on the bottom boundary."
+        )
+
+        classification = nodes._classify_problem_from_text(prompt)
+        structure = nodes._extract_structure_from_text(
+            prompt,
+            classification["pde_info"],
+        )
+
+        self.assertEqual(classification["problem_class"], "forward_problem")
+        self.assertEqual(classification["pde_info"], "stationary_diffusion_equation")
+        self.assertEqual(structure["coefficient_info"], "x*y/20")
+        self.assertEqual(structure["source_info"], "1")
+
     @patch.object(
         nodes,
         "ollama_json",

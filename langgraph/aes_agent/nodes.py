@@ -1423,6 +1423,8 @@ def _detect_request_intent_from_text(user_text: str) -> dict[str, str]:
         "heat equation",
         "poisson",
         "laplace",
+        "delta(",
+        "laplacian",
         "diffusion",
         "pde",
         "partial differential",
@@ -1582,6 +1584,8 @@ def _classify_problem_from_text(user_text: str) -> dict[str, str]:
         "heat equation",
         "poisson",
         "laplace",
+        "delta(",
+        "laplacian",
         "diffusion",
         "pde",
         "partial differential",
@@ -1619,6 +1623,10 @@ def _classify_problem_from_text(user_text: str) -> dict[str, str]:
         "poisson" in lowered
         or "stationary_diffusion" in lowered
         or "-div" in lowered
+        or (
+            ("delta(" in lowered or "laplacian" in lowered)
+            and not _has_time_derivative(user_text)
+        )
         or (_has_stationary_marker(user_text) and "heat" in lowered)
     ):
         pde_info = "stationary_diffusion_equation"
@@ -1637,22 +1645,38 @@ def _classify_problem_from_text(user_text: str) -> dict[str, str]:
 
 def _extract_structure_from_text(user_text: str, pde_info: str) -> dict[str, str]:
     lowered = _lower_text(user_text)
+    number = r"[-+]?(?:\d+\.\d+|\d+|\.\d+)(?:[eE][-+]?\d+)?"
     source = _extract_expression_from_text(
         user_text,
         [
+            rf"\bf\s*(?:=|is)\s*({number})",
             r"\bf\s*(?:=|is)\s*([^,.;\n]+)",
+            rf"source\s+f\s*=\s*({number})",
             r"source\s+f\s*=\s*([^,.;\n]+)",
+            rf"source term\s*(?:=|is)\s*({number})",
             r"source term\s*(?:=|is)\s*([^,.;\n]+)",
+            rf"source\s*(?:=|is)\s*({number})",
             r"source\s*(?:=|is)\s*([^,.;\n]+)",
+            rf"right-hand side\s*(?:=|is)\s*({number})",
             r"right-hand side\s*(?:=|is)\s*([^,.;\n]+)",
+            rf"-?\s*(?:[a-zA-Z]\w*(?:\([^)]*\))?\s*\*?\s*)?"
+            rf"(?:delta|laplacian)\s*\(\s*u\s*\)\s*=\s*({number})",
+            r"-?\s*(?:[a-zA-Z]\w*(?:\([^)]*\))?\s*\*?\s*)?"
+            r"(?:delta|laplacian)\s*\(\s*u\s*\)\s*=\s*([^,.;\n]+)",
         ],
     )
     coefficient = _extract_expression_from_text(
         user_text,
         [
+            rf"\balpha\s*(?:=|is)\s*({number})",
             r"\balpha\s*(?:=|is)\s*([^,.;\n]+)",
+            rf"\ba\s*(?:\([^)]*\))?\s*(?:=|is)\s*({number})",
+            r"\ba\s*(?:\([^)]*\))?\s*(?:=|is)\s*([^,.;\n]+)",
+            rf"\bk\s*(?:=|is)\s*({number})",
             r"\bk\s*(?:=|is)\s*([^,.;\n]+)",
+            rf"diffusion coefficient\s*(?:=|is)\s*({number})",
             r"diffusion coefficient\s*(?:=|is)\s*([^,.;\n]+)",
+            rf"coefficient\s*(?:=|is)\s*({number})",
             r"coefficient\s*(?:=|is)\s*([^,.;\n]+)",
         ],
     )
@@ -1661,6 +1685,8 @@ def _extract_structure_from_text(user_text: str, pde_info: str) -> dict[str, str
         [
             r"u\s*\([^)]*,\s*0\s*\)\s*=\s*([^,.;\n]+)",
             r"initial condition\s*(?:=|is)\s*([^,.;\n]+)",
+            rf"initial temperature(?:\s+u)?\s*(?:=|is)\s*({number})",
+            r"initial temperature(?:\s+u)?\s*(?:=|is)\s*([^,.;\n]+)",
             r"\bu_?0\s*(?:=|is)\s*([^,.;\n]+)",
         ],
     )
@@ -1678,11 +1704,22 @@ def _extract_structure_from_text(user_text: str, pde_info: str) -> dict[str, str
             if "rectangle" in lowered or "rectangular" in lowered
             else "unknown_domain"
         ),
-        "coefficient_info": coefficient or "constant_coefficient_given",
+        "coefficient_info": coefficient or (
+            "1"
+            if "laplace" in lowered or "delta(" in lowered or "laplacian" in lowered
+            else "constant_coefficient_given"
+        ),
         "source_info": source or "unknown_source",
         "bc_info": (
             "dirichlet_boundary_condition"
-            if "dirichlet" in lowered or "u=0" in user_text.replace(" ", "")
+            if (
+                "dirichlet" in lowered
+                or re.search(
+                    r"\bu(?:\s*\([^)]*\))?\s*=.+?\s+on\s+",
+                    user_text,
+                    flags=re.IGNORECASE,
+                )
+            )
             else "unknown_boundary_condition"
         ),
         "initial_condition_info": initial_condition or "unknown_initial_condition",
@@ -1700,6 +1737,12 @@ def _extract_expression_from_text(text: str, patterns: list[str]) -> str:
 
 def _clean_extracted_expression(value: str) -> str:
     cleaned = value.strip().strip("`$ ")
+    cleaned = re.split(
+        r"\s+on\s+(?:the\s+)?(?:attached|uploaded|selected|given)\b",
+        cleaned,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0]
     cleaned = re.sub(
         r"^[a-zA-Z_]\w*\s*=\s*",
         "",
@@ -1718,12 +1761,14 @@ def _clean_extracted_expression(value: str) -> str:
 
 def _normalize_math_expression(value: str) -> str:
     cleaned = value.strip()
-    cleaned = re.sub(r"\bsin\(pi([xy])\)", r"sin(pi*\1)", cleaned)
+    cleaned = cleaned.replace("^", "**")
+    cleaned = re.sub(r"\bsin\(pi([xyz])\)", r"sin(pi*\1)", cleaned)
     cleaned = re.sub(
-        r"\bsin\(pi\*x\)\s*sin\(pi\*y\)",
+        r"\bsin\(pi\*x\)\s*\*?\s*sin\(pi\*y\)",
         "sin(pi*x)*sin(pi*y)",
         cleaned,
     )
+    cleaned = re.sub(r"\b([xyz])([xyz])\b", r"\1*\2", cleaned)
     return cleaned
 
 

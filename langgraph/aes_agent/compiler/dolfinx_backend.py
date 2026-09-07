@@ -112,6 +112,10 @@ def _boundary_setup(
     snippets: list[str] = []
     regions = {region.name: region for region in geometry.regions}
     for index, condition in enumerate(pde.boundary_conditions):
+        if condition.type == "neumann":
+            if _constant_number(condition.value.value, "Neumann boundary value") != 0.0:
+                raise ValueError("Only homogeneous Neumann data are supported.")
+            continue
         value = _constant_number(condition.value.value, "Dirichlet boundary value")
         region = regions.get(condition.region)
         is_all_boundary = region is not None and region.selector.kind == "all_boundary"
@@ -137,7 +141,11 @@ dofs_{index} = fem.locate_dofs_topological(V, msh.topology.dim - 1, facets_{inde
             + f'''bc_{index} = fem.dirichletbc(PETSc.ScalarType({value}), dofs_{index}, V)
 '''
         )
-    names = ", ".join(f"bc_{index}" for index in range(len(snippets)))
+    names = ", ".join(
+        f"bc_{index}"
+        for index, condition in enumerate(pde.boundary_conditions)
+        if condition.type == "dirichlet"
+    )
     return "".join(snippets) + f"bcs = [{names}]\n"
 
 

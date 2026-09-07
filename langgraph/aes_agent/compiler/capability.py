@@ -28,13 +28,30 @@ def build_compilation_plan(
         {
             condition.type
             for condition in pde.boundary_conditions
-            if condition.type != "dirichlet"
+            if condition.type not in {"dirichlet", "neumann"}
         }
     )
     if unsupported_bcs:
         errors.append(f"Unsupported boundary-condition types: {unsupported_bcs}.")
-    if any(condition.value.kind != "constant" for condition in pde.boundary_conditions):
+    if any(
+        condition.type == "dirichlet" and condition.value.kind != "constant"
+        for condition in pde.boundary_conditions
+    ):
         errors.append("The first compiler release supports constant Dirichlet data only.")
+    unsupported_neumann = [
+        condition
+        for condition in pde.boundary_conditions
+        if condition.type == "neumann"
+        and (
+            condition.value.kind != "constant"
+            or _number_or_none(condition.value.value) != 0.0
+        )
+    ]
+    if unsupported_neumann:
+        errors.append(
+            "The first compiler release supports only homogeneous Neumann "
+            "(zero-flux) data; it is applied as the natural boundary condition."
+        )
 
     if errors:
         return CompilationPlan(status="unsupported", capability_errors=errors)
@@ -55,3 +72,10 @@ def _planned_mesh_uri(geometry: GeometrySpec) -> str:
         if primitive.shape == "rectangle":
             return "builtin://rectangle"
     return "mesh://pending"
+
+
+def _number_or_none(value: str) -> float | None:
+    try:
+        return float(value)
+    except ValueError:
+        return None

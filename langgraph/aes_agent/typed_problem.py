@@ -14,9 +14,10 @@ from aes_agent.prompts import (
     interpret_typed_problem_prompt,
 )
 from aes_agent.specs.base import StrictModel
+from aes_agent.specs.expressions import expression_from_text
 from aes_agent.specs.geometry import GeometrySpec, RegionSelector, RegionSpec
 from aes_agent.specs.legacy import build_legacy_specs
-from aes_agent.specs.pde import PDEProblemSpec
+from aes_agent.specs.pde import BoundaryConditionSpec, PDEProblemSpec
 from aes_agent.specs.validation import (
     cross_validate_pde_geometry,
     validate_geometry_spec,
@@ -42,6 +43,10 @@ _SUPPORTED_NUMERICAL_DEFAULTS = (
     "linear solver",
     "preconditioner",
     "output format",
+    "homogeneous neumann",
+    "zero flux",
+    "remaining boundaries",
+    "remaining surfaces",
 )
 
 
@@ -86,6 +91,11 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
                 "AES added the semantic 'boundary' region for all exterior boundaries."
             )
         fallback_pde = _adapt_pde_to_geometry(fallback_pde, requested_geometry)
+    fallback_pde, fallback_boundary_warnings = _reconcile_explicit_boundary_conditions(
+        fallback_pde,
+        requested_geometry or fallback_geometry,
+        str(state.get("raw_user_input", "")),
+    )
     strategy = os.getenv("AES_TYPED_INTERPRETATION_MODE", "llm_first").strip().lower()
     if strategy == "deterministic_only":
         logger.info(
@@ -97,7 +107,7 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
             requested_geometry or fallback_geometry,
             source="deterministic_configuration",
             geometry_source=("request_context" if requested_geometry else "deterministic_configuration"),
-            warnings=requested_geometry_warnings,
+            warnings=[*requested_geometry_warnings, *fallback_boundary_warnings],
         )
 
     logger.info(
@@ -149,6 +159,13 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
             ambiguities
         )
         default_warnings.extend(context_warnings)
+        ambiguities, natural_boundary_warnings = _partition_natural_boundary_ambiguities(
+            ambiguities,
+            pde or fallback_pde,
+            requested_geometry,
+            str(state.get("raw_user_input", "")),
+        )
+        default_warnings.extend(natural_boundary_warnings)
 
     if pde is not None and geometry is not None:
         logger.info(
@@ -189,6 +206,7 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
                 "compatibility extractor.",
                 *failures,
                 *requested_geometry_warnings,
+                *fallback_boundary_warnings,
                 *default_warnings,
             ],
         )
@@ -296,6 +314,7 @@ def _partition_supplied_geometry_ambiguities(
             normalized
             in {
                 "domain geometry specification",
+                "domain geometry file",
                 "geometry specification",
                 "domain geometry file path",
                 "geometry file path",
@@ -317,10 +336,62 @@ def _partition_supplied_geometry_ambiguities(
                 )
             )
         )
+        confirms_region_mapping = (
+            "mapped" in normalized
+            and any(
+                marker in normalized
+                for marker in ("contains a region", "provided geometry", "attached geometry")
+            )
+        )
         if refers_to_geometry and claims_missing_context:
             warnings.append(
-                "Ignored model geometry ambiguity because a validated GeometrySpec "
-                f"was attached: {item}"
+                "Ignored model geometry ambiguity because a validated "
+                f"GeometrySpec was attached: {item}"
+            )
+        elif refers_to_geometry and confirms_region_mapping:
+            warnings.append(
+                "Ignored non-blocking model geometry note because a validated "
+                f"GeometrySpec was attached: {item}"
+            )
+        else:
+            blocking.append(item)
+    return blocking, warnings
+
+
+def _partition_natural_boundary_ambiguities(
+    items: list[str],
+    pde: PDEProblemSpec | None,
+    geometry: GeometrySpec,
+    raw_user_input: str,
+) -> tuple[list[str], list[str]]:
+    """Treat omitted boundary portions as the FEM natural zero-flux condition."""
+
+    explicit, unresolved = _explicit_dirichlet_conditions(raw_user_input, geometry)
+    if pde is None or not explicit or unresolved:
+        return items, []
+    if any(condition.region == "boundary" for condition in explicit):
+        return items, []
+
+    blocking: list[str] = []
+    warnings: list[str] = []
+    for item in items:
+        normalized = " ".join(item.lower().replace("_", " ").split())
+        refers_to_unassigned_boundary = any(
+            marker in normalized
+            for marker in (
+                "remaining boundaries",
+                "remaining boundary",
+                "remaining surfaces",
+                "remaining surface",
+                "finned surfaces",
+                "unassigned boundaries",
+                "unassigned surfaces",
+            )
+        )
+        if refers_to_unassigned_boundary:
+            warnings.append(
+                "Accepted unspecified boundary portions as homogeneous Neumann "
+                f"(zero normal flux), the natural diffusion boundary condition: {item}"
             )
         else:
             blocking.append(item)
@@ -462,6 +533,112 @@ def _adapt_pde_to_geometry(
     return pde.model_copy(update={"spatial_dimension": geometry.dimension})
 
 
+def _reconcile_explicit_boundary_conditions(
+    pde: PDEProblemSpec | None,
+    geometry: GeometrySpec | None,
+    raw_user_input: str,
+) -> tuple[PDEProblemSpec | None, list[str]]:
+    """Replace model boundary data when the request names values and regions."""
+
+    if pde is None or geometry is None:
+        return pde, []
+    conditions, unresolved = _explicit_dirichlet_conditions(raw_user_input, geometry)
+    if not conditions or unresolved:
+        return pde, []
+    if any(condition.region == "boundary" for condition in conditions):
+        return pde, []
+    if pde.boundary_conditions == conditions:
+        return pde, []
+    return (
+        pde.model_copy(update={"boundary_conditions": conditions}),
+        [
+            "AES preserved explicitly stated Dirichlet values and semantic "
+            "boundary regions instead of conflicting model boundary data."
+        ],
+    )
+
+
+def _explicit_dirichlet_conditions(
+    raw_user_input: str,
+    geometry: GeometrySpec,
+) -> tuple[list[BoundaryConditionSpec], list[str]]:
+    pattern = re.compile(
+        r"\bu(?:\s*\([^)]*\))?\s*=\s*(?P<value>.+?)\s+on\s+"
+        r"(?P<regions>.+?)"
+        r"(?=(?:\s+and\s+u(?:\s*\([^)]*\))?\s*=)|"
+        r"(?:,\s*(?:initial|final|time|execute|store|alpha|source|f\s*=)\b)|"
+        r"[.;\n]|$)",
+        re.IGNORECASE,
+    )
+    available = {region.name for region in geometry.regions}
+    by_region: dict[str, BoundaryConditionSpec] = {}
+    unresolved: list[str] = []
+    variables = [*(["x", "y", "z"][: geometry.dimension]), "t"]
+    for match in pattern.finditer(raw_user_input):
+        value = _normalize_explicit_expression(match.group("value"))
+        labels = _split_boundary_region_labels(match.group("regions"))
+        for label in labels:
+            region = _resolve_boundary_region(label, available, geometry.dimension)
+            if region is None:
+                unresolved.append(label)
+                continue
+            by_region[region] = BoundaryConditionSpec(
+                name=f"explicit_dirichlet_{region}",
+                region=region,
+                type="dirichlet",
+                value=expression_from_text(value, variables=variables),
+            )
+    return list(by_region.values()), unresolved
+
+
+def _split_boundary_region_labels(value: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", value.strip())
+    labels: list[str] = []
+    for item in re.split(r"\s*,\s*|\s+and\s+", normalized, flags=re.IGNORECASE):
+        cleaned = re.sub(r"^and\s+", "", item.strip(" ,"), flags=re.IGNORECASE)
+        if cleaned:
+            labels.append(cleaned)
+    return labels
+
+
+def _resolve_boundary_region(
+    label: str,
+    available: set[str],
+    dimension: int,
+) -> str | None:
+    normalized = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+    normalized = re.sub(r"^the_", "", normalized)
+    if normalized in {
+        "boundary",
+        "complete_boundary",
+        "entire_boundary",
+        "whole_boundary",
+        "all_boundary",
+        "all_boundaries",
+        "all_exterior_boundaries",
+    }:
+        return "boundary" if "boundary" in available else None
+    if normalized in available:
+        return normalized
+    without_suffix = re.sub(r"_(?:boundary|surface|face)$", "", normalized)
+    if without_suffix in available:
+        return without_suffix
+    if without_suffix in {"bottom", "base", "base_bottom"}:
+        candidates = ["base_bottom", "z_min" if dimension == 3 else "y_min"]
+        return next((candidate for candidate in candidates if candidate in available), None)
+    return None
+
+
+def _normalize_explicit_expression(value: str) -> str:
+    normalized = value.strip().strip("`$ ")
+    normalized = normalized.replace("^", "**")
+    normalized = re.sub(r"\bsin\(pi([xyz])\)", r"sin(pi*\1)", normalized)
+    normalized = re.sub(r"\)(?=(?:sin|cos|exp|sqrt)\s*\()", ")*", normalized)
+    # Coordinate products are common in compact engineering notation (for example xy/20).
+    normalized = re.sub(r"\b([xyz])([xyz])\b", r"\1*\2", normalized)
+    return normalized
+
+
 def _reconcile_interpreted_pde(
     interpreted: PDEProblemSpec | None,
     deterministic: PDEProblemSpec | None,
@@ -522,6 +699,13 @@ def _reconcile_interpreted_pde(
             }
         )
 
+    reconciled, boundary_warnings = _reconcile_explicit_boundary_conditions(
+        reconciled,
+        authoritative_geometry,
+        raw_user_input,
+    )
+    warnings.extend(boundary_warnings)
+
     if (
         _has_explicit_initial_condition(raw_user_input)
         and deterministic.initial_condition is not None
@@ -553,7 +737,8 @@ def _reconcile_interpreted_pde(
 def _has_explicit_diffusion(text: str) -> bool:
     return bool(
         re.search(
-            r"(?<![\w])(?:alpha|a|k|diffusion\s+coefficient)\s*(?:=|is)",
+            r"(?<![\w])(?:alpha|a|k)(?:\s*\([^)]*\))?\s*(?:=|is)|"
+            r"\bdiffusion\s+coefficient\s*(?:=|is)",
             text,
             re.IGNORECASE,
         )
@@ -567,12 +752,19 @@ def _has_explicit_source(text: str) -> bool:
             text,
             re.IGNORECASE,
         )
+        or re.search(
+            r"-?\s*(?:[a-zA-Z]\w*(?:\([^)]*\))?\s*\*?\s*)?"
+            r"(?:delta|laplacian)\s*\(\s*u\s*\)\s*=",
+            text,
+            re.IGNORECASE,
+        )
     )
 
 
 def _has_explicit_initial_condition(text: str) -> bool:
     return bool(
         re.search(r"\binitial\s+condition\b", text, re.IGNORECASE)
+        or re.search(r"\binitial\s+temperature\b", text, re.IGNORECASE)
         or re.search(r"\bu\s*\([^)]*,\s*0\s*\)\s*=", text, re.IGNORECASE)
     )
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from aes_agent.specs.legacy import build_legacy_specs
@@ -251,7 +252,7 @@ class TypedProblemInterpretationTests(unittest.TestCase):
                 "time step dt=0.01."
             ),
             "domain_info": "domain_symbolically_specified",
-            "coefficient_info": "constant_coefficient_given",
+            "coefficient_info": "1",
             "initial_condition_info": "sin(pi*x)sin(pi*y)",
             "requested_geometry_spec": _attached_3d_geometry(),
         }
@@ -329,6 +330,171 @@ class TypedProblemInterpretationTests(unittest.TestCase):
         self.assertEqual(result["geometry_spec"], {})
         self.assertIn("Attached geometry is invalid", result["typed_spec_ambiguities"][0])
 
+    @patch("aes_agent.typed_problem.ollama_json")
+    def test_named_l_shape_boundary_values_override_conflicting_model_data(
+        self,
+        model_json,
+    ):
+        prompt = (
+            "Solve the Laplace equation Delta(u)=0 on the attached L-shaped 2D domain. "
+            "Use u=1 on x_min and u=0 on y_min, x_max_lower, y_max_left, "
+            "notch_vertical, and notch_horizontal. Execute the DOLFINx solve with "
+            "stored artifacts."
+        )
+        state = {
+            "raw_user_input": prompt,
+            "problem_class": "forward_problem",
+            "pde_info": "stationary_diffusion_equation",
+            "domain_info": "unknown_domain",
+            "coefficient_info": "1",
+            "source_info": "0",
+            "bc_info": "dirichlet_boundary_condition",
+            "initial_condition_info": "unknown_initial_condition",
+            "time_info": "unknown_time",
+            "requested_geometry_spec": _example_geometry("l-shaped-domain-2d"),
+        }
+        candidate, _ = build_legacy_specs(state)
+        assert candidate is not None
+        candidate_value = candidate.model_dump(mode="json")
+        candidate_value["boundary_conditions"] = [
+            {
+                "name": "incorrect_model_boundary",
+                "region": "boundary",
+                "type": "dirichlet",
+                "value": {"kind": "symbolic", "value": "0", "variables": []},
+            }
+        ]
+        model_json.return_value = {"pde_spec": candidate_value, "ambiguities": []}
+
+        result = interpret_problem_specs(state)
+        validated = validate_problem_specs(result)
+
+        values = {
+            condition["region"]: condition["value"]
+            for condition in result["pde_spec"]["boundary_conditions"]
+        }
+        self.assertEqual(
+            set(values),
+            {
+                "x_min",
+                "y_min",
+                "x_max_lower",
+                "y_max_left",
+                "notch_vertical",
+                "notch_horizontal",
+            },
+        )
+        self.assertEqual(values["x_min"]["value"], "1")
+        self.assertTrue(all(value["kind"] == "constant" for value in values.values()))
+        self.assertTrue(
+            all(value["value"] == "0" for region, value in values.items() if region != "x_min")
+        )
+        self.assertEqual(validated["typed_validation_status"], "valid")
+        self.assertEqual(validated["compilation_plan"]["status"], "ready")
+
+    @patch("aes_agent.typed_problem.ollama_json")
+    def test_heat_sink_catalog_prompt_is_complete_with_natural_unassigned_boundaries(
+        self,
+        model_json,
+    ):
+        prompt = (
+            "Solve the transient heat equation on the attached 3D finned heat sink. "
+            "Use alpha=0.01, f=0, u=100 on base_bottom, initial temperature u=20, "
+            "final time T=1, and dt=0.01. Execute and store all result artifacts."
+        )
+        state = {
+            "raw_user_input": prompt,
+            "problem_class": "forward_problem",
+            "pde_info": "time_dependent_heat_equation",
+            "domain_info": "unknown_domain",
+            "coefficient_info": "0.01",
+            "source_info": "0",
+            "bc_info": "dirichlet_boundary_condition",
+            "initial_condition_info": "20",
+            "time_info": "T=1, dt=0.01",
+            "requested_geometry_spec": _example_geometry("finned-heat-sink-solid-3d"),
+        }
+        candidate, _ = build_legacy_specs(state)
+        assert candidate is not None
+        candidate_value = candidate.model_dump(mode="json")
+        candidate_value.update({"spatial_dimension": 2, "initial_condition": None})
+        candidate_value["boundary_conditions"] = [
+            {
+                "name": "incorrect_model_boundary",
+                "region": "boundary",
+                "type": "dirichlet",
+                "value": {"kind": "constant", "value": "0", "variables": []},
+            }
+        ]
+        model_json.return_value = {
+            "pde_spec": candidate_value,
+            "ambiguities": [
+                "boundary_conditions_on_finned_surfaces",
+                "domain_geometry_file",
+                (
+                    "The boundary conditions for the remaining boundaries excluding "
+                    "base_bottom are not explicitly specified; assuming homogeneous "
+                    "Neumann boundary conditions by default."
+                ),
+            ],
+        }
+
+        result = interpret_problem_specs(state)
+        validated = validate_problem_specs(result)
+
+        pde = result["pde_spec"]
+        self.assertEqual(pde["spatial_dimension"], 3)
+        self.assertEqual(pde["equation"]["diffusion"]["value"], "0.01")
+        self.assertEqual(pde["boundary_conditions"][0]["region"], "base_bottom")
+        self.assertEqual(pde["boundary_conditions"][0]["value"]["value"], "100")
+        self.assertEqual(pde["initial_condition"]["value"]["value"], "20")
+        self.assertEqual(pde["time"]["t_end"], 1.0)
+        self.assertEqual(pde["time"]["dt"], 0.01)
+        self.assertEqual(result["typed_spec_ambiguities"], [])
+        self.assertEqual(validated["typed_validation_status"], "valid")
+        self.assertEqual(validated["compilation_plan"]["status"], "ready")
+
+    @patch("aes_agent.typed_problem.ollama_json")
+    def test_modified_heat_sink_problem_reports_compiler_limits_not_missing_inputs(
+        self,
+        model_json,
+    ):
+        prompt = (
+            "Solve -a(x)Delta(u)=1 on the attached geometry, a(x)=xy/20. "
+            "Use u(x,y,0)=sin(pi*x)sin(pi*y) on the bottom boundary, execute "
+            "the DOLFINx solve."
+        )
+        state = {
+            "raw_user_input": prompt,
+            "problem_class": "forward_problem",
+            "pde_info": "stationary_diffusion_equation",
+            "domain_info": "unknown_domain",
+            "coefficient_info": "x*y/20",
+            "source_info": "1",
+            "bc_info": "dirichlet_boundary_condition",
+            "initial_condition_info": "unknown_initial_condition",
+            "time_info": "unknown_time",
+            "requested_geometry_spec": _example_geometry("finned-heat-sink-solid-3d"),
+        }
+        candidate, _ = build_legacy_specs(state)
+        assert candidate is not None
+        model_json.return_value = {
+            "pde_spec": candidate.model_dump(mode="json"),
+            "ambiguities": [
+                "The attached geometry contains base_bottom; mapped bottom boundary to base_bottom."
+            ],
+        }
+
+        result = interpret_problem_specs(state)
+        validated = validate_problem_specs(result)
+
+        self.assertEqual(result["typed_spec_ambiguities"], [])
+        self.assertEqual(validated["typed_validation_status"], "valid")
+        self.assertEqual(validated["compilation_plan"]["status"], "unsupported")
+        errors = " ".join(validated["compilation_plan"]["capability_errors"])
+        self.assertIn("constant diffusion", errors)
+        self.assertIn("constant Dirichlet", errors)
+
 
 def _attached_3d_geometry() -> dict:
     return {
@@ -364,6 +530,19 @@ def _attached_3d_geometry() -> dict:
         },
         "metadata": {"id": "plate-with-hole-solid-3d"},
     }
+
+
+def _example_geometry(example_id: str) -> dict:
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "examples"
+        / "geometries"
+        / example_id
+        / "geometry.json"
+    )
+    import json
+
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

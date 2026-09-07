@@ -60,7 +60,9 @@ def _build_pde_spec(state: dict[str, Any]) -> PDEProblemSpec | None:
     initial = None
     time = None
     if family == "transient_diffusion":
-        initial_text = str(state.get("initial_condition_info", "")).strip()
+        initial_text = _explicit_initial_condition(raw) or str(
+            state.get("initial_condition_info", "")
+        ).strip()
         if initial_text and not initial_text.startswith("unknown_"):
             initial = InitialConditionSpec(
                 value=expression_from_text(
@@ -235,7 +237,11 @@ def _clean_scalar(value: Any, *, default: str) -> str:
     text = str(value or "").strip()
     if not text or text.startswith("unknown_"):
         return default
-    match = re.search(r"(?:=\s*)?(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*$", text)
+    number = r"-?(?:\d+\.\d+|\d+|\.\d+)(?:[eE][+-]?\d+)?"
+    match = re.fullmatch(
+        rf"(?:[a-zA-Z_]\w*\s*=\s*)?({number})",
+        text,
+    )
     return match.group(1) if match else text
 
 
@@ -253,6 +259,23 @@ def _explicit_named_scalar(raw: str, names: tuple[str, ...]) -> str:
 
 def _normalize_math_expression(value: str) -> str:
     normalized = value.strip()
+    normalized = normalized.replace("^", "**")
     normalized = re.sub(r"\bsin\(pi([xyz])\)", r"sin(pi*\1)", normalized)
     normalized = re.sub(r"\)(?=(?:sin|cos|exp|sqrt)\s*\()", ")*", normalized)
+    normalized = re.sub(r"\b([xyz])([xyz])\b", r"\1*\2", normalized)
     return normalized
+
+
+def _explicit_initial_condition(raw: str) -> str:
+    number = r"[-+]?(?:\d+\.\d+|\d+|\.\d+)(?:[eE][-+]?\d+)?"
+    patterns = (
+        rf"\binitial\s+condition(?:\s+u)?\s*(?:=|is)\s*({number})",
+        r"\binitial\s+condition(?:\s+u)?\s*(?:=|is)\s*([^,.;\n]+)",
+        rf"\binitial\s+temperature(?:\s+u)?\s*(?:=|is)\s*({number})",
+        r"\binitial\s+temperature(?:\s+u)?\s*(?:=|is)\s*([^,.;\n]+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, raw, re.IGNORECASE)
+        if match:
+            return _normalize_math_expression(match.group(1))
+    return ""

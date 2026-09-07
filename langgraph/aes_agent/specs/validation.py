@@ -53,12 +53,36 @@ def validate_pde_spec(value: dict[str, Any] | PDEProblemSpec) -> tuple[PDEProble
                 errors.append("The diffusion coefficient must be positive.")
         else:
             errors.extend(_validate_expression(expression.value, label))
+    for condition in spec.boundary_conditions:
+        errors.extend(
+            _validate_expression_spec(
+                condition.value,
+                f"boundary value for region {condition.region!r}",
+            )
+        )
+    if spec.initial_condition is not None:
+        errors.extend(
+            _validate_expression_spec(
+                spec.initial_condition.value,
+                "initial condition",
+            )
+        )
     report = ValidationReport(
         status="invalid" if errors else "valid",
         errors=errors,
         warnings=warnings,
     )
     return spec, report
+
+
+def _validate_expression_spec(expression: Any, label: str) -> list[str]:
+    if expression.kind == "constant":
+        try:
+            float(expression.value)
+        except ValueError:
+            return [f"The constant {label} is not numeric."]
+        return []
+    return _validate_expression(expression.value, label)
 
 
 def validate_geometry_spec(value: dict[str, Any] | GeometrySpec) -> tuple[GeometrySpec | None, ValidationReport]:

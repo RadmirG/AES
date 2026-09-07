@@ -326,7 +326,9 @@ flowchart TD
     GV --> C
     AI --> AV{"Usable typed response?"}
     AV -->|yes| RC
-    RC --> AS{"Interpretation issue?"}
+    RC --> BC["Resolve named boundary clauses against semantic regions"]
+    BC --> NB["Classify uncovered exterior regions as natural or missing"]
+    NB --> AS{"Interpretation issue?"}
     AS -->|none| B["Typed PDEProblemSpec"]
     AS -->|none| C["Typed GeometrySpec"]
     AS -->|supported numerical default| AW["Assumption and non-blocking warning"]
@@ -373,10 +375,22 @@ configuration and is visible as
 The interpreter treats model output as a candidate contract and reconciles it
 before typed validation. A validated attached GeometrySpec is authoritative for
 spatial dimension. Explicit request values are authoritative for diffusion,
-source, whole-boundary conditions, initial data, and time values, so a model
-cannot erase or rewrite them. For example, on a 3D plate,
+source, whole-boundary and named-region conditions, initial data, and time
+values, so a model cannot erase or rewrite them. Named clauses such as
+`u=100 on base_bottom` and mixed clauses such as `u=1 on x_min and u=0 on
+y_min, notch_vertical, and notch_horizontal` are resolved against the
+GeometrySpec's semantic regions before validation. For example, on a 3D plate,
 `u0(x,y,z)=sin(pi*x)*sin(pi*y)` is a valid field that is constant through the
 thickness and does not require artificial `z` dependence.
+
+Boundary coverage follows the variational contract. Explicit essential
+Dirichlet data is compiled strongly on its named regions. Exterior regions not
+covered by an explicit condition use homogeneous Neumann data only when that is
+the documented natural boundary condition for the selected scalar diffusion
+form; this is recorded as a non-blocking assumption, not invented as an
+overlapping aggregate boundary condition. Explicit nonzero or symbolic Neumann
+data remains a compiler capability question. All Dirichlet, Neumann, and initial
+expressions pass the same symbol/schema validation as coefficients and sources.
 
 The interpreter then normalizes model-reported issues before typed validation.
 Documented defaults for time integration, finite-element space, mesh size,

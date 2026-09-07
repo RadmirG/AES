@@ -203,6 +203,39 @@ class TypedSpecificationTests(unittest.TestCase):
         self.assertEqual(report.status, "invalid")
         self.assertTrue(any("inlet" in item for item in report.errors))
 
+    def test_pde_validation_checks_symbolic_boundary_expressions(self):
+        value = _pde_dict("stationary_diffusion")
+        value["boundary_conditions"][0]["value"] = {
+            "kind": "symbolic",
+            "value": "not-a-valid-boundary-value",
+            "variables": [],
+        }
+
+        _, report = validate_pde_spec(value)
+
+        self.assertEqual(report.status, "invalid")
+        self.assertTrue(any("boundary value" in item for item in report.errors))
+
+    def test_compiler_omits_homogeneous_neumann_as_natural_boundary_data(self):
+        value = _pde_dict("stationary_diffusion")
+        value["boundary_conditions"].append(
+            {
+                "name": "natural_wall_flux",
+                "region": "boundary",
+                "type": "neumann",
+                "value": _expression("0"),
+            }
+        )
+        pde = PDEProblemSpec.model_validate(value)
+        geometry = GeometrySpec.model_validate(_rectangle_geometry_dict())
+        plan = build_compilation_plan(pde, geometry)
+
+        code = compile_dolfinx(pde, geometry, plan)
+
+        self.assertEqual(plan.status, "ready")
+        self.assertIn("bcs = [bc_0]", code)
+        self.assertNotIn("bc_1 =", code)
+
     def test_geometry_validation_rejects_3d_primitive_in_2d_spec(self):
         value = _rectangle_geometry_dict()
         value["source"]["primitives"][0].update(

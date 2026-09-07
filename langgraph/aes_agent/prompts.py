@@ -384,6 +384,10 @@ PDE rules:
 - Boundary-condition region names must be selected from {json.dumps(region_names)}.
 - When the request says "on the boundary" or "all boundaries", use the
   aggregate region named "boundary".
+- Boundary portions without an explicitly prescribed condition use the weak
+  form's natural homogeneous-Neumann (zero normal flux) condition. Record this
+  as a non-blocking assumption, not an ambiguity. Do not invent an overlapping
+  aggregate boundary condition when a named Dirichlet region was supplied.
 - Transient diffusion includes initial_condition and time with t0, t_end, dt,
   and scheme. A documented default such as backward_euler belongs in
   pde_spec.assumptions and is not a blocking ambiguity.
