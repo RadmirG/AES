@@ -6,11 +6,15 @@ import type {
   Conversation,
   ProgressStep,
   ProgressStatus,
+  GeometryContext,
 } from "../types";
+import { ProblemCatalog } from "./ProblemCatalog";
 
 type Props = {
   conversation: Conversation;
   isRunning: boolean;
+  selectedModel: string;
+  onGeometryContextChange: (context?: GeometryContext) => void;
   onConversationChange: (conversation: Conversation) => void;
   onConversationUpdate: (
     conversationId: string,
@@ -66,6 +70,8 @@ const progressTemplate: ProgressStep[] = progressLabels.map((step, index) => ({
 export function ChatPanel({
   conversation,
   isRunning,
+  selectedModel,
+  onGeometryContextChange,
   onConversationChange,
   onConversationUpdate,
   onRunningChange,
@@ -151,6 +157,7 @@ export function ChatPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "aes-agent",
+          backend_model: selectedModel,
           stream: false,
           messages: [...requestMessages, { role: "user", content: text }],
           geometry_spec: conversation.geometryContext?.spec,
@@ -221,6 +228,11 @@ export function ChatPanel({
       {error ? <div className="errorBox">{error}</div> : null}
 
       <form className="composer" onSubmit={submit}>
+        <ProblemCatalog
+          disabled={isRunning}
+          onGeometryContextChange={onGeometryContextChange}
+          onPromptChange={setInput}
+        />
         {conversation.geometryContext ? (
           <div className="attachedGeometryNotice">
             <span>Attached geometry</span>
@@ -231,6 +243,7 @@ export function ChatPanel({
           value={input}
           onChange={(event) => setInput(event.target.value)}
           placeholder="Describe the engineering/PDE problem..."
+          rows={4}
         />
         <button disabled={isRunning || !input.trim()} type="submit">
           {isRunning ? "Running..." : "Send"}

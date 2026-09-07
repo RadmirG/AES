@@ -30,6 +30,12 @@ from aes_agent.graph import graph
 from aes_agent.logging_config import (
     configure_logging,
     log_content_preview,
+    recent_log_entries,
+)
+from aes_agent.model_client import (
+    available_model_catalog,
+    resolve_requested_model,
+    use_llm_model,
 )
 from aes_agent.response_projection import build_public_aes_result
 
@@ -67,6 +73,7 @@ _LOGIN_RATE_LIMITER = LoginRateLimiter(
 class Query(BaseModel):
     text: str
     geometry_spec: Dict[str, Any] | None = None
+    backend_model: str | None = None
 
 
 class ChatMessage(BaseModel):
@@ -80,6 +87,7 @@ class ChatCompletionRequest(BaseModel):
     stream: bool = False
     temperature: float | None = None
     geometry_spec: Dict[str, Any] | None = None
+    backend_model: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -654,12 +662,22 @@ def logout(request: Request, response: Response):
 @app.post("/invoke")
 def invoke(query: Query, request: Request):
     user = require_authenticated_user(request)
-    logger.info("Direct /invoke request received: text_chars=%s", len(query.text))
-    return run_aes_agent(
-        query.text,
-        cache_scope=user.id,
-        requested_geometry_spec=query.geometry_spec,
+    selected_model = _resolve_backend_model(query.backend_model)
+    logger.info(
+        "Direct /invoke request received: text_chars=%s backend_model=%s",
+        len(query.text),
+        selected_model,
     )
+    with use_llm_model(selected_model):
+        return run_aes_agent(
+            query.text,
+            cache_scope=(
+                f"{user.id}|model:{selected_model}"
+                if query.backend_model
+                else user.id
+            ),
+            requested_geometry_spec=query.geometry_spec,
+        )
 
 
 @app.get("/artifacts/{run_id}/{artifact_path:path}")
@@ -699,13 +717,15 @@ def list_models():
 @app.post("/v1/chat/completions")
 def chat_completions(request: ChatCompletionRequest, http_request: Request):
     user = require_authenticated_user(http_request)
+    selected_model = _resolve_backend_model(request.backend_model)
     logger.info(
         (
             "OpenAI-compatible chat completion requested: user_id=%s "
-            "model=%s stream=%s messages=%s"
+            "model=%s backend_model=%s stream=%s messages=%s"
         ),
         user.id,
         request.model,
+        selected_model,
         request.stream,
         len(request.messages),
     )
@@ -734,11 +754,16 @@ def chat_completions(request: ChatCompletionRequest, http_request: Request):
             else "unknown",
         )
 
-    result = run_aes_agent(
-        user_text,
-        cache_scope=user.id,
-        requested_geometry_spec=request.geometry_spec,
-    )
+    with use_llm_model(selected_model):
+        result = run_aes_agent(
+            user_text,
+            cache_scope=(
+                f"{user.id}|model:{selected_model}"
+                if request.backend_model
+                else user.id
+            ),
+            requested_geometry_spec=request.geometry_spec,
+        )
     assistant_text = build_assistant_text(result)
     public_result = build_public_aes_result(result)
     public_result_bytes = len(
@@ -817,6 +842,41 @@ def chat_completions(request: ChatCompletionRequest, http_request: Request):
             "total_tokens": 0,
         },
         "aes_result": public_result,
+        "backend_model": selected_model,
+    }
+
+
+def _resolve_backend_model(requested_model: str | None) -> str:
+    try:
+        return resolve_requested_model(requested_model)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/models")
+def list_backend_models(request: Request):
+    require_authenticated_user(request)
+    logger.info("Authenticated backend model catalog requested.")
+    return available_model_catalog()
+
+
+@app.get("/api/logs")
+def list_recent_logs(
+    request: Request,
+    after: int = 0,
+    limit: int = 400,
+):
+    require_authenticated_user(request)
+    entries = recent_log_entries(after=max(0, after), limit=limit)
+    next_after = entries[-1]["sequence"] if entries else max(0, after)
+    return {
+        "scope": "langgraph",
+        "entries": entries,
+        "next_after": next_after,
+        "note": (
+            "Authenticated, bounded AES orchestration logs. Docker runtime and "
+            "host logs remain available through docker compose logs."
+        ),
     }
 
 

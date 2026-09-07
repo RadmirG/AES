@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { currentAuthenticatedUser, loginUser, logoutUser } from "./auth";
+import { loadModelCatalog } from "./backend";
+import { BackendLogPanel } from "./components/BackendLogPanel";
 import { ChatPanel } from "./components/ChatPanel";
 import { ConversationSidebar } from "./components/ConversationSidebar";
 import { LoginScreen } from "./components/LoginScreen";
@@ -10,7 +12,12 @@ import {
   saveStoredActiveConversationId,
   saveStoredConversations,
 } from "./storage";
-import type { Conversation, GeometryContext, WorkbenchUser } from "./types";
+import type {
+  Conversation,
+  GeometryContext,
+  ModelCatalog,
+  WorkbenchUser,
+} from "./types";
 
 export function App() {
   const [user, setUser] = useState<WorkbenchUser | null>(null);
@@ -19,6 +26,10 @@ export function App() {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [isSolveRunning, setIsSolveRunning] = useState(false);
   const [authenticationError, setAuthenticationError] = useState("");
+  const [leftMode, setLeftMode] = useState<"chat" | "logs">("chat");
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalog | null>(null);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [modelError, setModelError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +54,43 @@ export function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setModelCatalog(null);
+      setSelectedModel("");
+      return;
+    }
+    let cancelled = false;
+    loadModelCatalog()
+      .then((catalog) => {
+        if (cancelled) {
+          return;
+        }
+        const storedModel = window.localStorage.getItem(modelKey(user.username)) || "";
+        const availableIds = new Set(catalog.models.map((model) => model.id));
+        const nextModel = availableIds.has(storedModel)
+          ? storedModel
+          : catalog.default_model;
+        setModelCatalog(catalog);
+        setSelectedModel(nextModel);
+        setModelError(catalog.warning || "");
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setModelError((error as Error).message);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (user && selectedModel) {
+      window.localStorage.setItem(modelKey(user.username), selectedModel);
+    }
+  }, [selectedModel, user]);
 
   useEffect(() => {
     if (user) {
@@ -88,6 +136,7 @@ export function App() {
       setUser(null);
       setConversations([]);
       setActiveConversationId("");
+      setLeftMode("chat");
     }
   }
 
@@ -169,6 +218,34 @@ export function App() {
             <p>Agent chat and numerical result review in one window.</p>
           </div>
           <div className="userMenu">
+            <div className="workspaceModeSwitch" aria-label="Left workspace mode">
+              <button
+                className={leftMode === "chat" ? "active" : ""}
+                onClick={() => setLeftMode("chat")}
+                type="button"
+              >
+                Chat
+              </button>
+              <button
+                className={leftMode === "logs" ? "active" : ""}
+                onClick={() => setLeftMode("logs")}
+                type="button"
+              >
+                Logs
+              </button>
+            </div>
+            <label className="modelSelector" title={modelError || "Select the LLM used by AES for this request."}>
+              <span>{modelCatalog?.provider || "LLM"}</span>
+              <select
+                disabled={isSolveRunning || !modelCatalog?.models.length}
+                onChange={(event) => setSelectedModel(event.target.value)}
+                value={selectedModel}
+              >
+                {(modelCatalog?.models || []).map((model) => (
+                  <option key={model.id} value={model.id}>{model.label}</option>
+                ))}
+              </select>
+            </label>
             <span>{user.displayName}</span>
             <button onClick={() => void handleLogout()} type="button">
               Sign out
@@ -176,22 +253,28 @@ export function App() {
           </div>
         </header>
 
-        <div className="chatShell">
-          <ConversationSidebar
-            conversations={conversations}
-            activeConversationId={activeConversation.id}
-            onSelect={setActiveConversationId}
-            onNew={handleNewConversation}
-            onDelete={handleDeleteConversation}
-          />
-          <ChatPanel
-            conversation={activeConversation}
-            isRunning={isSolveRunning}
-            onConversationChange={handleConversationChange}
-            onConversationUpdate={handleConversationUpdate}
-            onRunningChange={setIsSolveRunning}
-          />
-        </div>
+        {leftMode === "chat" ? (
+          <div className="chatShell">
+            <ConversationSidebar
+              conversations={conversations}
+              activeConversationId={activeConversation.id}
+              onSelect={setActiveConversationId}
+              onNew={handleNewConversation}
+              onDelete={handleDeleteConversation}
+            />
+            <ChatPanel
+              conversation={activeConversation}
+              isRunning={isSolveRunning}
+              selectedModel={selectedModel || modelCatalog?.default_model || ""}
+              onConversationChange={handleConversationChange}
+              onConversationUpdate={handleConversationUpdate}
+              onGeometryContextChange={handleGeometryContextChange}
+              onRunningChange={setIsSolveRunning}
+            />
+          </div>
+        ) : (
+          <BackendLogPanel active={leftMode === "logs"} />
+        )}
       </section>
 
       <section className="resultPane">
@@ -240,4 +323,9 @@ function createId() {
     return crypto.randomUUID();
   }
   return `chat-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function modelKey(username: string) {
+  const normalized = username.trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, "_");
+  return `aes.workbench.backendModel.v1.${normalized || "default"}`;
 }

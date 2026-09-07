@@ -26,6 +26,7 @@ requests_stub.exceptions = types.SimpleNamespace(
     HTTPError=HTTPError,
 )
 requests_stub.post = getattr(requests_stub, "post", Mock())
+requests_stub.get = getattr(requests_stub, "get", Mock())
 
 from aes_agent import helpers, model_client
 
@@ -213,6 +214,68 @@ class VllmModelClientTests(unittest.TestCase):
             "http://aes-vllm:8000/v1/chat/completions",
         )
         self.assertNotIn("response_format", post.call_args.kwargs["json"])
+
+
+class ModelSelectionTests(unittest.TestCase):
+    def setUp(self):
+        model_client._MODEL_CATALOG_CACHE = None
+
+    @patch.object(model_client.requests, "get")
+    def test_ollama_catalog_reports_installed_models(self, get):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "models": [
+                {"name": "qwen3:8b", "size": 8, "details": {"family": "qwen3"}},
+                {"name": "gemma4:31b", "size": 31, "details": {"family": "gemma4"}},
+            ]
+        }
+        get.return_value = response
+
+        with patch.multiple(
+            model_client,
+            LLM_PROVIDER="ollama",
+            LLM_MODEL="gemma4:31b",
+            OLLAMA_BASE_URL="http://ollama-server:11434",
+        ), patch.dict(model_client.os.environ, {"AES_LLM_ALLOWED_MODELS": ""}):
+            catalog = model_client.available_model_catalog(force_refresh=True)
+
+        self.assertEqual(catalog["provider"], "ollama")
+        self.assertEqual(
+            [item["id"] for item in catalog["models"]],
+            ["qwen3:8b", "gemma4:31b"],
+        )
+        self.assertEqual(get.call_args.args[0], "http://ollama-server:11434/api/tags")
+
+    @patch.object(model_client.requests, "get")
+    def test_request_scoped_model_is_used_without_mutating_default(self, get):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "models": [{"name": "qwen3:8b"}, {"name": "gemma4:31b"}]
+        }
+        get.return_value = response
+
+        with patch.multiple(
+            model_client,
+            LLM_PROVIDER="ollama",
+            LLM_MODEL="gemma4:31b",
+        ):
+            selected = model_client.resolve_requested_model("qwen3:8b")
+            self.assertEqual(model_client.active_model(), "gemma4:31b")
+            with model_client.use_llm_model(selected):
+                self.assertEqual(model_client.active_model(), "qwen3:8b")
+            self.assertEqual(model_client.active_model(), "gemma4:31b")
+
+    def test_legacy_request_without_override_uses_default_without_discovery(self):
+        with patch.object(model_client, "LLM_MODEL", "gemma4:31b"), patch.object(
+            model_client.requests,
+            "get",
+        ) as get:
+            selected = model_client.resolve_requested_model(None)
+
+        self.assertEqual(selected, "gemma4:31b")
+        get.assert_not_called()
 
 
 if __name__ == "__main__":

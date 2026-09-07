@@ -5,6 +5,9 @@ import logging
 import logging.config
 import os
 import re
+import threading
+from collections import deque
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
 
@@ -23,6 +26,12 @@ SENSITIVE_KEYS = {
     "token",
 }
 
+_RECENT_LOG_LOCK = threading.Lock()
+_RECENT_LOG_SEQUENCE = 0
+_RECENT_LOGS: deque[dict[str, Any]] = deque(
+    maxlen=max(100, int(os.getenv("AES_RECENT_LOG_CAPACITY", "3000")))
+)
+
 
 class ComponentFilter(logging.Filter):
     def __init__(self, component: str) -> None:
@@ -32,6 +41,43 @@ class ComponentFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.component = self.component
         return True
+
+
+class RecentLogHandler(logging.Handler):
+    """Keep a bounded, redacted application-log window for the Workbench."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        global _RECENT_LOG_SEQUENCE
+        try:
+            raw_message = record.getMessage()
+            if record.exc_info:
+                raw_message = (
+                    f"{raw_message}\n"
+                    f"{logging.Formatter().formatException(record.exc_info)}"
+                )
+            message = _truncate(
+                _sanitize_string(raw_message),
+                int(os.getenv("AES_RECENT_LOG_MAX_CHARS", "4000")),
+            )
+            entry = {
+                "sequence": 0,
+                "timestamp": datetime.fromtimestamp(
+                    record.created,
+                    tz=timezone.utc,
+                ).isoformat(),
+                "component": str(
+                    getattr(record, "component", DEFAULT_COMPONENT_NAME)
+                ),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": message,
+            }
+            with _RECENT_LOG_LOCK:
+                _RECENT_LOG_SEQUENCE += 1
+                entry["sequence"] = _RECENT_LOG_SEQUENCE
+                _RECENT_LOGS.append(entry)
+        except Exception:
+            self.handleError(record)
 
 
 def configure_logging(component: str = DEFAULT_COMPONENT_NAME) -> None:
@@ -57,31 +103,43 @@ def configure_logging(component: str = DEFAULT_COMPONENT_NAME) -> None:
                     "class": "logging.StreamHandler",
                     "formatter": "aes",
                     "filters": ["component"],
+                },
+                "recent": {
+                    "()": RecentLogHandler,
+                    "filters": ["component"],
                 }
             },
             "root": {
-                "handlers": ["console"],
+                "handlers": ["console", "recent"],
                 "level": level,
             },
             "loggers": {
                 "uvicorn": {
-                    "handlers": ["console"],
+                    "handlers": ["console", "recent"],
                     "level": level,
                     "propagate": False,
                 },
                 "uvicorn.error": {
-                    "handlers": ["console"],
+                    "handlers": ["console", "recent"],
                     "level": level,
                     "propagate": False,
                 },
                 "uvicorn.access": {
-                    "handlers": ["console"],
+                    "handlers": ["console", "recent"],
                     "level": level,
                     "propagate": False,
                 },
             },
         }
     )
+
+
+def recent_log_entries(*, after: int = 0, limit: int = 400) -> list[dict[str, Any]]:
+    """Return a stable copy of recent log entries after a sequence number."""
+    bounded_limit = max(1, min(limit, 1000))
+    with _RECENT_LOG_LOCK:
+        matching = [entry for entry in _RECENT_LOGS if entry["sequence"] > after]
+        return [dict(entry) for entry in matching[-bounded_limit:]]
 
 
 def content_logging_enabled() -> bool:

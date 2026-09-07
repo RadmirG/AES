@@ -10,7 +10,7 @@ flowchart TD
     B --> C["React Workbench"]
     C --> AUTH["/api/auth/login, /me, /logout"]
     AUTH --> B
-    C --> D["Left pane<br/>chat + history"]
+    C --> D["Left pane<br/>chat or backend logs"]
     C --> E["Right pane<br/>result workspace"]
     D --> F["POST /v1/chat/completions"]
     F --> B
@@ -19,6 +19,9 @@ flowchart TD
     H --> D
     H --> E
     SAMPLES["Versioned GeometrySpec samples"] --> E
+    CASES["Versioned PDE use-case catalog"] --> D
+    MODELS["Authenticated provider-model catalog"] --> D
+    LOGS["Bounded redacted AES log stream"] --> D
     UPLOAD["Local GeometrySpec JSON or display-only VTP"] --> E
     E --> CTX["Conversation geometry context"]
     CTX --> D
@@ -36,6 +39,9 @@ flowchart TD
 - server-authenticated session bootstrap and logout,
 - browser-local conversation storage scoped by authenticated username,
 - chat panel against `aes-agent`,
+- editable PDE use-case catalog with supported and roadmap states,
+- authenticated provider-model selection for individual requests,
+- Chat/Logs workspace switching and live redacted AES log inspection,
 - persisted AES progress turns,
 - result workspace,
 - KaTeX rendering of the solved PDE and its conditions,
@@ -47,7 +53,7 @@ flowchart TD
 It does not own:
 
 - LangGraph execution,
-- Ollama model selection,
+- model discovery and model-selection validation,
 - artifact generation,
 - FEniCS execution.
 
@@ -61,6 +67,10 @@ flowchart TD
     C --> E["Conversation history"]
     C --> F["Chat turns"]
     C --> G["Composer"]
+    C --> M["Chat / Logs mode"]
+    G --> N["Problem catalog"]
+    B --> O["Provider model selector"]
+    M --> P["Bounded backend log viewport"]
     D --> H["KaTeX PDE formulation"]
     D --> I["Scientific VTK.js viewport"]
     D --> J["Manifest and stdout actions"]
@@ -228,6 +238,58 @@ uses the latest user turn for ordinary new requests, but reconstructs the
 active PDE request when the previous assistant turn explicitly requested AES
 clarification. Progress turns are UI-only and are never sent to LangGraph.
 
+## Problem And Model Catalogs
+
+The composer exposes the browser projection in
+`examples/use-cases/catalog.json`. All 24 documented use cases are visible.
+Items with `status: immediate` can prefill an editable request and attach their
+matching standard `GeometrySpec`; compiler-extension and advanced-backend items
+remain disabled and visibly marked as roadmap work. The canonical YAML remains
+the documentation/validation source, and tests require the browser JSON
+projection to stay synchronized.
+
+The header loads `/api/models` after authentication. It displays only models
+reported by the configured Ollama or OpenAI-compatible provider, optionally
+filtered by `AES_LLM_ALLOWED_MODELS`. The selected id is sent as
+`backend_model` while the public OpenAI-compatible model remains `aes-agent`.
+The preference is browser-local and scoped by authenticated username; the
+server validates it again and applies it through request-local context.
+
+```mermaid
+flowchart TD
+    A["Authenticated Workbench"] --> B["Load problem catalog"]
+    A --> C["GET /api/models"]
+    B --> D{"Use-case status"}
+    D -->|immediate| E["Prefill editable prompt"]
+    E --> F["Attach matching GeometrySpec"]
+    D -->|compiler extension| G["Visible disabled roadmap card"]
+    D -->|advanced backend| G
+    C --> H["Choose available provider model"]
+    F --> I["POST /v1/chat/completions"]
+    H --> I
+    I --> J["model: aes-agent"]
+    I --> K["backend_model: selected id"]
+```
+
+## Backend Log View
+
+The left pane can switch between chat and an authenticated log viewport.
+`/api/logs` exposes a bounded in-memory stream of redacted LangGraph/AES
+application records, including graph, model-client, MCP-wrapper, execution, and
+artifact messages emitted by that process. It deliberately does not expose the
+Docker socket or arbitrary host/container logs. Complete infrastructure logs
+remain an operator concern through `docker compose logs` or a future centralized
+observability stack such as Loki.
+
+```mermaid
+flowchart LR
+    A["Python logging records"] --> B["Secret redaction"]
+    B --> C["Bounded recent-log ring"]
+    C --> D["Authenticated /api/logs"]
+    D --> E["Chat / Logs switch"]
+    F["Docker and host logs"] --> G["Operator logging workflow"]
+```
+
 ```mermaid
 flowchart LR
     A["Geometry described in chat"] --> R["Chat request"]
@@ -273,7 +335,9 @@ selection remains responsive. That preview is display-only; numerical
 execution always uses the exact Gmsh/OpenCASCADE mesh and the result viewer
 uses the resulting DOLFINx topology.
 
-Vite exposes the catalog at `/geometries/`. The production Docker build uses
+Vite exposes the catalog at `/geometries/`. Catalog requests use `no-store`,
+and Nginx explicitly disables caching for the geometry index and public use-case
+catalog so a rebuilt Workbench cannot retain an older list. The production Docker build uses
 the repository root as its restricted build context so it can copy both
 `web-ui/` and `examples/geometries/`; `.dockerignore` excludes every unrelated
 repository path from that image context.

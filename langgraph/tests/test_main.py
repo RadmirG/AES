@@ -377,6 +377,44 @@ class AuthenticationApiTests(unittest.TestCase):
         self.assertEqual(self.service.logged_out_token, "raw-session-token")
         self.assertEqual(response.deleted_cookie["key"], "aes_session")
 
+    def test_backend_model_catalog_is_authenticated_and_projected(self):
+        catalog = {
+            "provider": "ollama",
+            "default_model": "gemma4:31b",
+            "models": [{"id": "gemma4:31b", "label": "gemma4:31b"}],
+            "warning": "",
+        }
+        with patch.object(main, "auth_enabled", return_value=False), patch.object(
+            main,
+            "available_model_catalog",
+            return_value=catalog,
+        ):
+            result = main.list_backend_models(_FakeRequest())
+
+        self.assertEqual(result, catalog)
+
+    def test_recent_log_endpoint_returns_cursor(self):
+        entries = [
+            {
+                "sequence": 12,
+                "timestamp": "2026-09-07T12:00:00+00:00",
+                "component": "langgraph",
+                "level": "INFO",
+                "logger": "aes_agent",
+                "message": "run completed",
+            }
+        ]
+        with patch.object(main, "auth_enabled", return_value=False), patch.object(
+            main,
+            "recent_log_entries",
+            return_value=entries,
+        ):
+            result = main.list_recent_logs(_FakeRequest(), after=10, limit=100)
+
+        self.assertEqual(result["scope"], "langgraph")
+        self.assertEqual(result["next_after"], 12)
+        self.assertEqual(result["entries"], entries)
+
 
 class PublicResponseProjectionTests(unittest.TestCase):
     def test_projection_keeps_artifact_links_and_removes_inline_payloads(self):

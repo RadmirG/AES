@@ -44,6 +44,30 @@ FENICS_RUNNER_LOG_MAX_CHARS=2000
 Set `AES_LOG_CONTENT=false` and `FENICS_RUNNER_LOG_CONTENT=false` when logs
 should contain workflow metadata only.
 
+## Workbench Log Stream
+
+LangGraph installs a second handler beside stdout. It keeps only a bounded
+in-memory window (`AES_RECENT_LOG_CAPACITY`, default 3000) and sanitizes every
+message before storage. Authenticated users can inspect that window via
+`GET /api/logs`; the Workbench polls it at a fixed two-second interval while
+its left pane is in Logs mode. Browser state is additionally capped at 1000
+rows.
+
+```mermaid
+flowchart LR
+    A["LangGraph and AES log records"] --> B["Console handler"]
+    A --> C["Redaction and length bound"]
+    C --> D["Recent-log ring"]
+    D --> E["Authenticated /api/logs"]
+    E --> F["Workbench Logs viewport"]
+```
+
+This stream intentionally does not read `/var/run/docker.sock` and does not
+claim to aggregate Nginx, Ollama, PostgreSQL, or provider-container stdout.
+Those remain available through the operator commands below. A true unified
+cross-container UI should use a dedicated collector and store such as Grafana
+Loki rather than granting the application container Docker control.
+
 ## External Components
 
 Some services are not fully controlled by AES:

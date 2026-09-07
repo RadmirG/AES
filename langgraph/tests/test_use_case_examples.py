@@ -16,6 +16,7 @@ from aes_agent.specs.validation import cross_validate_pde_geometry, validate_pde
 
 EXAMPLE_ROOT = Path(__file__).resolve().parents[2] / "examples"
 USE_CASE_CATALOG = EXAMPLE_ROOT / "use-cases" / "catalog.yaml"
+WEB_USE_CASE_CATALOG = EXAMPLE_ROOT / "use-cases" / "catalog.json"
 GEOMETRY_ROOT = EXAMPLE_ROOT / "geometries"
 
 
@@ -33,6 +34,30 @@ def test_pde_catalog_contains_all_24_numbered_use_cases():
     }
     assert all(item["prompt"].strip() for item in use_cases)
     assert all(item["required_capabilities"] for item in use_cases)
+
+
+def test_browser_catalog_is_a_synchronized_public_projection():
+    catalog = yaml.safe_load(USE_CASE_CATALOG.read_text(encoding="utf-8"))
+    browser_catalog = json.loads(WEB_USE_CASE_CATALOG.read_text(encoding="utf-8"))
+    public_keys = {
+        "number",
+        "id",
+        "category",
+        "title",
+        "equation",
+        "applications",
+        "status",
+        "geometry_id",
+        "required_capabilities",
+        "prompt",
+    }
+
+    assert browser_catalog["schema_version"] == catalog["schema_version"]
+    assert browser_catalog["support_levels"] == catalog["support_levels"]
+    assert browser_catalog["use_cases"] == [
+        {key: item.get(key) for key in public_keys}
+        for item in catalog["use_cases"]
+    ]
 
 
 def test_all_catalog_geometry_references_exist():

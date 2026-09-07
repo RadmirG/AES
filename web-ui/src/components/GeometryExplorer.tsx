@@ -43,6 +43,7 @@ export function GeometryExplorer({
           return;
         }
         setExamples(items);
+        setError("");
       })
       .catch((loadError: Error) => {
         if (!cancelled) {
@@ -138,7 +139,7 @@ export function GeometryExplorer({
 
       <div className="geometryControls">
         <label>
-          Standard geometry
+          Standard geometry {examples.length ? `(${examples.length})` : ""}
           <select
             disabled={isRunning}
             value={geometryContext?.source === "standard" ? geometryContext.id : ""}
@@ -210,14 +211,14 @@ export function GeometryExplorer({
 }
 
 async function loadExamples() {
-  const indexResponse = await fetch("/geometries/index.json");
+  const indexResponse = await fetch("/geometries/index.json", { cache: "no-store" });
   if (!indexResponse.ok) {
     throw new Error(`Geometry catalog request failed: ${indexResponse.status}`);
   }
   const index = (await indexResponse.json()) as GeometryExampleIndexItem[];
   return Promise.all(
     index.map(async (entry) => {
-      const response = await fetch(`/geometries/${entry.spec}`);
+      const response = await fetch(`/geometries/${entry.spec}`, { cache: "no-store" });
       if (!response.ok) {
         throw new Error(`Geometry example ${entry.id} failed to load: ${response.status}`);
       }

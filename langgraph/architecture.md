@@ -403,8 +403,12 @@ tags coexist.
 
 ## API Boundary
 
-The public API exposes `aes-agent`; this is an AES wrapper model, not a raw LLM.
-The backend transport is selected through environment:
+The public OpenAI-compatible API exposes `aes-agent`; this remains the stable
+AES wrapper model rather than a raw provider contract. Authenticated Workbench
+clients may request `/api/models` and pass an optional `backend_model` hint.
+The server validates the id against the live provider catalog and scopes the
+override with a `ContextVar`, so concurrent requests cannot mutate one global
+model setting. Requests without the hint retain the deployment default.
 
 ```mermaid
 flowchart LR
@@ -412,6 +416,8 @@ flowchart LR
     client -->|"ollama"| ollamaApi["Ollama /api/generate"]
     client -->|"vllm"| vllmApi["vLLM /v1/chat/completions"]
     model["AES_LLM_MODEL"] --> client
+    selected["Validated request backend_model"] --> scoped["Request-local model context"]
+    scoped --> client
     endpoint["AES_LLM_BASE_URL"] --> client
     key["AES_LLM_API_KEY"] --> client
 ```
@@ -423,6 +429,27 @@ generated Python source uses plain Chat Completions. Ollama receives the same
 schema through its `format` field. The model-client logs include
 `schema_constrained=true` for typed PDE and geometry interpretation. Provider
 API keys are used only in the server-side LangGraph client.
+
+The provider catalog is cached briefly to avoid querying Ollama or vLLM for
+every browser render. `AES_LLM_ALLOWED_MODELS` may restrict the discovered list;
+an empty value permits every model reported by the configured provider. The
+result cache key includes the selected backend model for clients that request
+an override, preventing a recent result from another model being reused.
+
+The authenticated `/api/logs` endpoint projects the process-local logging
+ring. Every stored message is bounded and sanitized for bearer tokens,
+passwords, API keys, and other recognized secrets. This endpoint covers AES
+orchestration records emitted in the LangGraph process; it does not grant access
+to the Docker daemon or collect unrelated host logs.
+
+```mermaid
+flowchart LR
+    A["Python logging"] --> B["Component filter"]
+    B --> C["Console handler"]
+    B --> D["Redacted bounded ring handler"]
+    D --> E["Authenticated GET /api/logs"]
+    E --> F["Workbench Logs mode"]
+```
 
 The OpenAI-compatible adapter normally uses the latest user turn as the active
 request. When the immediately preceding assistant response is an explicit AES

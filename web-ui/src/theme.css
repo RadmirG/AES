@@ -105,10 +105,53 @@ a:hover {
 
 .userMenu {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+  justify-content: flex-end;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.workspaceModeSwitch {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-muted);
+}
+
+.workspaceModeSwitch button {
+  border: 0;
+  border-radius: 0;
+  padding: 7px 10px;
+  background: transparent;
+}
+
+.workspaceModeSwitch button.active {
+  background: var(--text);
+  color: #ffffff;
+}
+
+.modelSelector {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.modelSelector span {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.modelSelector select {
+  max-width: 180px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 7px 9px;
+  background: var(--bg-panel);
+  color: var(--text);
 }
 
 .userMenu button,
@@ -295,14 +338,245 @@ a:hover {
 
 .composer textarea {
   min-height: 96px;
-  max-height: 220px;
+  max-height: min(55vh, 520px);
   resize: vertical;
+  overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 13px 14px;
   background: var(--bg-panel);
   color: var(--text);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.problemCatalogControl {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.composer .problemCatalogToggle {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  border-color: var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  text-align: left;
+}
+
+.composer .problemCatalogToggle:hover {
+  background: var(--bg-muted);
+}
+
+.problemCatalogToggle span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.problemCatalogPanel {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.problemCatalogPanel > header {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.problemCatalogPanel > header div {
+  display: grid;
+  gap: 3px;
+}
+
+.problemCatalogPanel > header small {
+  color: var(--text-muted);
+}
+
+.problemCatalogPanel select {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 7px 9px;
+  background: var(--bg-panel);
+}
+
+.problemCatalogList {
+  display: grid;
+  gap: 6px;
+  max-height: min(38vh, 360px);
+  overflow-y: auto;
+  padding-right: 3px;
+}
+
+.composer .problemCatalogItem {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  border-color: var(--border-soft);
+  padding: 9px;
+  background: var(--bg-panel);
+  color: var(--text);
+  text-align: left;
+}
+
+.composer .problemCatalogItem.ready:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.composer .problemCatalogItem.planned {
+  border-style: dashed;
+  background: var(--bg-muted);
+  opacity: 0.62;
+}
+
+.problemNumber {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.problemCatalogText {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.problemCatalogText code,
+.problemCatalogText small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.supportBadge {
+  border-radius: 999px;
+  padding: 4px 7px;
+  background: #e5e7eb;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.supportBadge.immediate {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.catalogInlineError {
+  margin-top: 5px;
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.backendLogs {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  min-height: 0;
+  padding: 14px;
+  background: #111827;
+  color: #e5e7eb;
+}
+
+.backendLogsHeader {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: 12px;
+}
+
+.backendLogsHeader > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.backendLogsHeader small,
+.backendLogs footer {
+  color: #9ca3af;
+  font-size: 11px;
+}
+
+.backendLogActions {
+  display: flex;
+  gap: 6px;
+}
+
+.backendLogActions input,
+.backendLogActions button {
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: #1f2937;
+  color: #f9fafb;
+}
+
+.backendLogActions input {
+  width: 150px;
+}
+
+.backendLogActions button {
+  cursor: pointer;
+}
+
+.backendLogViewport {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid #374151;
+  border-radius: 10px;
+  background: #030712;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+}
+
+.backendLogLine {
+  display: grid;
+  grid-template-columns: 78px 70px 54px 150px minmax(280px, 1fr);
+  gap: 8px;
+  border-bottom: 1px solid #1f2937;
+  padding: 6px 8px;
+  color: #d1d5db;
+}
+
+.backendLogLine time,
+.backendLogLine span {
+  color: #9ca3af;
+}
+
+.backendLogLine b {
+  color: #93c5fd;
+  font-size: 10px;
+}
+
+.backendLogLine.level-warning b,
+.backendLogLine.level-error b {
+  color: #fca5a5;
+}
+
+.backendLogLine code {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.backendLogEmpty {
+  padding: 18px;
+  color: #9ca3af;
+}
+
+.backendLogs footer {
+  padding-top: 9px;
 }
 
 .composer textarea:focus,
@@ -1153,6 +1427,14 @@ a:hover {
 
   .conversationItem {
     min-width: 220px;
+  }
+
+  .paneHeader {
+    align-items: stretch;
+  }
+
+  .userMenu {
+    max-width: 70%;
   }
 
   .geometryControls {

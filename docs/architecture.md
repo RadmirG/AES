@@ -170,6 +170,8 @@ web-ui /artifacts/*  -> http://langgraph:8001/artifacts/*
 The browser authenticates through `/api/auth/login`. LangGraph stores the
 session server-side and returns an opaque `HttpOnly` cookie; protected chat,
 invoke, and artifact requests carry that cookie through the same-origin proxy.
+The same boundary exposes authenticated `/api/models` discovery and bounded,
+redacted `/api/logs` inspection.
 
 The public model is:
 
@@ -177,7 +179,9 @@ The public model is:
 aes-agent
 ```
 
-This is an AES wrapper model, not the raw Ollama or vLLM model.
+This is the stable AES wrapper model, not a promise to emulate each raw Ollama
+or vLLM model. The Workbench may additionally send a validated `backend_model`
+selection for one request.
 
 The browser receives a compact public `aes_result`, not the complete internal
 `AgentState`. It contains result status and artifact manifest references.
@@ -197,12 +201,41 @@ flowchart LR
     B -->|"ollama"| C["Ollama /api/generate"]
     B -->|"vllm"| D["vLLM /v1/chat/completions"]
     E["AES_LLM_MODEL"] --> B
+    H["Authenticated /api/models"] --> I["Workbench model selector"]
+    I --> J["Request-local backend_model"]
+    J --> B
     F["AES_LLM_BASE_URL"] --> B
     G["AES_LLM_API_KEY"] --> B
 ```
 
-The public Workbench model remains `aes-agent`; raw provider models are never
-exposed as the AES application contract.
+The public Workbench model remains `aes-agent`. Provider ids are exposed only
+as authenticated deployment capabilities, validated against live discovery or
+an optional `AES_LLM_ALLOWED_MODELS` allowlist, and applied through request-local
+context so simultaneous users can select different installed models safely.
+
+### Browser Catalogs And Logs
+
+Versioned geometry and PDE catalogs are copied into the Workbench image. The
+problem catalog exposes all 24 documented use cases: production-ready entries
+prefill an editable request and attach their matching geometry, while planned
+compiler/backend entries remain visible but disabled. Catalog index responses
+use `Cache-Control: no-store` so a rebuilt image is not hidden by an older
+browser cache.
+
+```mermaid
+flowchart LR
+    G["Geometry catalog"] --> W["AES Workbench"]
+    P["PDE use-case catalog"] --> W
+    W -->|"ready use case"| R["Editable request plus geometry context"]
+    W -->|"roadmap use case"| D["Disabled visible catalog item"]
+    L["LangGraph recent-log ring"] -->|"authenticated /api/logs"| W
+    X["Full Docker stack logs"] --> O["Operator observability"]
+```
+
+The Workbench Logs mode covers the LangGraph process and therefore the graph,
+model-client, tool-wrapper, execution, and artifact events logged there. It
+does not mount the Docker socket or expose unrestricted host logs; complete
+cross-container aggregation remains an operator deployment concern.
 
 ### LangGraph To MCP Providers
 

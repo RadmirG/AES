@@ -163,6 +163,62 @@ export type ChatCompletionResponse = {
     };
   }>;
   aes_result?: AesResult;
+  backend_model?: string;
+};
+
+export type ProviderModel = {
+  id: string;
+  label: string;
+  size?: number;
+  modified_at?: string;
+  details?: Record<string, unknown>;
+};
+
+export type ModelCatalog = {
+  provider: string;
+  default_model: string;
+  models: ProviderModel[];
+  warning?: string;
+};
+
+export type BackendLogEntry = {
+  sequence: number;
+  timestamp: string;
+  component: string;
+  level: string;
+  logger: string;
+  message: string;
+};
+
+export type BackendLogResponse = {
+  scope: string;
+  entries: BackendLogEntry[];
+  next_after: number;
+  note: string;
+};
+
+export type ProblemSupportLevel =
+  | "immediate"
+  | "compiler_extension"
+  | "advanced_backend";
+
+export type ProblemUseCase = {
+  number: number;
+  id: string;
+  category: string;
+  title: string;
+  equation: string;
+  applications: string[];
+  status: ProblemSupportLevel;
+  geometry_id: string | null;
+  required_capabilities: string[];
+  prompt: string;
+};
+
+export type ProblemCatalog = {
+  schema_version: string;
+  support_levels: Record<ProblemSupportLevel, string>;
+  use_cases: ProblemUseCase[];
 };
 
 export type AesViewerManifest = {

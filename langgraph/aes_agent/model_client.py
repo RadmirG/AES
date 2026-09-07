@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import threading
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Dict, Tuple
 
 import requests
@@ -26,6 +30,151 @@ LLM_API_KEY = os.getenv("AES_LLM_API_KEY", "").strip()
 LLM_TIMEOUT = int(os.getenv("AES_LLM_TIMEOUT", str(OLLAMA_TIMEOUT)))
 LLM_MAX_TOKENS = int(os.getenv("AES_LLM_MAX_TOKENS", "4096"))
 LLM_TEMPERATURE = float(os.getenv("AES_LLM_TEMPERATURE", "0.1"))
+
+_REQUEST_MODEL: ContextVar[str | None] = ContextVar(
+    "aes_request_model",
+    default=None,
+)
+_MODEL_CATALOG_LOCK = threading.Lock()
+_MODEL_CATALOG_CACHE: tuple[float, Dict[str, Any]] | None = None
+_MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+\-]{0,254}$")
+
+
+def active_model() -> str:
+    """Return the request-scoped model, falling back to deployment default."""
+    return _REQUEST_MODEL.get() or LLM_MODEL
+
+
+@contextmanager
+def use_llm_model(model: str):
+    """Scope a provider model to one request without cross-request mutation."""
+    token = _REQUEST_MODEL.set(model)
+    try:
+        yield
+    finally:
+        _REQUEST_MODEL.reset(token)
+
+
+def resolve_requested_model(requested_model: str | None) -> str:
+    """Validate a UI-selected provider model against the live provider catalog."""
+    if not requested_model or not requested_model.strip():
+        return LLM_MODEL
+    selected = (requested_model or LLM_MODEL).strip()
+    if not _MODEL_ID_PATTERN.fullmatch(selected):
+        raise ValueError("The selected model id is invalid.")
+
+    catalog = available_model_catalog()
+    available_ids = {
+        str(item.get("id", ""))
+        for item in catalog.get("models", [])
+        if isinstance(item, dict)
+    }
+    if selected not in available_ids:
+        raise ValueError(
+            f"Model '{selected}' is not available from the configured "
+            f"{catalog.get('provider', LLM_PROVIDER)} provider."
+        )
+    return selected
+
+
+def available_model_catalog(*, force_refresh: bool = False) -> Dict[str, Any]:
+    """Discover selectable models from Ollama or an OpenAI-compatible server."""
+    global _MODEL_CATALOG_CACHE
+    now = time.monotonic()
+    ttl = max(1, int(os.getenv("AES_LLM_MODEL_CACHE_SECONDS", "30")))
+    with _MODEL_CATALOG_LOCK:
+        if (
+            not force_refresh
+            and _MODEL_CATALOG_CACHE
+            and now - _MODEL_CATALOG_CACHE[0] < ttl
+        ):
+            return dict(_MODEL_CATALOG_CACHE[1])
+
+    provider = _normalized_provider()
+    error = ""
+    models: list[Dict[str, Any]] = []
+    try:
+        if provider == "ollama":
+            models = _discover_ollama_models()
+        else:
+            models = _discover_openai_models()
+    except (KeyError, TypeError, ValueError, requests.exceptions.RequestException) as exc:
+        error = str(exc)
+        logger.warning(
+            "Model discovery failed: provider=%s error=%s",
+            LLM_PROVIDER,
+            exc,
+        )
+
+    allowed = {
+        item.strip()
+        for item in os.getenv("AES_LLM_ALLOWED_MODELS", "").split(",")
+        if item.strip()
+    }
+    if allowed:
+        models = [item for item in models if item.get("id") in allowed]
+
+    if not models:
+        models = [{"id": LLM_MODEL, "label": LLM_MODEL, "details": {}}]
+    model_ids = {item.get("id") for item in models}
+    effective_default = LLM_MODEL if LLM_MODEL in model_ids else str(models[0]["id"])
+
+    catalog = {
+        "provider": "ollama" if provider == "ollama" else LLM_PROVIDER,
+        "default_model": effective_default,
+        "models": models,
+        "warning": error,
+    }
+    with _MODEL_CATALOG_LOCK:
+        _MODEL_CATALOG_CACHE = (now, catalog)
+    return dict(catalog)
+
+
+def _discover_ollama_models() -> list[Dict[str, Any]]:
+    endpoint = f"{OLLAMA_BASE_URL.rstrip('/')}/api/tags"
+    response = requests.get(
+        endpoint,
+        timeout=max(1, int(os.getenv("AES_LLM_DISCOVERY_TIMEOUT", "8"))),
+    )
+    response.raise_for_status()
+    payload = response.json()
+    result = []
+    for item in payload.get("models", []):
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("name") or item.get("model") or "").strip()
+        if not model_id:
+            continue
+        details = item.get("details") if isinstance(item.get("details"), dict) else {}
+        result.append(
+            {
+                "id": model_id,
+                "label": model_id,
+                "size": item.get("size"),
+                "modified_at": item.get("modified_at"),
+                "details": details,
+            }
+        )
+    return result
+
+
+def _discover_openai_models() -> list[Dict[str, Any]]:
+    response = requests.get(
+        _openai_models_endpoint(),
+        headers=_openai_headers(),
+        timeout=max(1, int(os.getenv("AES_LLM_DISCOVERY_TIMEOUT", "8"))),
+    )
+    response.raise_for_status()
+    payload = response.json()
+    return [
+        {
+            "id": str(item["id"]),
+            "label": str(item["id"]),
+            "details": {"owned_by": item.get("owned_by", "")},
+        }
+        for item in payload.get("data", [])
+        if isinstance(item, dict) and item.get("id")
+    ]
 
 
 def extract_json_object(text: str) -> Dict[str, Any]:
@@ -87,9 +236,10 @@ def _ollama_json(
     schema: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     started_at = time.perf_counter()
+    model = active_model()
     endpoint = f"{OLLAMA_BASE_URL.rstrip('/')}/api/generate"
     payload = {
-        "model": LLM_MODEL,
+        "model": model,
         "prompt": prompt,
         "stream": False,
         "format": schema or "json",
@@ -98,7 +248,7 @@ def _ollama_json(
     logger.info(
         "Model JSON request started: provider=ollama model=%s endpoint=%s "
         "prompt_chars=%s timeout=%s num_ctx=%s schema_constrained=%s",
-        LLM_MODEL,
+        model,
         endpoint,
         len(prompt),
         LLM_TIMEOUT,
@@ -132,9 +282,10 @@ def _ollama_json(
 
 def _ollama_text(prompt: str) -> Dict[str, Any]:
     started_at = time.perf_counter()
+    model = active_model()
     endpoint = f"{OLLAMA_BASE_URL.rstrip('/')}/api/generate"
     payload = {
-        "model": LLM_MODEL,
+        "model": model,
         "prompt": prompt,
         "stream": False,
         "options": {"num_ctx": OLLAMA_NUM_CTX},
@@ -142,7 +293,7 @@ def _ollama_text(prompt: str) -> Dict[str, Any]:
     logger.info(
         "Model text request started: provider=ollama model=%s endpoint=%s "
         "prompt_chars=%s timeout=%s num_ctx=%s",
-        LLM_MODEL,
+        model,
         endpoint,
         len(prompt),
         LLM_TIMEOUT,
@@ -197,6 +348,7 @@ def _openai_compatible_json(
     schema: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     started_at = time.perf_counter()
+    model = active_model()
     endpoint = _openai_chat_endpoint()
     payload = _openai_payload(prompt)
     payload["response_format"] = (
@@ -215,7 +367,7 @@ def _openai_compatible_json(
         "Model JSON request started: provider=%s model=%s endpoint=%s "
         "prompt_chars=%s timeout=%s max_tokens=%s schema_constrained=%s",
         LLM_PROVIDER,
-        LLM_MODEL,
+        model,
         endpoint,
         len(prompt),
         LLM_TIMEOUT,
@@ -254,13 +406,14 @@ def _openai_compatible_json(
 
 def _openai_compatible_text(prompt: str) -> Dict[str, Any]:
     started_at = time.perf_counter()
+    model = active_model()
     endpoint = _openai_chat_endpoint()
     payload = _openai_payload(prompt)
     logger.info(
         "Model text request started: provider=%s model=%s endpoint=%s "
         "prompt_chars=%s timeout=%s max_tokens=%s",
         LLM_PROVIDER,
-        LLM_MODEL,
+        model,
         endpoint,
         len(prompt),
         LLM_TIMEOUT,
@@ -304,7 +457,7 @@ def _openai_compatible_text(prompt: str) -> Dict[str, Any]:
 
 def _openai_payload(prompt: str) -> Dict[str, Any]:
     return {
-        "model": LLM_MODEL,
+        "model": active_model(),
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,
         "max_tokens": LLM_MAX_TOKENS,
@@ -320,6 +473,16 @@ def _openai_chat_endpoint() -> str:
     if not normalized.endswith("/v1"):
         normalized = f"{normalized}/v1"
     return f"{normalized}/chat/completions"
+
+
+def _openai_models_endpoint() -> str:
+    base_url = LLM_BASE_URL or "http://aes-vllm:8000/v1"
+    normalized = base_url.rstrip("/")
+    if normalized.endswith("/chat/completions"):
+        normalized = normalized[: -len("/chat/completions")]
+    if not normalized.endswith("/v1"):
+        normalized = f"{normalized}/v1"
+    return f"{normalized}/models"
 
 
 def _openai_headers() -> Dict[str, str]:
@@ -345,6 +508,7 @@ def _post(
     provider: str,
     headers: Dict[str, str] | None = None,
 ):
+    model = active_model()
     try:
         response = requests.post(
             endpoint,
@@ -360,7 +524,7 @@ def _post(
             "Model request timed out: provider=%s model=%s timeout=%s "
             "elapsed_ms=%.1f",
             provider,
-            LLM_MODEL,
+            model,
             LLM_TIMEOUT,
             elapsed_ms,
         )
@@ -381,7 +545,7 @@ def _post(
             "Model request failed: provider=%s model=%s status=%s "
             "elapsed_ms=%.1f body=%s",
             provider,
-            LLM_MODEL,
+            model,
             status_code,
             elapsed_ms,
             body,
@@ -396,7 +560,7 @@ def _post(
         logger.warning(
             "Model request failed: provider=%s model=%s elapsed_ms=%.1f error=%s",
             provider,
-            LLM_MODEL,
+            model,
             elapsed_ms,
             exc,
         )
@@ -410,13 +574,14 @@ def _complete_json_request(
     status_code: int,
     started_at: float,
 ) -> Dict[str, Any]:
+    model = active_model()
     parsed = extract_json_object(model_text)
     elapsed_ms = (time.perf_counter() - started_at) * 1000
     logger.info(
         "Model JSON request completed: provider=%s model=%s status=%s "
         "response_chars=%s parsed_keys=%s elapsed_ms=%.1f",
         provider,
-        LLM_MODEL,
+        model,
         status_code,
         len(model_text),
         sorted(parsed.keys()),
@@ -437,12 +602,13 @@ def _complete_text_request(
     done_reason: str,
     started_at: float,
 ) -> Dict[str, Any]:
+    model = active_model()
     elapsed_ms = (time.perf_counter() - started_at) * 1000
     status = "completed" if model_text.strip() else "empty_response"
     result = {
         "status": status,
         "text": model_text,
-        "model": LLM_MODEL,
+        "model": model,
         "provider": provider,
         "done_reason": done_reason,
         "response_chars": len(model_text),
@@ -453,7 +619,7 @@ def _complete_text_request(
         "Model text request completed: provider=%s model=%s status=%s "
         "done_reason=%s response_chars=%s elapsed_ms=%.1f",
         provider,
-        LLM_MODEL,
+        model,
         status,
         done_reason,
         len(model_text),
@@ -474,12 +640,13 @@ def _text_failure(
     provider: str,
     message: str,
 ) -> Dict[str, Any]:
+    model = active_model()
     elapsed_ms = (time.perf_counter() - started_at) * 1000
     logger.warning(
         "Model text request failed: provider=%s model=%s status=%s "
         "message=%s elapsed_ms=%.1f",
         provider,
-        LLM_MODEL,
+        model,
         status,
         message,
         elapsed_ms,
@@ -487,7 +654,7 @@ def _text_failure(
     return {
         "status": status,
         "text": "",
-        "model": LLM_MODEL,
+        "model": model,
         "provider": provider,
         "done_reason": "",
         "response_chars": 0,
@@ -497,11 +664,12 @@ def _text_failure(
 
 
 def _log_invalid_response(provider: str, started_at: float, message: str) -> None:
+    model = active_model()
     elapsed_ms = (time.perf_counter() - started_at) * 1000
     logger.warning(
         "Model response invalid: provider=%s model=%s message=%s elapsed_ms=%.1f",
         provider,
-        LLM_MODEL,
+        model,
         message,
         elapsed_ms,
     )

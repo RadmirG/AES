@@ -44,9 +44,12 @@ visualization.
   conditions.
 - Includes a governed catalog of 24 representative PDE use cases, with tested
   runnable specifications for current capabilities and explicit implementation
-  requirements for future equation families.
+  requirements for future equation families. The Workbench exposes ready cases
+  as editable templates and keeps planned cases visible but disabled.
 - Supports Ollama for local development and an OpenAI-compatible vLLM service
   as the Kubernetes production target.
+- Discovers available provider models for authenticated per-request selection
+  and provides a Chat/Logs switch for bounded, redacted AES orchestration logs.
 
 ## Architecture
 
