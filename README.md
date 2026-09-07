@@ -38,9 +38,13 @@ visualization.
   manifests in an AES-owned artifact store.
 - Presents authenticated chat, workflow progress, diagnostics, artifacts, and
   numerical result previews in the AES Workbench.
-- Provides an interactive VTK.js geometry catalog with four validated 2D/3D
-  plate examples, local GeometrySpec/VTP inspection, semantic region picking,
-  and a KaTeX rendering of the solved equation and conditions.
+- Provides an interactive VTK.js geometry catalog with nine validated 2D/3D
+  baseline and atypical CSG examples, local GeometrySpec/VTP inspection,
+  semantic region picking, and a KaTeX rendering of the solved equation and
+  conditions.
+- Includes a governed catalog of 24 representative PDE use cases, with tested
+  runnable specifications for current capabilities and explicit implementation
+  requirements for future equation families.
 - Supports Ollama for local development and an OpenAI-compatible vLLM service
   as the Kubernetes production target.
 
@@ -273,6 +277,8 @@ Ingress.
 - [Logging and observability](docs/logging.md)
 - [Docker Compose architecture](deploy/architecture.md)
 - [Kubernetes vLLM deployment](vllm/README.md)
+- [PDE use-case catalog](examples/use-cases/README.md)
+- [Geometry example catalog](examples/geometries/README.md)
 
 ## Security Notes
 

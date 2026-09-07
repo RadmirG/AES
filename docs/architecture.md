@@ -258,12 +258,30 @@ flowchart LR
     I --> J["Manifest and stdout actions"]
 ```
 
-The canonical geometry catalog is `examples/geometries/`. Its four YAML/JSON
-fixtures are shared by contract tests, native Gmsh integration tests, and the
-browser sample selector. Selecting a sample or uploading typed JSON attaches
+The canonical geometry catalog is `examples/geometries/`. Its nine YAML/JSON
+fixtures include four baseline and five atypical CSG domains. They are shared
+by contract tests, native Gmsh integration tests, and the browser sample
+selector. Selecting a sample or uploading typed JSON attaches
 the GeometrySpec to the current conversation and sends it through the
 authenticated chat API. VTK XML PolyData (`.vtp`) uploads remain display-only,
 because surface visualization data is not by itself a governed FEM domain.
+
+The companion `examples/use-cases/catalog.yaml` maps 24 representative PDE
+families to geometry, prompts, and required numerical capabilities. Entries
+marked `immediate` carry complete validated `PDEProblemSpec` documents and
+must produce a ready compilation plan. Other entries are explicitly classified
+as compiler extensions or advanced backends; documentation never converts an
+unsupported equation into an implied production capability.
+
+```mermaid
+flowchart LR
+    A["PDE use-case catalog"] --> B{"Support level"}
+    B -->|immediate| C["Validated PDEProblemSpec"]
+    C --> D["Validated GeometrySpec"]
+    D --> E["Ready compilation plan"]
+    B -->|compiler extension| F["Typed operator roadmap"]
+    B -->|advanced backend| G["Dedicated discretization contract"]
+```
 
 ## Design Principles
 

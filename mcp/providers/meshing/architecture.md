@@ -78,10 +78,11 @@ cells of the expected dimension.
 ## Standard Geometry Fixtures
 
 `examples/geometries/` is the cross-component reference catalog. It contains
-equivalent YAML and JSON `GeometrySpec` files for a unit square, perforated unit
-square, plate solid, and perforated plate solid. These are not hard-coded
-solver templates: they exercise the same public geometry contract accepted by
-the model interpreter, meshing provider, and Workbench.
+equivalent YAML and JSON `GeometrySpec` files for four baseline domains and
+five atypical domains: an L-shape, annulus, obstacle channel, mounting bracket,
+and finned heat sink. These are not hard-coded solver templates: they exercise
+the same public geometry contract accepted by the model interpreter, meshing
+provider, and Workbench.
 
 ```mermaid
 flowchart TD

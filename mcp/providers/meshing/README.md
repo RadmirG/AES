@@ -71,10 +71,12 @@ registration outside the main interpreter thread.
 
 ## Canonical Examples
 
-Four complete YAML/JSON examples live in `examples/geometries/` at repository
-root. They cover 2D and 3D rectangles/plates, both with and without a centered
-circular through-hole. The examples define stable semantic boundary names and
-are validated both as typed contracts and through native Gmsh generation.
+Nine complete YAML/JSON examples live in `examples/geometries/` at repository
+root. Four baseline domains cover 2D and 3D plates with and without a hole.
+Five atypical domains add an L-shape, annulus, obstacle channel, mounting
+bracket, and finned heat sink. The examples define stable semantic boundary
+names and are validated both as typed contracts and through native Gmsh
+generation.
 
 Run the native fixture suite from `mcp/` with the permanent AES test environment:
 

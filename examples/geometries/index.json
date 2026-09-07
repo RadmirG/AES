@@ -2,6 +2,10 @@
   {"id": "unit-square-2d", "spec": "unit-square-2d/geometry.json"},
   {"id": "square-with-hole-2d", "spec": "square-with-hole-2d/geometry.json"},
   {"id": "unit-plate-solid-3d", "spec": "unit-plate-solid-3d/geometry.json"},
-  {"id": "plate-with-hole-solid-3d", "spec": "plate-with-hole-solid-3d/geometry.json"}
+  {"id": "plate-with-hole-solid-3d", "spec": "plate-with-hole-solid-3d/geometry.json"},
+  {"id": "l-shaped-domain-2d", "spec": "l-shaped-domain-2d/geometry.json"},
+  {"id": "annulus-2d", "spec": "annulus-2d/geometry.json"},
+  {"id": "channel-with-cylinder-2d", "spec": "channel-with-cylinder-2d/geometry.json"},
+  {"id": "stepped-bracket-solid-3d", "spec": "stepped-bracket-solid-3d/geometry.json"},
+  {"id": "finned-heat-sink-solid-3d", "spec": "finned-heat-sink-solid-3d/geometry.json"}
 ]
-

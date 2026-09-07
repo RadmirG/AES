@@ -329,6 +329,13 @@ data, rectangle primitives, and validated external meshes. Unsupported
 operators produce capability errors and may be routed explicitly to the
 experimental path.
 
+`examples/use-cases/catalog.yaml` is the checked capability catalog for 24
+representative PDE families. Its `immediate` entries include complete typed
+specifications and tests require schema validity, PDE/geometry compatibility,
+and a ready compilation plan. `compiler_extension` and `advanced_backend`
+entries list missing numerical capabilities explicitly and are not routed as
+supported production solves.
+
 Experimental raw-code generation remains bounded by
 `DOLFINX_CODE_GENERATION_ATTEMPTS`; static/runtime repair is independently
 bounded by `DOLFINX_CODE_REPAIR_ATTEMPTS`. It is disabled by default through

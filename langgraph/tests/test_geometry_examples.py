@@ -20,6 +20,11 @@ def test_all_geometry_examples_match_yaml_and_json_and_validate():
         "square-with-hole-2d",
         "unit-plate-solid-3d",
         "plate-with-hole-solid-3d",
+        "l-shaped-domain-2d",
+        "annulus-2d",
+        "channel-with-cylinder-2d",
+        "stepped-bracket-solid-3d",
+        "finned-heat-sink-solid-3d",
     }
 
     for entry in index:

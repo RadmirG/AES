@@ -1,0 +1,373 @@
+schema_version: "1.0"
+support_levels:
+  immediate: Supported by the production typed DOLFINx compiler now.
+  compiler_extension: Fits the AES FEM architecture but needs typed operators and compiler work.
+  advanced_backend: Needs a substantially different formulation, discretization, or solver backend.
+use_cases:
+  - number: 1
+    id: laplace-l-domain-2d
+    category: elliptic
+    title: Laplace equation on an L-shaped domain
+    equation: "Delta(u) = 0"
+    applications: [steady heat conduction, electrostatic potential, potential flow]
+    status: immediate
+    geometry_id: l-shaped-domain-2d
+    required_capabilities: [stationary scalar diffusion, constant Dirichlet boundary]
+    prompt: >-
+      Solve the Laplace equation Delta(u)=0 on the attached L-shaped 2D domain.
+      Use u=1 on x_min and u=0 on y_min, x_max_lower, y_max_left,
+      notch_vertical, and notch_horizontal. Execute the DOLFINx solve with stored artifacts.
+    pde_spec:
+      schema_version: "2.0"
+      problem_class: forward_problem
+      spatial_dimension: 2
+      equation:
+        family: stationary_diffusion
+        unknown: u
+        strong_form: "-div(grad(u)) = 0"
+        diffusion: {kind: constant, value: "1"}
+        source: {kind: constant, value: "0"}
+      boundary_conditions:
+        - name: hot_left_edge
+          region: x_min
+          type: dirichlet
+          value: {kind: constant, value: "1"}
+        - name: cold_bottom_edge
+          region: y_min
+          type: dirichlet
+          value: {kind: constant, value: "0"}
+        - name: cold_right_edge
+          region: x_max_lower
+          type: dirichlet
+          value: {kind: constant, value: "0"}
+        - name: cold_top_edge
+          region: y_max_left
+          type: dirichlet
+          value: {kind: constant, value: "0"}
+        - name: cold_notch_vertical
+          region: notch_vertical
+          type: dirichlet
+          value: {kind: constant, value: "0"}
+        - name: cold_notch_horizontal
+          region: notch_horizontal
+          type: dirichlet
+          value: {kind: constant, value: "0"}
+
+  - number: 2
+    id: poisson-annulus-2d
+    category: elliptic
+    title: Poisson equation on an annulus
+    equation: "-Delta(u) = f"
+    applications: [stationary heat conduction, electrostatics, pressure correction]
+    status: immediate
+    geometry_id: annulus-2d
+    required_capabilities: [stationary scalar diffusion, constant source, constant Dirichlet boundary]
+    prompt: >-
+      Solve -Delta(u)=1 on the attached annulus. Use u=0 on the complete boundary,
+      execute the DOLFINx solve, and store the mesh, solution, diagnostics, and visualization.
+    pde_spec:
+      schema_version: "2.0"
+      problem_class: forward_problem
+      spatial_dimension: 2
+      equation:
+        family: stationary_diffusion
+        unknown: u
+        strong_form: "-div(grad(u)) = 1"
+        diffusion: {kind: constant, value: "1"}
+        source: {kind: constant, value: "1"}
+      boundary_conditions:
+        - name: exterior_temperature
+          region: boundary
+          type: dirichlet
+          value: {kind: constant, value: "0"}
+
+  - number: 3
+    id: helmholtz-annulus-2d
+    category: elliptic
+    title: Helmholtz equation in an annular cavity
+    equation: "-Delta(u) - k^2 u = f"
+    applications: [frequency-domain acoustics, vibrations, electromagnetic waves]
+    status: compiler_extension
+    geometry_id: annulus-2d
+    required_capabilities: [reaction term, Helmholtz sign convention, indefinite linear solver]
+    prompt: >-
+      Solve -Delta(u)-25*u=1 in the attached annulus with u=0 on its boundary.
+      Return the frequency-domain field and solver diagnostics.
+
+  - number: 4
+    id: elasticity-bracket-3d
+    category: elliptic
+    title: Static linear elasticity of a mounting bracket
+    equation: "-div(sigma(u)) = f"
+    applications: [structural deformation, stress analysis, mechanical components]
+    status: compiler_extension
+    geometry_id: stepped-bracket-solid-3d
+    required_capabilities: [vector function space, strain and stress tensors, traction boundary, displacement constraints]
+    prompt: >-
+      Compute the static displacement and von Mises stress of the attached mounting bracket.
+      Clamp the mounting-hole walls and apply a downward traction to the top face.
+
+  - number: 5
+    id: stationary-convection-diffusion-channel-2d
+    category: elliptic
+    title: Stationary convection-diffusion around an obstacle
+    equation: "-epsilon*Delta(u) + b dot grad(u) + c*u = f"
+    applications: [stationary heat transport, pollutant transport, species transport]
+    status: compiler_extension
+    geometry_id: channel-with-cylinder-2d
+    required_capabilities: [advection term, reaction term, inlet and outlet conditions, SUPG stabilization]
+    prompt: >-
+      Solve stationary convection-diffusion in the attached channel with cylinder.
+      Use epsilon=0.01, velocity b=(1,0), u=1 at inlet, and zero diffusive flux at outlet and walls.
+
+  - number: 6
+    id: semilinear-cubic-l-domain-2d
+    category: elliptic
+    title: Semilinear cubic reaction on an L-shaped domain
+    equation: "-Delta(u) + u^3 = f"
+    applications: [nonlinear reaction models, mathematical biology, field theory]
+    status: compiler_extension
+    geometry_id: l-shaped-domain-2d
+    required_capabilities: [nonlinear residual, Jacobian generation, Newton solver]
+    prompt: >-
+      Solve -Delta(u)+u^3=1 on the attached L-shaped domain with u=0 on the boundary.
+      Report nonlinear convergence and the final scalar field.
+
+  - number: 7
+    id: p-laplace-annulus-2d
+    category: elliptic
+    title: Nonlinear p-Laplace diffusion on an annulus
+    equation: "-div(|grad(u)|^(p-2) grad(u)) = f"
+    applications: [nonlinear diffusion, non-Newtonian mechanics, nonlinear materials]
+    status: compiler_extension
+    geometry_id: annulus-2d
+    required_capabilities: [gradient-dependent nonlinear form, regularization, Newton or Picard solver]
+    prompt: >-
+      Solve the p-Laplace problem with p=3 and f=1 on the attached annulus.
+      Use u=0 on the complete boundary and report nonlinear convergence.
+
+  - number: 8
+    id: monge-ampere-square-2d
+    category: elliptic
+    title: Monge-Ampere equation on a square
+    equation: "det(D2(u)) = f"
+    applications: [optimal transport, geometric optics, differential geometry]
+    status: advanced_backend
+    geometry_id: unit-square-2d
+    required_capabilities: [fully nonlinear Hessian formulation, convexity enforcement, specialized mixed or nonlinear method]
+    prompt: >-
+      Solve det(D2(u))=1 on the unit square with convex solution constraints and prescribed boundary data.
+
+  - number: 9
+    id: transient-heat-heat-sink-3d
+    category: parabolic
+    title: Transient heat diffusion through a finned heat sink
+    equation: "u_t - alpha*Delta(u) = f"
+    applications: [heat conduction, thermal engineering, diffusion]
+    status: immediate
+    geometry_id: finned-heat-sink-solid-3d
+    required_capabilities: [transient scalar diffusion, backward Euler, constant data]
+    prompt: >-
+      Solve the transient heat equation on the attached 3D finned heat sink.
+      Use alpha=0.01, f=0, u=100 on base_bottom, initial temperature u=20,
+      final time T=1, and dt=0.01. Execute and store all result artifacts.
+    pde_spec:
+      schema_version: "2.0"
+      problem_class: forward_problem
+      spatial_dimension: 3
+      equation:
+        family: transient_diffusion
+        unknown: u
+        strong_form: "du/dt - 0.01*Delta(u) = 0"
+        diffusion: {kind: constant, value: "0.01"}
+        source: {kind: constant, value: "0"}
+      boundary_conditions:
+        - name: heated_base
+          region: base_bottom
+          type: dirichlet
+          value: {kind: constant, value: "100"}
+      initial_condition:
+        value: {kind: constant, value: "20"}
+      time: {t0: 0.0, t_end: 1.0, dt: 0.01, scheme: backward_euler}
+
+  - number: 10
+    id: transient-convection-diffusion-channel-2d
+    category: parabolic
+    title: Transient scalar transport around a cylinder
+    equation: "u_t - div(A grad(u)) + b dot grad(u) + c*u = f"
+    applications: [pollutant dispersion, heat transport, atmospheric transport]
+    status: compiler_extension
+    geometry_id: channel-with-cylinder-2d
+    required_capabilities: [transient advection, reaction term, time-dependent coefficients, SUPG stabilization]
+    prompt: >-
+      Simulate transient scalar transport through the attached obstacle channel with diffusion 0.01,
+      velocity b=(1,0), inlet concentration 1, and initial concentration 0.
+
+  - number: 11
+    id: fisher-kpp-l-domain-2d
+    category: parabolic
+    title: Fisher-KPP invasion on an L-shaped habitat
+    equation: "u_t - D*Delta(u) = r*u*(1-u)"
+    applications: [population dynamics, biological invasion, reaction-diffusion]
+    status: compiler_extension
+    geometry_id: l-shaped-domain-2d
+    required_capabilities: [nonlinear reaction, transient nonlinear solver, bounded-state diagnostics]
+    prompt: >-
+      Simulate Fisher-KPP invasion on the attached L-shaped domain with D=0.01 and r=1.
+      Use a localized initial population and zero-flux boundaries.
+
+  - number: 12
+    id: allen-cahn-perforated-plate-3d
+    category: parabolic
+    title: Allen-Cahn interface evolution in a perforated plate
+    equation: "u_t - epsilon^2*Delta(u) + F'(u) = 0"
+    applications: [phase transitions, interface evolution, materials science]
+    status: compiler_extension
+    geometry_id: plate-with-hole-solid-3d
+    required_capabilities: [nonlinear potential, transient nonlinear solver, energy diagnostics]
+    prompt: >-
+      Simulate Allen-Cahn phase evolution in the attached plate with a hole using a double-well potential.
+
+  - number: 13
+    id: viscous-burgers-1d
+    category: parabolic
+    title: Viscous Burgers equation
+    equation: "u_t + u*u_x = nu*u_xx"
+    applications: [nonlinear transport, reduced CFD, shock regularization]
+    status: compiler_extension
+    geometry_id: null
+    required_capabilities: [one-dimensional geometry, nonlinear convection, stabilized transient solve]
+    prompt: >-
+      Solve the one-dimensional viscous Burgers equation on [0,1] with nu=0.01 and a smooth sine initial condition.
+
+  - number: 14
+    id: porous-medium-l-domain-2d
+    category: parabolic
+    title: Porous-medium flow on an L-shaped domain
+    equation: "u_t = Delta(u^m)"
+    applications: [porous-media flow, groundwater, nonlinear diffusion]
+    status: compiler_extension
+    geometry_id: l-shaped-domain-2d
+    required_capabilities: [degenerate nonlinear diffusion, positivity handling, adaptive time stepping]
+    prompt: >-
+      Solve the porous-medium equation with m=2 on the attached L-shaped domain from a compact initial profile.
+
+  - number: 15
+    id: cahn-hilliard-annulus-2d
+    category: parabolic
+    title: Cahn-Hilliard phase separation in an annulus
+    equation: "u_t = div(M grad(mu)), mu=-epsilon^2 Delta(u)+F'(u)"
+    applications: [phase separation, alloys, microstructure evolution]
+    status: advanced_backend
+    geometry_id: annulus-2d
+    required_capabilities: [mixed fourth-order formulation, mass conservation, nonlinear block solver]
+    prompt: >-
+      Simulate Cahn-Hilliard phase separation in the attached annulus and track mass and free energy.
+
+  - number: 16
+    id: navier-stokes-obstacle-channel-2d
+    category: parabolic
+    title: Incompressible Navier-Stokes flow around a cylinder
+    equation: "rho*(u_t + (u dot grad)u) - mu*Delta(u) + grad(p) = f, div(u)=0"
+    applications: [CFD, aerodynamics, ventilation, blood flow]
+    status: advanced_backend
+    geometry_id: channel-with-cylinder-2d
+    required_capabilities: [mixed velocity-pressure spaces, incompressibility, nonlinear convection, pressure gauge, flow boundary conditions]
+    prompt: >-
+      Simulate incompressible flow around the cylinder in the attached channel and visualize velocity and pressure.
+
+  - number: 17
+    id: wave-l-domain-2d
+    category: hyperbolic
+    title: Wave propagation on an L-shaped membrane
+    equation: "u_tt - c^2*Delta(u) = f"
+    applications: [acoustics, seismic waves, vibrations, ultrasound]
+    status: compiler_extension
+    geometry_id: l-shaped-domain-2d
+    required_capabilities: [second-order time derivative, two initial conditions, Newmark or central-difference scheme]
+    prompt: >-
+      Simulate the wave equation on the attached L-shaped membrane with a localized initial displacement.
+
+  - number: 18
+    id: linear-transport-channel-2d
+    category: hyperbolic
+    title: Passive scalar transport through an obstacle channel
+    equation: "u_t + b dot grad(u) = f"
+    applications: [passive scalar transport, atmospheric transport, particle density]
+    status: compiler_extension
+    geometry_id: channel-with-cylinder-2d
+    required_capabilities: [pure advection, inflow boundary classification, upwind DG or stabilized CG]
+    prompt: >-
+      Transport a passive scalar through the attached channel with b=(1,0), inflow value 1, and initial value 0.
+
+  - number: 19
+    id: maxwell-cavity-3d
+    category: hyperbolic
+    title: Electromagnetic waves in a 3D cavity
+    equation: "curl(E)=-B_t, curl(H)=J+D_t"
+    applications: [antennas, radar, optics, electromagnetic waves]
+    status: advanced_backend
+    geometry_id: stepped-bracket-solid-3d
+    required_capabilities: [H-curl elements, vector fields, coupled electromagnetic state, absorbing boundaries]
+    prompt: >-
+      Compute electromagnetic cavity modes in the attached 3D domain using perfectly conducting boundaries.
+
+  - number: 20
+    id: inviscid-burgers-1d
+    category: hyperbolic
+    title: Inviscid Burgers shock formation
+    equation: "u_t + u*u_x = 0"
+    applications: [shock formation, nonlinear conservation laws]
+    status: advanced_backend
+    geometry_id: null
+    required_capabilities: [one-dimensional geometry, conservative DG or finite volume, numerical flux, shock capture]
+    prompt: >-
+      Solve inviscid Burgers equation on [0,1] from a smooth initial condition through shock formation.
+
+  - number: 21
+    id: compressible-euler-channel-2d
+    category: hyperbolic
+    title: Compressible Euler flow through an obstacle channel
+    equation: "U_t + div(F(U)) = 0"
+    applications: [compressible CFD, aerodynamics, supersonic flow]
+    status: advanced_backend
+    geometry_id: channel-with-cylinder-2d
+    required_capabilities: [conservative multi-field state, equation of state, Riemann flux, shock limiter]
+    prompt: >-
+      Simulate compressible Euler flow through the attached channel and resolve the wake and pressure field.
+
+  - number: 22
+    id: shallow-water-l-domain-2d
+    category: hyperbolic
+    title: Shallow-water propagation through an L-shaped basin
+    equation: "h_t+div(h*u)=0, (h*u)_t+div(h*u tensor u + g*h^2*I/2)=0"
+    applications: [rivers, tsunamis, flooding, atmospheric modelling]
+    status: advanced_backend
+    geometry_id: l-shaped-domain-2d
+    required_capabilities: [coupled conservative state, wet-dry fronts, positivity preserving flux, bathymetry]
+    prompt: >-
+      Simulate a shallow-water pulse in the attached L-shaped basin with reflective walls.
+
+  - number: 23
+    id: schrodinger-annulus-2d
+    category: dispersive
+    title: Schrodinger evolution in an annular potential well
+    equation: "i*hbar*psi_t = -(hbar^2/(2m))*Delta(psi) + V*psi"
+    applications: [quantum mechanics, quantum chemistry, electronic structure]
+    status: advanced_backend
+    geometry_id: annulus-2d
+    required_capabilities: [complex scalar field, unitary time integration, potential term, probability diagnostics]
+    prompt: >-
+      Evolve a Gaussian wave packet in the attached annular domain and visualize probability density.
+
+  - number: 24
+    id: eikonal-obstacle-channel-2d
+    category: fully_nonlinear_first_order
+    title: Eikonal travel time around an obstacle
+    equation: "|grad(u)| = f"
+    applications: [front propagation, optimal control, geometric optics]
+    status: advanced_backend
+    geometry_id: channel-with-cylinder-2d
+    required_capabilities: [viscosity solution, fast marching or monotone DG, source-front boundary]
+    prompt: >-
+      Compute Eikonal travel time through the attached channel around the cylindrical obstacle.

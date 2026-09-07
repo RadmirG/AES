@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "dimension": 2,
+  "units": "m",
+  "source": {
+    "kind": "csg",
+    "primitives": [
+      {"id": "outer", "shape": "rectangle", "origin": [0.0, 0.0], "size": [1.0, 1.0]},
+      {"id": "notch", "shape": "rectangle", "origin": [0.5, 0.5], "size": [0.5, 0.5]}
+    ],
+    "operations": [
+      {"type": "difference", "objects": ["outer"], "tools": ["notch"], "result": "domain"}
+    ]
+  },
+  "regions": [
+    {"name": "domain", "dimension": 2, "selector": {"kind": "object", "reference": "domain"}},
+    {"name": "boundary", "dimension": 1, "selector": {"kind": "all_boundary"}},
+    {"name": "x_min", "dimension": 1, "selector": {"kind": "bounding_box", "bounds": [-1.0e-8, -1.0e-8, 1.0e-8, 1.00000001]}},
+    {"name": "y_min", "dimension": 1, "selector": {"kind": "bounding_box", "bounds": [-1.0e-8, -1.0e-8, 1.00000001, 1.0e-8]}},
+    {"name": "x_max_lower", "dimension": 1, "selector": {"kind": "bounding_box", "bounds": [0.99999999, -1.0e-8, 1.00000001, 0.50000001]}},
+    {"name": "y_max_left", "dimension": 1, "selector": {"kind": "bounding_box", "bounds": [-1.0e-8, 0.99999999, 0.50000001, 1.00000001]}},
+    {"name": "notch_vertical", "dimension": 1, "selector": {"kind": "bounding_box", "bounds": [0.49999999, 0.49999999, 0.50000001, 1.00000001]}},
+    {"name": "notch_horizontal", "dimension": 1, "selector": {"kind": "bounding_box", "bounds": [0.49999999, 0.49999999, 1.00000001, 0.50000001]}}
+  ],
+  "mesh": {
+    "cell_type": "triangle",
+    "order": 1,
+    "global_size": 0.04,
+    "refinements": [],
+    "quality": {"minimum_scaled_jacobian": 0.0, "maximum_elements": 2000000}
+  },
+  "metadata": {
+    "id": "l-shaped-domain-2d",
+    "title": "L-shaped domain",
+    "description": "A unit square with its upper-right quarter removed; useful for re-entrant-corner singularities."
+  }
+}

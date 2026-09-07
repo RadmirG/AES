@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0",
+  "dimension": 3,
+  "units": "m",
+  "source": {
+    "kind": "csg",
+    "primitives": [
+      {"id": "base", "shape": "box", "origin": [0.0, 0.0, 0.0], "size": [1.2, 0.6, 0.15]},
+      {"id": "upright", "shape": "box", "origin": [0.0, 0.0, 0.15], "size": [0.15, 0.6, 0.85]},
+      {"id": "hole_a", "shape": "cylinder", "origin": [0.35, 0.3, 0.0], "axis": [0.0, 0.0, 0.15], "radius": 0.07},
+      {"id": "hole_b", "shape": "cylinder", "origin": [0.85, 0.3, 0.0], "axis": [0.0, 0.0, 0.15], "radius": 0.07}
+    ],
+    "operations": [
+      {"type": "union", "objects": ["base"], "tools": ["upright"], "result": "bracket"},
+      {"type": "difference", "objects": ["bracket"], "tools": ["hole_a", "hole_b"], "result": "domain"}
+    ]
+  },
+  "regions": [
+    {"name": "domain", "dimension": 3, "selector": {"kind": "object", "reference": "domain"}},
+    {"name": "boundary", "dimension": 2, "selector": {"kind": "all_boundary"}},
+    {"name": "base_bottom", "dimension": 2, "selector": {"kind": "bounding_box", "bounds": [-1.0e-8, -1.0e-8, -1.0e-8, 1.20000001, 0.60000001, 1.0e-8]}},
+    {"name": "top_load", "dimension": 2, "selector": {"kind": "bounding_box", "bounds": [-1.0e-8, -1.0e-8, 0.99999999, 0.15000001, 0.60000001, 1.00000001]}},
+    {"name": "hole_a_wall", "dimension": 2, "selector": {"kind": "boundary_of", "reference": "hole_a"}},
+    {"name": "hole_b_wall", "dimension": 2, "selector": {"kind": "boundary_of", "reference": "hole_b"}}
+  ],
+  "mesh": {
+    "cell_type": "tetrahedron",
+    "order": 1,
+    "global_size": 0.04,
+    "refinements": [
+      {"region": "hole_a_wall", "size": 0.025, "distance": 0.15},
+      {"region": "hole_b_wall", "size": 0.025, "distance": 0.15}
+    ],
+    "quality": {"minimum_scaled_jacobian": 0.0, "maximum_elements": 2000000}
+  },
+  "metadata": {
+    "id": "stepped-bracket-solid-3d",
+    "title": "Stepped mounting bracket",
+    "description": "An L-shaped solid mounting bracket with two cylindrical bolt holes and a named load face."
+  }
+}

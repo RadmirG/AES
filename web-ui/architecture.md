@@ -249,7 +249,7 @@ read-only provenance view below diagnostics.
 The canonical examples live outside the UI in `examples/geometries/`. Each
 example has a human-readable YAML document and an equivalent JSON document.
 LangGraph tests validate both representations against `GeometrySpec`; native
-provider tests generate all four with Gmsh and validate their semantic tags.
+provider tests generate all nine with Gmsh and validate their semantic tags.
 
 ```mermaid
 flowchart LR
@@ -258,12 +258,20 @@ flowchart LR
     B --> D["Square with hole 2D"]
     B --> E["Plate solid 3D"]
     B --> F["Plate solid with hole 3D"]
+    B --> X["Five atypical CSG domains"]
     C --> G["VTK.js PolyData compiler"]
     D --> G
     E --> G
     F --> G
+    X --> G
     G --> H["Interactive scientific viewport"]
 ```
+
+Simple rectangle/box examples use exact lightweight preview builders. More
+complex CSG examples use a bounded implicit tessellation in the browser so
+selection remains responsive. That preview is display-only; numerical
+execution always uses the exact Gmsh/OpenCASCADE mesh and the result viewer
+uses the resulting DOLFINx topology.
 
 Vite exposes the catalog at `/geometries/`. The production Docker build uses
 the repository root as its restricted build context so it can copy both

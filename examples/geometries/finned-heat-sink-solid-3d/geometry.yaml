@@ -1,0 +1,28 @@
+schema_version: "1.0"
+dimension: 3
+units: m
+source:
+  kind: csg
+  primitives:
+    - {id: base, shape: box, origin: [0.0, 0.0, 0.0], size: [1.0, 0.6, 0.1]}
+    - {id: fin_1, shape: box, origin: [0.08, 0.0, 0.1], size: [0.04, 0.6, 0.3]}
+    - {id: fin_2, shape: box, origin: [0.28, 0.0, 0.1], size: [0.04, 0.6, 0.3]}
+    - {id: fin_3, shape: box, origin: [0.48, 0.0, 0.1], size: [0.04, 0.6, 0.3]}
+    - {id: fin_4, shape: box, origin: [0.68, 0.0, 0.1], size: [0.04, 0.6, 0.3]}
+    - {id: fin_5, shape: box, origin: [0.88, 0.0, 0.1], size: [0.04, 0.6, 0.3]}
+  operations:
+    - {type: union, objects: [base], tools: [fin_1, fin_2, fin_3, fin_4, fin_5], result: domain}
+regions:
+  - {name: domain, dimension: 3, selector: {kind: object, reference: domain}}
+  - {name: boundary, dimension: 2, selector: {kind: all_boundary}}
+  - {name: base_bottom, dimension: 2, selector: {kind: bounding_box, bounds: [-1.0e-8, -1.0e-8, -1.0e-8, 1.00000001, 0.60000001, 1.0e-8]}}
+mesh:
+  cell_type: tetrahedron
+  order: 1
+  global_size: 0.02
+  refinements: []
+  quality: {minimum_scaled_jacobian: 0.0, maximum_elements: 2000000}
+metadata:
+  id: finned-heat-sink-solid-3d
+  title: Finned heat-sink solid
+  description: A solid base with five joined cooling fins and a named heated base surface.

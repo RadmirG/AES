@@ -1,0 +1,26 @@
+schema_version: "1.0"
+dimension: 2
+units: m
+source:
+  kind: csg
+  primitives:
+    - {id: outer_disk, shape: disk, center: [0.0, 0.0], radius: 1.0}
+    - {id: inner_disk, shape: disk, center: [0.0, 0.0], radius: 0.35}
+  operations:
+    - {type: difference, objects: [outer_disk], tools: [inner_disk], result: domain}
+regions:
+  - {name: domain, dimension: 2, selector: {kind: object, reference: domain}}
+  - {name: boundary, dimension: 1, selector: {kind: all_boundary}}
+  - {name: inner_wall, dimension: 1, selector: {kind: boundary_of, reference: inner_disk}}
+  - {name: outer_wall, dimension: 1, selector: {kind: boundary_of, reference: outer_disk}}
+mesh:
+  cell_type: triangle
+  order: 1
+  global_size: 0.08
+  refinements:
+    - {region: inner_wall, size: 0.04, distance: 0.25}
+  quality: {minimum_scaled_jacobian: 0.0, maximum_elements: 2000000}
+metadata:
+  id: annulus-2d
+  title: Annular domain
+  description: A circular domain with a concentric circular cavity.

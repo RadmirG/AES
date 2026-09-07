@@ -25,23 +25,300 @@ export function buildGeometrySurfaces(spec: GeometrySpec): GeometrySurface[] {
   const primitives = spec.source.primitives || [];
   if (spec.dimension === 2) {
     const rectangle = findPrimitive(primitives, "rectangle");
-    if (!rectangle?.origin || !rectangle.size) {
-      throw new Error("The VTK geometry preview requires a rectangle primitive for 2D examples.");
-    }
     const hole = findPrimitive(primitives, "disk");
-    return buildRectangle(rectangle, hole);
+    if (isSimpleRectangleGeometry(spec, rectangle, hole)) {
+      return buildRectangle(rectangle!, hole);
+    }
+    return buildImplicit2D(spec);
   }
 
   if (spec.dimension === 3) {
     const box = findPrimitive(primitives, "box");
-    if (!box?.origin || !box.size) {
-      throw new Error("The VTK geometry preview requires a box primitive for 3D examples.");
-    }
     const hole = findPrimitive(primitives, "cylinder");
-    return buildPlate(box, hole);
+    if (isSimpleBoxGeometry(spec, box, hole)) {
+      return buildPlate(box!, hole);
+    }
+    return buildImplicit3D(spec);
   }
 
   throw new Error(`Geometry dimension ${spec.dimension} is not supported by this viewer.`);
+}
+
+function isSimpleRectangleGeometry(
+  spec: GeometrySpec,
+  rectangle?: GeometryPrimitive,
+  hole?: GeometryPrimitive,
+) {
+  const primitives = spec.source.primitives || [];
+  return Boolean(
+    rectangle?.origin &&
+      rectangle.size &&
+      primitives.length <= (hole ? 2 : 1) &&
+      primitives.every((item) => item === rectangle || item === hole),
+  );
+}
+
+function isSimpleBoxGeometry(
+  spec: GeometrySpec,
+  box?: GeometryPrimitive,
+  hole?: GeometryPrimitive,
+) {
+  const primitives = spec.source.primitives || [];
+  return Boolean(
+    box?.origin &&
+      box.size &&
+      primitives.length <= (hole ? 2 : 1) &&
+      primitives.every((item) => item === box || item === hole),
+  );
+}
+
+function buildImplicit2D(spec: GeometrySpec) {
+  const bounds = geometryBounds(spec.source.primitives || []);
+  const inside = geometryPredicate(spec);
+  const [nx, ny] = gridResolution(bounds, 110).slice(0, 2);
+  const dx = (bounds[1] - bounds[0]) / nx;
+  const dy = (bounds[3] - bounds[2]) / ny;
+  const triangles: Point[][] = [];
+  for (let row = 0; row < ny; row += 1) {
+    for (let column = 0; column < nx; column += 1) {
+      const x0 = bounds[0] + column * dx;
+      const x1 = x0 + dx;
+      const y0 = bounds[2] + row * dy;
+      const y1 = y0 + dy;
+      if (!inside([(x0 + x1) / 2, (y0 + y1) / 2, 0])) {
+        continue;
+      }
+      triangles.push(
+        [[x0, y0, 0], [x1, y0, 0], [x1, y1, 0]],
+        [[x0, y0, 0], [x1, y1, 0], [x0, y1, 0]],
+      );
+    }
+  }
+  if (!triangles.length) {
+    throw new Error("The CSG geometry preview produced an empty 2D domain.");
+  }
+  return [surface("domain", triangles)];
+}
+
+function buildImplicit3D(spec: GeometrySpec) {
+  const bounds = geometryBounds(spec.source.primitives || []);
+  const inside = geometryPredicate(spec);
+  const [nx, ny, nz] = gridResolution(bounds, 48);
+  const dx = (bounds[1] - bounds[0]) / nx;
+  const dy = (bounds[3] - bounds[2]) / ny;
+  const dz = (bounds[5] - bounds[4]) / nz;
+  const occupied = new Uint8Array(nx * ny * nz);
+  const cellIndex = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+  const isOccupied = (x: number, y: number, z: number) =>
+    x >= 0 && x < nx && y >= 0 && y < ny && z >= 0 && z < nz
+      ? occupied[cellIndex(x, y, z)] === 1
+      : false;
+
+  for (let z = 0; z < nz; z += 1) {
+    for (let y = 0; y < ny; y += 1) {
+      for (let x = 0; x < nx; x += 1) {
+        const point: Point = [
+          bounds[0] + (x + 0.5) * dx,
+          bounds[2] + (y + 0.5) * dy,
+          bounds[4] + (z + 0.5) * dz,
+        ];
+        occupied[cellIndex(x, y, z)] = inside(point) ? 1 : 0;
+      }
+    }
+  }
+
+  const triangles: Point[][] = [];
+  for (let z = 0; z < nz; z += 1) {
+    for (let y = 0; y < ny; y += 1) {
+      for (let x = 0; x < nx; x += 1) {
+        if (!isOccupied(x, y, z)) {
+          continue;
+        }
+        const x0 = bounds[0] + x * dx;
+        const x1 = x0 + dx;
+        const y0 = bounds[2] + y * dy;
+        const y1 = y0 + dy;
+        const z0 = bounds[4] + z * dz;
+        const z1 = z0 + dz;
+        if (!isOccupied(x - 1, y, z)) {
+          addQuad(triangles, [x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]);
+        }
+        if (!isOccupied(x + 1, y, z)) {
+          addQuad(triangles, [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]);
+        }
+        if (!isOccupied(x, y - 1, z)) {
+          addQuad(triangles, [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]);
+        }
+        if (!isOccupied(x, y + 1, z)) {
+          addQuad(triangles, [x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]);
+        }
+        if (!isOccupied(x, y, z - 1)) {
+          addQuad(triangles, [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0]);
+        }
+        if (!isOccupied(x, y, z + 1)) {
+          addQuad(triangles, [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]);
+        }
+      }
+    }
+  }
+  if (!triangles.length) {
+    throw new Error("The CSG geometry preview produced an empty 3D domain.");
+  }
+  return [surface("domain", triangles)];
+}
+
+function addQuad(triangles: Point[][], a: Point, b: Point, c: Point, d: Point) {
+  triangles.push([a, b, c], [a, c, d]);
+}
+
+function geometryPredicate(spec: GeometrySpec) {
+  const predicates = new Map<string, (point: Point) => boolean>();
+  for (const primitive of spec.source.primitives || []) {
+    predicates.set(primitive.id, primitivePredicate(primitive));
+  }
+  for (const operation of spec.source.operations || []) {
+    const objects = operation.objects.map((name) => predicates.get(name)).filter(isPredicate);
+    const tools = operation.tools.map((name) => predicates.get(name)).filter(isPredicate);
+    const inObjects = (point: Point) => objects.some((predicate) => predicate(point));
+    const inTools = (point: Point) => tools.some((predicate) => predicate(point));
+    if (operation.type === "difference") {
+      predicates.set(operation.result, (point) => inObjects(point) && !inTools(point));
+    } else if (operation.type === "intersection") {
+      predicates.set(operation.result, (point) => inObjects(point) && inTools(point));
+    } else {
+      predicates.set(operation.result, (point) => inObjects(point) || inTools(point));
+    }
+  }
+  const operations = spec.source.operations || [];
+  const finalOperation = operations[operations.length - 1];
+  const domain =
+    (finalOperation && predicates.get(finalOperation.result)) ||
+    predicates.get("domain");
+  if (domain) {
+    return domain;
+  }
+  const primitivePredicates = [...predicates.values()];
+  return (point: Point) => primitivePredicates.some((predicate) => predicate(point));
+}
+
+function isPredicate(
+  value: ((point: Point) => boolean) | undefined,
+): value is (point: Point) => boolean {
+  return Boolean(value);
+}
+
+function primitivePredicate(primitive: GeometryPrimitive) {
+  if (primitive.shape === "rectangle" && primitive.origin && primitive.size) {
+    const [x0, y0] = primitive.origin;
+    const [dx, dy] = primitive.size;
+    return ([x, y]: Point) => x >= x0 && x <= x0 + dx && y >= y0 && y <= y0 + dy;
+  }
+  if (primitive.shape === "disk" && primitive.center && primitive.radius) {
+    const [cx, cy] = primitive.center;
+    const radiusSquared = primitive.radius ** 2;
+    return ([x, y]: Point) => (x - cx) ** 2 + (y - cy) ** 2 <= radiusSquared;
+  }
+  if (primitive.shape === "box" && primitive.origin && primitive.size) {
+    const [x0, y0, z0] = primitive.origin;
+    const [dx, dy, dz] = primitive.size;
+    return ([x, y, z]: Point) =>
+      x >= x0 && x <= x0 + dx && y >= y0 && y <= y0 + dy && z >= z0 && z <= z0 + dz;
+  }
+  if (primitive.shape === "sphere" && primitive.center && primitive.radius) {
+    const [cx, cy, cz] = primitive.center;
+    const radiusSquared = primitive.radius ** 2;
+    return ([x, y, z]: Point) =>
+      (x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2 <= radiusSquared;
+  }
+  if (primitive.shape === "cylinder" && primitive.origin && primitive.axis && primitive.radius) {
+    const origin = point3(primitive.origin);
+    const axis = point3(primitive.axis);
+    const lengthSquared = dot(axis, axis);
+    const radiusSquared = primitive.radius ** 2;
+    return (point: Point) => {
+      const relative = subtract(point, origin);
+      const position = dot(relative, axis) / lengthSquared;
+      if (position < 0 || position > 1) {
+        return false;
+      }
+      const radial = subtract(relative, scale(axis, position));
+      return dot(radial, radial) <= radiusSquared;
+    };
+  }
+  throw new Error(`Unsupported preview primitive: ${primitive.shape}`);
+}
+
+function geometryBounds(primitives: GeometryPrimitive[]): [number, number, number, number, number, number] {
+  if (!primitives.length) {
+    throw new Error("The geometry preview requires primitive bounds.");
+  }
+  const bounds = primitives.map(primitiveBounds);
+  return [
+    Math.min(...bounds.map((item) => item[0])),
+    Math.max(...bounds.map((item) => item[1])),
+    Math.min(...bounds.map((item) => item[2])),
+    Math.max(...bounds.map((item) => item[3])),
+    Math.min(...bounds.map((item) => item[4])),
+    Math.max(...bounds.map((item) => item[5])),
+  ];
+}
+
+function primitiveBounds(primitive: GeometryPrimitive): [number, number, number, number, number, number] {
+  if ((primitive.shape === "rectangle" || primitive.shape === "box") && primitive.origin && primitive.size) {
+    const origin = point3(primitive.origin);
+    const size = point3(primitive.size);
+    return [origin[0], origin[0] + size[0], origin[1], origin[1] + size[1], origin[2], origin[2] + size[2]];
+  }
+  if ((primitive.shape === "disk" || primitive.shape === "sphere") && primitive.center && primitive.radius) {
+    const center = point3(primitive.center);
+    const zRadius = primitive.shape === "sphere" ? primitive.radius : 0;
+    return [
+      center[0] - primitive.radius,
+      center[0] + primitive.radius,
+      center[1] - primitive.radius,
+      center[1] + primitive.radius,
+      center[2] - zRadius,
+      center[2] + zRadius,
+    ];
+  }
+  if (primitive.shape === "cylinder" && primitive.origin && primitive.axis && primitive.radius) {
+    const origin = point3(primitive.origin);
+    const end = origin.map((value, index) => value + point3(primitive.axis!)[index]) as Point;
+    return [
+      Math.min(origin[0], end[0]) - primitive.radius,
+      Math.max(origin[0], end[0]) + primitive.radius,
+      Math.min(origin[1], end[1]) - primitive.radius,
+      Math.max(origin[1], end[1]) + primitive.radius,
+      Math.min(origin[2], end[2]) - primitive.radius,
+      Math.max(origin[2], end[2]) + primitive.radius,
+    ];
+  }
+  throw new Error(`Could not determine bounds for preview primitive ${primitive.id}.`);
+}
+
+function gridResolution(
+  bounds: [number, number, number, number, number, number],
+  longestAxisCells: number,
+): [number, number, number] {
+  const spans = [bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4]];
+  const maximum = Math.max(...spans, 1.0e-12);
+  return spans.map((span) => Math.max(1, Math.round(longestAxisCells * span / maximum))) as [number, number, number];
+}
+
+function point3(values: number[]): Point {
+  return [values[0] || 0, values[1] || 0, values[2] || 0];
+}
+
+function subtract(left: Point, right: Point): Point {
+  return [left[0] - right[0], left[1] - right[1], left[2] - right[2]];
+}
+
+function scale(value: Point, factor: number): Point {
+  return [value[0] * factor, value[1] * factor, value[2] * factor];
+}
+
+function dot(left: Point, right: Point) {
+  return left[0] * right[0] + left[1] * right[1] + left[2] * right[2];
 }
 
 function buildRectangle(rectangle: GeometryPrimitive, hole?: GeometryPrimitive) {

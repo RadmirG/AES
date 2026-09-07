@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "dimension": 2,
+  "units": "m",
+  "source": {
+    "kind": "csg",
+    "primitives": [
+      {"id": "channel", "shape": "rectangle", "origin": [0.0, 0.0], "size": [4.0, 1.0]},
+      {"id": "obstacle", "shape": "disk", "center": [1.0, 0.5], "radius": 0.15}
+    ],
+    "operations": [
+      {"type": "difference", "objects": ["channel"], "tools": ["obstacle"], "result": "domain"}
+    ]
+  },
+  "regions": [
+    {"name": "domain", "dimension": 2, "selector": {"kind": "object", "reference": "domain"}},
+    {"name": "boundary", "dimension": 1, "selector": {"kind": "all_boundary"}},
+    {"name": "inlet", "dimension": 1, "selector": {"kind": "bounding_box", "bounds": [-1.0e-8, -1.0e-8, 1.0e-8, 1.00000001]}},
+    {"name": "outlet", "dimension": 1, "selector": {"kind": "bounding_box", "bounds": [3.99999999, -1.0e-8, 4.00000001, 1.00000001]}},
+    {"name": "wall_bottom", "dimension": 1, "selector": {"kind": "bounding_box", "bounds": [-1.0e-8, -1.0e-8, 4.00000001, 1.0e-8]}},
+    {"name": "wall_top", "dimension": 1, "selector": {"kind": "bounding_box", "bounds": [-1.0e-8, 0.99999999, 4.00000001, 1.00000001]}},
+    {"name": "obstacle_wall", "dimension": 1, "selector": {"kind": "boundary_of", "reference": "obstacle"}}
+  ],
+  "mesh": {
+    "cell_type": "triangle",
+    "order": 1,
+    "global_size": 0.08,
+    "refinements": [{"region": "obstacle_wall", "size": 0.03, "distance": 0.3}],
+    "quality": {"minimum_scaled_jacobian": 0.0, "maximum_elements": 2000000}
+  },
+  "metadata": {
+    "id": "channel-with-cylinder-2d",
+    "title": "Channel with cylindrical obstacle",
+    "description": "An elongated 2D flow channel with a circular internal obstacle and named inlet/outlet boundaries."
+  }
+}

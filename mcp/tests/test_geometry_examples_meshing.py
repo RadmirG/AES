@@ -14,6 +14,10 @@ SPEC = importlib.util.spec_from_file_location("aes_geometry_example_provider", S
 server = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
 SPEC.loader.exec_module(server)
+EXAMPLE_IDS = [
+    entry["id"]
+    for entry in json.loads((EXAMPLE_ROOT / "index.json").read_text(encoding="utf-8"))
+]
 
 
 @pytest.mark.skipif(
@@ -22,12 +26,7 @@ SPEC.loader.exec_module(server)
 )
 @pytest.mark.parametrize(
     "example_id",
-    [
-        "unit-square-2d",
-        "square-with-hole-2d",
-        "unit-plate-solid-3d",
-        "plate-with-hole-solid-3d",
-    ],
+    EXAMPLE_IDS,
 )
 def test_standard_geometry_generates_a_mesh(example_id, tmp_path, monkeypatch):
     geometry = json.loads(
