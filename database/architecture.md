@@ -2,7 +2,7 @@
 
 The `database/` component owns AES PostgreSQL deployment, schema migrations,
 and durable application data. The first implemented slice provides pgvector,
-server-side users, and opaque login sessions. Conversations, workflow records,
+server-side users, opaque login sessions, and recoverable execution records. Conversations,
 LangGraph checkpoints, artifact metadata, and retrieval indexes remain the
 target described by this document.
 
@@ -117,8 +117,8 @@ The database introduction replaces or complements these current stores.
 | Conversations and turns | Browser `localStorage` | `chat.chat_thread` and `chat.chat_message` |
 | Active conversation selection | Browser `localStorage` | Remains a UI preference; may be cached locally |
 | `AgentState` | Process memory during `graph.invoke` | PostgreSQL LangGraph checkpointer |
-| Run status and next action | Returned only in `aes_result` and artifact manifest | `workflow.aes_run` |
-| Node and route progress | Logs plus simulated Workbench progress | `workflow.run_event` |
+| Run status and final response | `workflow.aes_run` with owner and immutable request snapshot | Implemented; retain projected response and artifact links |
+| Node progress | `workflow.aes_run.progress` JSONB from backend events | Separate indexed `workflow.run_event` table when needed |
 | Ollama calls | Component logs | `workflow.model_call` metadata and bounded content |
 | Tool calls and results | `AgentState.tool_results` and logs | `workflow.tool_call` plus checkpoint snapshot |
 | Artifact metadata | `manifest.json` in each run directory | `artifact.artifact` plus existing manifest |
@@ -128,8 +128,62 @@ The database introduction replaces or complements these current stores.
 Browser storage is no longer authoritative for identity. It remains the
 temporary source of truth for conversations and active UI selection until the
 chat schema and API slice is implemented. PostgreSQL is already authoritative
-for users and sessions and will become authoritative for chats, progress, and
-results in later slices.
+for users, sessions, execution requests, progress, and final run responses.
+Full chat synchronization and graph checkpoints remain future slices.
+
+## Implemented Run Recovery
+
+Migration `002_workflow_runs.sql` adds the durable Workbench job queue and result
+store. The API role can read/write this table but cannot run migrations. Each run
+belongs to an existing `identity.app_user`; every browser lookup filters by that
+owner. `conversation_id` is currently the browser chat identifier, not a foreign
+key to a server chat table that has not been implemented.
+
+```mermaid
+erDiagram
+    APP_USER ||--o{ AES_RUN : owns
+    AES_RUN {
+        uuid id PK
+        uuid user_id FK
+        varchar conversation_id
+        char request_fingerprint
+        jsonb request
+        varchar status
+        jsonb progress
+        jsonb response
+        text error
+        uuid worker_id
+        timestamptz heartbeat_at
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz started_at
+        timestamptz finished_at
+    }
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> queued: Persist accepted UUID and request
+    queued --> running: Worker claims row once
+    running --> running: Persist progress and heartbeat
+    running --> completed: Save answer or clarification and artifacts
+    running --> failed: Save execution failure or tool_error response
+    running --> interrupted: Worker heartbeat absent for 120 seconds
+    completed --> [*]
+    failed --> [*]
+    interrupted --> [*]
+```
+
+A browser reload changes none of these states; it authenticates and retrieves the
+same row. Concurrent identical POST retries return that row, while reuse of an ID
+with different content returns HTTP 409. Workers use row locking to prevent two
+workers from claiming a queued run. Abandoned running jobs require an explicit new
+request; no automatic replay of meshing or solver side effects occurs.
+
+Large mesh and field files remain in artifact storage. JSONB holds the request,
+compact progress, and public response projection, without inline solution arrays.
+The run record ID is distinct from the artifact manifest's run directory ID.
+The latter remains available through the saved response's artifact links.
 
 ## AgentState Persistence Map
 

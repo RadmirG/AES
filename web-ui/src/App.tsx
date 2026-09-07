@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { currentAuthenticatedUser, loginUser, logoutUser } from "./auth";
 import { loadModelCatalog } from "./backend";
+import { useRunRecovery } from "./useRunRecovery";
 import { BackendLogPanel } from "./components/BackendLogPanel";
 import { ChatPanel } from "./components/ChatPanel";
 import { ConversationSidebar } from "./components/ConversationSidebar";
@@ -24,12 +25,13 @@ export function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState("");
   const [isCheckingSession, setIsCheckingSession] = useState(true);
-  const [isSolveRunning, setIsSolveRunning] = useState(false);
   const [authenticationError, setAuthenticationError] = useState("");
   const [leftMode, setLeftMode] = useState<"chat" | "logs">("chat");
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog | null>(null);
   const [selectedModel, setSelectedModel] = useState("");
   const [modelError, setModelError] = useState("");
+  const isSolveRunning = conversations.some((conversation) => Boolean(conversation.pendingRun));
+  useRunRecovery(user?.id, conversations, handleConversationUpdate);
 
   useEffect(() => {
     let cancelled = false;
@@ -147,6 +149,11 @@ export function App() {
   }
 
   function handleConversationChange(nextConversation: Conversation) {
+    if (user && nextConversation.pendingRun) {
+      saveStoredConversations(user.username, conversations.map((conversation) =>
+        conversation.id === nextConversation.id ? nextConversation : conversation,
+      ), true);
+    }
     setConversations((current) =>
       current
         .map((conversation) =>
@@ -168,10 +175,10 @@ export function App() {
         )
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     );
-    setActiveConversationId(id);
   }
 
   function handleDeleteConversation(id: string) {
+    if (conversations.find((conversation) => conversation.id === id)?.pendingRun) return;
     const remaining = withDefaultConversation(
       conversations.filter((conversation) => conversation.id !== id),
     );
@@ -267,9 +274,7 @@ export function App() {
               isRunning={isSolveRunning}
               selectedModel={selectedModel || modelCatalog?.default_model || ""}
               onConversationChange={handleConversationChange}
-              onConversationUpdate={handleConversationUpdate}
               onGeometryContextChange={handleGeometryContextChange}
-              onRunningChange={setIsSolveRunning}
             />
           </div>
         ) : (

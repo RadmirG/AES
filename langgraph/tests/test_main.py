@@ -3,7 +3,7 @@ import sys
 import types
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 class _FastAPIStub:
@@ -414,6 +414,83 @@ class AuthenticationApiTests(unittest.TestCase):
         self.assertEqual(result["scope"], "langgraph")
         self.assertEqual(result["next_after"], 12)
         self.assertEqual(result["entries"], entries)
+
+
+class DurableRunApiTests(unittest.TestCase):
+    def setUp(self):
+        self.run_id = "b758c346-77b0-46d2-902b-ddbd947cbd19"
+        self.user = _FakeAuthService().user
+        self.repository = Mock()
+        self.row = None
+
+        def get(run_id, user_id):
+            return self.row if self.row and user_id == self.row["user_id"] else None
+
+        def create(run_id, user_id, conversation_id, fingerprint, request):
+            self.row = {
+                "id": run_id, "user_id": user_id, "conversation_id": conversation_id,
+                "request_fingerprint": fingerprint, "request": request,
+                "status": "queued", "progress": [], "response": None,
+                "created_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc),
+            }
+            return self.row
+
+        self.repository.get.side_effect = get
+        self.repository.create.side_effect = create
+
+    def payload(self, geometry=None):
+        return main.WorkbenchRunRequest(
+            run_id=self.run_id, conversation_id="chat-1", model="aes-agent", backend_model="gemma4:31b",
+            stream=False, messages=[ChatMessage(role="user", content="Solve Laplace on attached geometry")],
+            geometry_spec=geometry,
+        )
+
+    def test_duplicate_submission_uses_same_run_without_model_or_graph_call(self):
+        with patch.object(main, "require_authenticated_user", return_value=self.user), patch.object(
+            main, "auth_enabled", return_value=True,
+        ), patch.object(main, "get_run_repository", return_value=self.repository), patch.object(
+            main, "_resolve_backend_model", return_value="gemma4:31b",
+        ) as resolve, patch.object(main, "run_aes_agent") as solve:
+            response = _FakeResponse()
+            first = main.submit_run(self.payload(), _FakeRequest(), response)
+            second = main.submit_run(self.payload(), _FakeRequest(), response)
+            self.assertEqual(first["id"], second["id"])
+            self.assertEqual(first["status"], "queued")
+            self.assertEqual(response.headers["Cache-Control"], "no-store")
+            self.assertEqual(resolve.call_count, 1)
+            self.assertEqual(self.repository.create.call_count, 1)
+            solve.assert_not_called()
+
+    def test_same_id_with_changed_geometry_is_rejected(self):
+        with patch.object(main, "require_authenticated_user", return_value=self.user), patch.object(
+            main, "auth_enabled", return_value=True,
+        ), patch.object(main, "get_run_repository", return_value=self.repository), patch.object(
+            main, "_resolve_backend_model", return_value="gemma4:31b",
+        ):
+            main.submit_run(self.payload({"dimension": 2}), _FakeRequest(), _FakeResponse())
+            with self.assertRaises(_HTTPExceptionStub) as raised:
+                main.submit_run(self.payload({"dimension": 3}), _FakeRequest(), _FakeResponse())
+            self.assertEqual(raised.exception.status_code, 409)
+
+    def test_result_polling_checks_owner(self):
+        self.row = {"id": self.run_id, "user_id": "someone-else"}
+        with patch.object(main, "require_authenticated_user", return_value=self.user), patch.object(
+            main, "get_run_repository", return_value=self.repository,
+        ):
+            with self.assertRaises(_HTTPExceptionStub) as raised:
+                main.get_run(self.run_id, _FakeRequest(), _FakeResponse())
+            self.assertEqual(raised.exception.status_code, 404)
+            self.repository.get.assert_called_once_with(self.run_id, self.user.id)
+
+    def test_run_endpoints_require_a_session(self):
+        with patch.object(main, "auth_enabled", return_value=True):
+            for call in (
+                lambda: main.get_run(self.run_id, _FakeRequest(), _FakeResponse()),
+                lambda: main.submit_run(self.payload(), _FakeRequest(), _FakeResponse()),
+            ):
+                with self.assertRaises(_HTTPExceptionStub) as raised:
+                    call()
+                self.assertEqual(raised.exception.status_code, 401)
 
 
 class PublicResponseProjectionTests(unittest.TestCase):

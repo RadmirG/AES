@@ -23,6 +23,7 @@ export function loadStoredConversations(username: string): Conversation[] {
 export function saveStoredConversations(
   username: string,
   conversations: Conversation[],
+  required = false,
 ) {
   const compactConversations = conversations.map(compactConversationForStorage);
   try {
@@ -31,6 +32,7 @@ export function saveStoredConversations(
       JSON.stringify(compactConversations),
     );
   } catch (error) {
+    if (required) throw new Error("AES could not save the request ID locally. Free browser storage before starting a run.");
     console.error("AES could not persist the local chat history.", error);
   }
 }
@@ -163,6 +165,7 @@ function compactArtifact(value: Record<string, unknown>): AesArtifact {
 }
 
 function markInterruptedRequests(conversation: Conversation): Conversation {
+  if (conversation.pendingRun) return conversation;
   const turns = conversation.turns.map((turn) => {
     if (turn.role !== "progress" || !turn.progressSteps?.length) {
       return turn;
@@ -182,7 +185,7 @@ function markInterruptedRequests(conversation: Conversation): Conversation {
         if (index === interruptedIndex) {
           return {
             ...step,
-            detail: "The page was reloaded before the final response was saved. Submit the request again.",
+            detail: "This older request has no saved server run ID and cannot be reconnected automatically. Check its artifacts before submitting again.",
             status: "error" as ProgressStatus,
           };
         }

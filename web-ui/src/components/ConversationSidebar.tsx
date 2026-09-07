@@ -41,9 +41,11 @@ export function ConversationSidebar({
           >
             <span>{conversation.title}</span>
             <small>{formatTime(conversation.updatedAt)}</small>
+            {conversation.pendingRun ? <small>Running...</small> : null}
             {conversations.length > 1 ? (
               <button
                 className="deleteConversation"
+                disabled={Boolean(conversation.pendingRun)}
                 onClick={(event) => {
                   event.stopPropagation();
                   onDelete(conversation.id);

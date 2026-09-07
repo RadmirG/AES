@@ -7,8 +7,12 @@ and writes final user-facing answers from graph state.
 
 ```mermaid
 flowchart TD
-    A["HTTP request<br/>/v1/chat/completions or /invoke"] --> AUTH["Session authentication"]
+    A["HTTP request<br/>/api/runs, /v1/chat/completions, or /invoke"] --> AUTH["Session authentication"]
     AUTH --> B["FastAPI adapter"]
+    B -->|Workbench| JOBS[("PostgreSQL workflow.aes_run")]
+    JOBS --> WORKER["Background RunWorker"]
+    WORKER --> C
+    WORKER --> JOBS
     B --> C["OpenAI chat adapter"]
     C --> D["Active AES request plus optional GeometrySpec"]
     D --> E["LangGraph StateGraph"]
@@ -31,6 +35,7 @@ flowchart TD
 - the AES FastAPI service,
 - the OpenAI-compatible API surface,
 - PostgreSQL-backed user/session authentication at the API boundary,
+- durable, owner-scoped Workbench execution records and background execution,
 - `AgentState`,
 - LangGraph nodes and routing,
 - model-provider prompt transport and response parsing,
@@ -49,6 +54,65 @@ It does not own:
 - production deployment topology.
 
 ## Authentication Boundary
+
+### Recoverable Workbench Runs
+
+Workbench uses `POST /api/runs` to accept a durable job and `GET /api/runs/{id}`
+to retrieve its status, node progress, and final OpenAI-shaped response. Both
+endpoints enforce session authentication and run ownership. The request UUID is
+generated and saved in the browser before submission; the run table primary key
+and a canonical payload fingerprint make submission idempotent. Model selection
+is validated once and frozen alongside the chat history and GeometrySpec.
+
+The FastAPI lifespan starts one polling RunWorker per process. Workers claim
+queued jobs with PostgreSQL `FOR UPDATE SKIP LOCKED`, release the transaction,
+and execute outside the HTTP request lifetime. Graph node wrappers publish
+progress through a ContextVar. Heartbeats run every five seconds independently
+of slow LLM/tool calls. Completion persists the projected response and artifact
+links; transient result-write failures retry the write without invoking the graph again.
+
+Lifecycle and queue primitives follow the official [FastAPI lifespan](https://fastapi.tiangolo.com/advanced/events/)
+and [PostgreSQL locking-clause](https://www.postgresql.org/docs/16/sql-select.html#SQL-FOR-UPDATE-SHARE)
+documentation.
+
+The synchronous `/v1/chat/completions` and `/invoke` APIs remain available for
+existing clients. Durable Workbench runs require the configured PostgreSQL and
+authentication service. The new route never falls back to process-only run storage.
+
+```mermaid
+classDiagram
+    class PostgresRunRepository {
+        get(run_id, user_id)
+        create(run_id, user_id, conversation_id, fingerprint, request)
+        claim(worker_id)
+        heartbeat(run_id, worker_id)
+        progress(run_id, worker_id, node, phase)
+        finish(run_id, worker_id, status, response, error)
+    }
+    class RunWorker {
+        worker_id
+        start()
+        execute_claimed(row)
+        stop()
+    }
+    class FastAPIAdapter {
+        submit_run()
+        get_run()
+    }
+    class GraphNodeWrapper {
+        report_progress(node, phase)
+    }
+    FastAPIAdapter --> PostgresRunRepository
+    RunWorker --> PostgresRunRepository
+    RunWorker --> GraphNodeWrapper : executes
+    GraphNodeWrapper --> PostgresRunRepository : scoped progress sink
+```
+
+Queued jobs survive backend restarts. Running jobs with no heartbeat for 120
+seconds become `interrupted`; they are never automatically replayed because
+provider side effects may already have occurred. Completed responses survive
+restarts in PostgreSQL. This slice does not persist LangGraph checkpoints or
+resume a solver from its last time step.
 
 The FastAPI service owns authentication so the browser never connects to
 PostgreSQL. `POST /api/auth/login` verifies an Argon2id password hash and sets

@@ -8,6 +8,7 @@ import os
 import time
 import threading
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Union
 
@@ -38,10 +39,31 @@ from aes_agent.model_client import (
     use_llm_model,
 )
 from aes_agent.response_projection import build_public_aes_result
+from aes_agent.runs import (
+    RunConflictError,
+    RunStoreUnavailable,
+    RunWorker,
+    get_run_repository,
+    public_run,
+    request_fingerprint,
+)
 
 configure_logging("langgraph")
 
-app = FastAPI(title="LangGraph Service")
+@asynccontextmanager
+async def lifespan(_app):
+    worker = None
+    if auth_enabled():
+        worker = RunWorker(get_run_repository(), _execute_stored_run)
+        worker.start()
+    try:
+        yield
+    finally:
+        if worker:
+            worker.stop()
+
+
+app = FastAPI(title="LangGraph Service", lifespan=lifespan)
 logger = logging.getLogger("aes_agent")
 
 _cors_origins = [
@@ -93,6 +115,11 @@ class ChatCompletionRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class WorkbenchRunRequest(ChatCompletionRequest):
+    run_id: uuid.UUID
+    conversation_id: str
 
 
 def extract_text_from_content(content: Union[str, List[Dict[str, Any]]]) -> str:
@@ -718,12 +745,16 @@ def list_models():
 def chat_completions(request: ChatCompletionRequest, http_request: Request):
     user = require_authenticated_user(http_request)
     selected_model = _resolve_backend_model(request.backend_model)
+    return _complete_chat(request, user.id, selected_model)
+
+
+def _complete_chat(request: ChatCompletionRequest, user_id: str, selected_model: str):
     logger.info(
         (
             "OpenAI-compatible chat completion requested: user_id=%s "
             "model=%s backend_model=%s stream=%s messages=%s"
         ),
-        user.id,
+        user_id,
         request.model,
         selected_model,
         request.stream,
@@ -758,9 +789,9 @@ def chat_completions(request: ChatCompletionRequest, http_request: Request):
         result = run_aes_agent(
             user_text,
             cache_scope=(
-                f"{user.id}|model:{selected_model}"
+                f"{user_id}|model:{selected_model}"
                 if request.backend_model
-                else user.id
+                else user_id
             ),
             requested_geometry_spec=request.geometry_spec,
         )
@@ -844,6 +875,65 @@ def chat_completions(request: ChatCompletionRequest, http_request: Request):
         "aes_result": public_result,
         "backend_model": selected_model,
     }
+
+
+def _execute_stored_run(row: dict) -> dict:
+    payload = ChatCompletionRequest(**row["request"])
+    # Model choice was validated and frozen when the run was accepted.
+    return _complete_chat(payload, str(row["user_id"]), row["request"]["backend_model"])
+
+
+@app.post("/api/runs", status_code=202)
+def submit_run(payload: WorkbenchRunRequest, http_request: Request, response: Response):
+    user = require_authenticated_user(http_request)
+    if not auth_enabled():
+        raise HTTPException(status_code=503, detail="Persistent Workbench runs require database authentication.")
+    if payload.stream or not 1 <= len(payload.conversation_id) <= 160:
+        raise HTTPException(status_code=400, detail="Invalid Workbench run request.")
+    submitted = {
+        "model": payload.model,
+        "messages": [{"role": m.role, "content": m.content} for m in payload.messages],
+        "stream": False,
+        "geometry_spec": payload.geometry_spec,
+        "backend_model": payload.backend_model,
+    }
+    if len(json.dumps(submitted).encode("utf-8")) > 1_048_576:
+        raise HTTPException(status_code=413, detail="Workbench request exceeds the 1 MiB limit.")
+    if not build_user_text_from_messages(payload.messages):
+        raise HTTPException(status_code=400, detail="No user message found.")
+    if payload.geometry_spec and len(json.dumps(payload.geometry_spec).encode("utf-8")) > 262_144:
+        raise HTTPException(status_code=413, detail="Attached GeometrySpec exceeds the 256 KiB request limit.")
+    fingerprint = request_fingerprint({"conversation_id": payload.conversation_id, **submitted})
+    repository = get_run_repository()
+    try:
+        row = repository.get(str(payload.run_id), user.id)
+        if row:
+            if row["request_fingerprint"] != fingerprint:
+                raise RunConflictError("This request ID is already in use for another request.")
+        else:
+            submitted["backend_model"] = _resolve_backend_model(payload.backend_model)
+            row = repository.create(str(payload.run_id), user.id, payload.conversation_id, fingerprint, submitted)
+    except RunConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RunStoreUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    response.headers["Cache-Control"] = "no-store"
+    logger.info("Workbench run accepted: run_id=%s status=%s user_id=%s", row["id"], row["status"], user.id)
+    return public_run(row)
+
+
+@app.get("/api/runs/{run_id}")
+def get_run(run_id: uuid.UUID, request: Request, response: Response):
+    user = require_authenticated_user(request)
+    try:
+        repository = get_run_repository()
+        row = repository.get(str(run_id), user.id)
+    except RunStoreUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail="Run not found.")
+    response.headers["Cache-Control"] = "no-store"
+    return public_run(row)
 
 
 def _resolve_backend_model(requested_model: str | None) -> str:

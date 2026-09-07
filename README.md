@@ -259,9 +259,14 @@ Ingress.
 
 ## Current Boundaries
 
-- Users and server sessions are stored in PostgreSQL.
+- Users, server sessions, accepted execution requests, progress, and final run
+  responses are stored in PostgreSQL. Refreshing the Workbench reconnects to
+  the saved run ID without starting a second solve.
 - Workbench conversation history is currently browser-local and scoped by
   username; database-backed chat persistence is planned.
+- Queued runs and completed responses survive backend restarts. Running jobs
+  whose worker heartbeat expires are marked interrupted; solver checkpoints
+  and automatic continuation of interrupted execution are not implemented.
 - Existing artifact directories do not yet provide complete per-user
   multi-tenant authorization.
 - Retrieval and filesystem MCP providers are architectural scaffolds, not

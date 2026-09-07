@@ -5,6 +5,7 @@ export type ChatTurn = {
   content: string;
   createdAt?: string;
   progressSteps?: ProgressStep[];
+  runId?: string;
 };
 
 export type WorkbenchUser = {
@@ -22,6 +23,36 @@ export type Conversation = {
   turns: ChatTurn[];
   geometryContext?: GeometryContext;
   result?: WorkbenchResult;
+  pendingRun?: PendingRun;
+  runConnectionError?: string;
+};
+
+export type RunSubmission = {
+  run_id: string;
+  conversation_id: string;
+  model: string;
+  backend_model: string;
+  stream: false;
+  messages: Array<{ role: string; content: string }>;
+  geometry_spec?: GeometrySpec;
+};
+
+export type PendingRun = {
+  id: string;
+  progressTurnId: string;
+  request: RunSubmission;
+  geometryContext?: GeometryContext;
+};
+
+export type BackendRun = {
+  id: string;
+  conversation_id: string;
+  status: "queued" | "running" | "completed" | "failed" | "interrupted";
+  progress: ProgressStep[];
+  response?: ChatCompletionResponse | null;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ProgressStatus = "pending" | "active" | "done" | "error";

@@ -66,8 +66,9 @@ flowchart LR
 
 The database component now deploys one PostgreSQL container with `pgvector`, a
 versioned migration job, separate schemas, and restricted runtime roles. The
-implemented identity slice stores users and opaque server sessions. Large
-numerical files remain in the artifact store; chat, workflow, checkpoint,
+implemented slices store users, opaque server sessions, and recoverable run
+records with progress and final responses. Large numerical files remain in
+the artifact store; full chat synchronization, indexed workflow detail, checkpoint,
 artifact-metadata, and retrieval persistence follow in later slices.
 
 ```mermaid
@@ -75,7 +76,7 @@ flowchart LR
     U["User"] --> W["web-ui<br/>AES Workbench"]
     W -->|"same-origin API"| API["LangGraph FastAPI"]
     API --> G["LangGraph StateGraph"]
-    API --> DB[("users, chats, runs")]
+    API --> DB[("users, sessions, runs")]
     G --> DB
     G --> O["Model provider client"]
     O --> OD["Ollama dev"]
@@ -117,26 +118,35 @@ sequenceDiagram
     participant Store as Artifact Store
 
     User->>UI: Submit PDE / engineering request
-    UI->>LG: Submit authenticated chat message
-    LG->>DB: Store message and create AES run
+    UI->>UI: Save request UUID, model, geometry, and progress turn
+    UI->>LG: POST /api/runs with authenticated session
+    LG->>DB: Insert idempotent user-owned run
+    LG-->>UI: 202 with durable run ID
+    LG->>DB: Background worker claims queued run
     LG->>LG: Run LangGraph StateGraph
-    LG->>DB: Store checkpoints and run events
+    LG->>DB: Store node progress and heartbeat
     LG->>Model: Structured interpretation call
     Model-->>LG: Provider response
     LG->>MCP: Execute governed MCP tool if needed
     MCP-->>LG: stdout, diagnostics, provider artifact refs
     LG->>Store: Store manifest, summary, inline artifacts
     Store-->>LG: AES artifact run id and URLs
-    LG->>DB: Store tool/artifact metadata and final run status
-    LG->>DB: Store assistant message
-    LG-->>UI: Final answer + compact aes_result
+    LG->>DB: Store final response with artifact links
+    UI->>UI: Refresh or reopen page
+    UI->>LG: GET /api/runs/id using saved ID
+    LG->>DB: Load run scoped to authenticated owner
+    LG-->>UI: Status, progress, and saved final response
     UI->>Store: Load /artifacts links through proxy
 ```
 
-Identity/session operations in this sequence are implemented. Message, run,
-checkpoint, tool, and artifact-metadata operations describe the next
-persistence slices; the current Workbench still stores conversations in
-browser `localStorage` and the graph invokes without a persistent checkpointer.
+Identity/session and recoverable run operations in this sequence are implemented.
+Accepted Workbench runs, progress, heartbeats, and projected final responses are
+stored in `workflow.aes_run`. Browser refresh reconnects to the same run and does
+not trigger a second solve. Full conversation synchronization, indexed tool and
+artifact metadata, and graph checkpoints remain future slices. Conversations
+still use browser `localStorage`; graph execution has no persistent checkpointer.
+Queued work survives restarts, while a running job with an expired worker
+heartbeat is explicitly interrupted and is never silently replayed.
 
 ## Component Responsibilities
 
@@ -476,7 +486,7 @@ See [`deploy/architecture.md`](../deploy/architecture.md) and
   post-processing; the Workbench already consumes DOLFINx VTK topology and
   nodal field samples from the governed viewer manifest.
 - Add retrieval provider implementation for project/domain RAG.
-- Migrate Workbench chats, run progress, artifact ownership, and LangGraph
+- Migrate full Workbench chats, artifact ownership, and LangGraph
   checkpoints from process/browser memory to server-side PostgreSQL
   persistence; identity and login sessions are already implemented.
 - Add lifecycle controller for on-demand provider startup when Compose profiles

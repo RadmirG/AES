@@ -12,7 +12,7 @@ flowchart TD
     AUTH --> B
     C --> D["Left pane<br/>chat or backend logs"]
     C --> E["Right pane<br/>result workspace"]
-    D --> F["POST /v1/chat/completions"]
+    D --> F["POST /api/runs<br/>GET /api/runs/id"]
     F --> B
     B --> G["langgraph:8001"]
     G --> H["aes_result"]
@@ -116,7 +116,7 @@ flowchart TD
     H --> I["Render chat + latest result"]
 ```
 
-PostgreSQL is authoritative for users and sessions. Conversation content is
+PostgreSQL is authoritative for users, sessions, and accepted execution runs. Conversation content is
 still stored in browser `localStorage` as a transitional implementation. The
 next database slice moves conversations and messages to authenticated APIs;
 local storage then becomes only an optimistic cache and UI preference store.
@@ -128,6 +128,7 @@ Saved conversations contain:
 - compact latest `aes_result`,
 - artifact/result links.
 - an optional attached GeometrySpec for subsequent solve requests.
+- a pending run ID and immutable request snapshot until its final response is recovered.
 
 The Workbench never persists raw graph/tool payloads, inline generated files,
 or sampled numerical arrays in `localStorage`. The API response projection and
@@ -137,9 +138,10 @@ manifests, diagnostics, previews, and solution data are fetched on demand from
 authenticated `/artifacts/...` URLs. This keeps a single solve from exceeding
 the browser storage quota.
 
-When a page reload interrupts an in-flight request, the restored progress turn
-is marked as interrupted instead of remaining permanently active at `Waiting
-for final response`.
+Reloading restores the pending run ID and polls its authenticated server record.
+Temporary network or login failures preserve the pending run for reconnection.
+Older requests made before run IDs existed cannot be automatically recovered;
+their restored progress explains that limitation without claiming the solver stopped.
 
 ## Persistent Progress Turns
 
@@ -148,17 +150,42 @@ AES progress is represented as a real chat turn, not transient component state.
 ```mermaid
 flowchart TD
     A["User sends request"] --> B["Append user turn"]
-    B --> C["Append progress turn"]
-    C --> D["POST /v1/chat/completions"]
-    D --> E["Advance progress steps while running"]
-    E --> F["Response received"]
-    F --> G["Mark progress done"]
-    G --> H["Append AES assistant answer"]
-    H --> I["Persist conversation"]
+    B --> C["Persist run UUID, request snapshot, and progress turn"]
+    C --> D["POST /api/runs with saved UUID"]
+    D --> Q[("PostgreSQL run record")]
+    Q --> W["Backend worker executes once"]
+    W --> Q
+    C --> R["Page refresh or Chat/Logs switch"]
+    R --> P["GET /api/runs/id every two seconds"]
+    P --> Q
+    Q -->|running| E["Display persisted backend node progress"]
+    E --> P
+    Q -->|finished| F["Recover saved response and aes_result"]
+    F --> H["Append answer once and update result viewer"]
+    H --> I["Clear pending ID and persist conversation"]
 ```
 
 This means refresh does not remove the progress record. Each question keeps its
 own progress block between the user request and AES answer.
+
+`useRunRecovery` lives at the App level, outside the ChatPanel and Logs panel.
+It also polls pending runs belonging to inactive conversations without switching
+the selected chat. Model and geometry remain locked while a run is pending.
+Deleting a pending conversation is disabled. A local-storage failure blocks
+submission before network activity, so an accepted run cannot lose its identifier
+because the initial browser persistence failed.
+
+If GET returns 404 before a run was accepted, the saved request is submitted with
+the same UUID. PostgreSQL rejects conflicting payloads and returns the existing
+record for identical submissions. Lost acknowledgements and simultaneous tabs
+therefore do not launch duplicate solves. Network failures retain the pending ID;
+they are not evidence of solver failure. The final response includes the original
+request's geometry context so the recovered field belongs to the correct geometry.
+
+Progress now records actual graph node starts/completions; the old 4.5-second
+simulation has been removed. This is whole-run recovery, not a LangGraph
+checkpoint/resume implementation. A worker that loses its heartbeat for two
+minutes is marked interrupted and requires an explicit new request.
 
 ## Result Workspace
 
@@ -265,7 +292,7 @@ flowchart TD
     D -->|compiler extension| G["Visible disabled roadmap card"]
     D -->|advanced backend| G
     C --> H["Choose available provider model"]
-    F --> I["POST /v1/chat/completions"]
+    F --> I["POST /api/runs with frozen geometry and model"]
     H --> I
     I --> J["model: aes-agent"]
     I --> K["backend_model: selected id"]

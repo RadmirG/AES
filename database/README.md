@@ -2,7 +2,8 @@
 
 The database component runs PostgreSQL 16 with pgvector. The first implemented
 slice provides durable users and opaque server-side sessions for the AES
-Workbench. The same service will later hold conversations, workflow metadata,
+Workbench. It also stores recoverable execution runs, progress, and final responses.
+The same service will later hold synchronized conversations,
 LangGraph checkpoints, artifact metadata, and retrieval embeddings.
 
 See [architecture.md](architecture.md) for the complete ownership and schema
@@ -49,7 +50,10 @@ password as a command-line argument.
 ## Current Slice Boundary
 
 The implemented database boundary authenticates users and protects chat,
-invoke, and artifact HTTP endpoints. It does not yet persist conversations or
+invoke, run, and artifact HTTP endpoints. Migration `002_workflow_runs.sql`
+persists execution requests, node progress, final responses, and worker heartbeats.
+Each run has user ownership checks and can be retrieved after a browser refresh.
+It does not yet persist full conversations or
 associate existing artifact directories with a user. Per-user authorization of
-chat threads, runs, and artifacts is part of the next persistence slice; do not
+chat threads and artifacts is part of the next persistence slice; do not
 treat this first authentication gate as complete multi-tenant isolation.

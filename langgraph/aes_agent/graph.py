@@ -8,6 +8,7 @@ from typing import Any, Dict
 from langgraph.graph import END, StateGraph
 
 from aes_agent.logging_config import log_content_preview
+from aes_agent.run_progress import report_progress
 from aes_agent.nodes import (
     check_problem_completeness,
     classify_problem,
@@ -46,6 +47,7 @@ def _logged_node(
     fn: Callable[[AgentState], Dict[str, Any]],
 ) -> Callable[[AgentState], Dict[str, Any]]:
     def wrapper(state: AgentState) -> Dict[str, Any]:
+        report_progress(name, "started")
         logger.info("Graph node started: node=%s", name)
         log_content_preview(logger, f"Graph node input: node={name}", _state_log_view(state))
         started_at = time.perf_counter()
@@ -62,6 +64,7 @@ def _logged_node(
             elapsed_ms,
         )
         log_content_preview(logger, f"Graph node output: node={name}", output)
+        report_progress(name, "finished")
         return output
 
     wrapper.__name__ = name
