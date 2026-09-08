@@ -11,7 +11,7 @@ from aes_agent.specs.mesh import MeshArtifact
 from aes_agent.specs.pde import PDEProblemSpec
 
 
-COMPILER_VERSION = "0.1.0"
+COMPILER_VERSION = "0.1.1"
 
 
 def compile_dolfinx(
@@ -205,7 +205,7 @@ k = fem.Constant(msh, PETSc.ScalarType({diffusion}))
 f = fem.Constant(msh, PETSc.ScalarType({source}))
 u_previous = fem.Function(V)
 u_previous.name = "u_previous"
-u_previous.interpolate(lambda x: {initial})
+u_previous.interpolate(lambda x: np.full(x.shape[1], {initial}, dtype=PETSc.ScalarType))
 a = (u * v + dt * k * ufl.dot(ufl.grad(u), ufl.grad(v))) * ufl.dx
 L = (u_previous + dt * f) * v * ufl.dx
 u_sol = fem.Function(V)

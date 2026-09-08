@@ -462,6 +462,15 @@ classDiagram
     FenicsCodeCandidate *-- StaticValidation
 ```
 
+Transient scalar initial-condition callbacks return a contiguous array of shape
+`(number_of_interpolation_points,)` with `PETSc.ScalarType`. Both constant values
+such as `20` and coordinate-dependent expressions are expanded through
+`np.full(x.shape[1], expression, dtype=PETSc.ScalarType)` before DOLFINx
+interpolation. This contract is tested by evaluating the generated callback,
+including empty point batches; parsing `solve.py` alone cannot detect a callback
+that returns a scalar. Compiler version `0.1.1` records this correction, and the
+legacy heat fallback uses the same array contract.
+
 Compiled solver runs write a topology-preserving visualization contract under
 `diagnostics.json.field_samples`. `dolfinx.plot.vtk_mesh(V)` supplies the VTK
 cell array, cell types, and function-space coordinates once; stationary and

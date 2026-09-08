@@ -1058,7 +1058,7 @@ u = ufl.TrialFunction(V)
 v = ufl.TestFunction(V)
 u_n = fem.Function(V)
 u_n.name = "u_n"
-u_n.interpolate(lambda x: {initial})
+u_n.interpolate(lambda x: np.full(x.shape[1], {initial}, dtype=PETSc.ScalarType))
 
 boundary_facets = mesh.locate_entities_boundary(
     msh,
