@@ -18,6 +18,7 @@ from aes_agent.prompts import (
     validate_formulation_prompt,
 )
 from aes_agent.state import AgentState
+from aes_agent.specs.request_evidence import initial_condition_clauses, without_initial_conditions
 from aes_agent.typed_problem import interpret_problem_specs, validate_problem_specs
 from aes_agent.tools import (
     execute_tool,
@@ -211,6 +212,13 @@ def validate_typed_specs(state: AgentState) -> Dict[str, Any]:
 def check_problem_completeness(state: AgentState) -> Dict[str, Any]:
     if _has_valid_typed_problem(state):
         return {"missing_information": []}
+    if state.get("typed_validation_status") == "invalid":
+        # The typed validator has the geometry and PDE context. Rechecking its
+        # failures with the legacy string snapshot reintroduces false omissions.
+        return {"missing_information": _dedupe(
+            safe_list_of_str(state.get("typed_validation_errors"))
+            or ["AES could not validate the typed problem specification."]
+        )}
 
     user_text = state.get("raw_user_input", "")
     snapshot = {
@@ -1690,6 +1698,12 @@ def _extract_structure_from_text(user_text: str, pde_info: str) -> dict[str, str
             r"\bu_?0\s*(?:=|is)\s*([^,.;\n]+)",
         ],
     )
+    boundary_text = user_text
+    if pde_info == "time_dependent_heat_equation":
+        clauses = initial_condition_clauses(user_text)
+        if clauses:
+            initial_condition = _normalize_math_expression(clauses[-1].expression)
+        boundary_text = without_initial_conditions(user_text)
     time_values = []
     for pattern in [r"\bT\s*=\s*([0-9]*\.?[0-9]+)", r"\bdt\s*=\s*([0-9]*\.?[0-9]+)"]:
         match = re.search(pattern, user_text, flags=re.IGNORECASE)
@@ -1716,7 +1730,7 @@ def _extract_structure_from_text(user_text: str, pde_info: str) -> dict[str, str
                 "dirichlet" in lowered
                 or re.search(
                     r"\bu(?:\s*\([^)]*\))?\s*=.+?\s+on\s+",
-                    user_text,
+                    boundary_text,
                     flags=re.IGNORECASE,
                 )
             )

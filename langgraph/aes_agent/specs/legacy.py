@@ -22,6 +22,7 @@ from aes_agent.specs.pde import (
     PDEProblemSpec,
     TimeSpec,
 )
+from aes_agent.specs.request_evidence import explicit_parameter_expression, initial_condition_clauses
 
 
 def build_legacy_specs(state: dict[str, Any]) -> tuple[PDEProblemSpec | None, GeometrySpec | None]:
@@ -46,13 +47,13 @@ def _build_pde_spec(state: dict[str, Any]) -> PDEProblemSpec | None:
     raw = str(state.get("raw_user_input", ""))
     dimension = _spatial_dimension(state)
     spatial_variables = ["x", "y", "z"][:dimension]
-    coefficient = _explicit_named_scalar(
-        raw,
-        ("alpha", "a", "k", "diffusion coefficient"),
-    ) or _clean_scalar(state.get("coefficient_info"), default="1")
-    source = _explicit_named_scalar(raw, ("f", "source")) or _clean_scalar(
-        state.get("source_info"),
-        default="0",
+    coefficient = _normalize_math_expression(
+        explicit_parameter_expression(raw, ("alpha", "a", "k", "diffusion coefficient"))
+        or _clean_scalar(state.get("coefficient_info"), default="1")
+    )
+    source = _normalize_math_expression(
+        explicit_parameter_expression(raw, ("f", "source"))
+        or _clean_scalar(state.get("source_info"), default="0")
     )
     boundary_value = _boundary_value(raw)
     boundary_type = _boundary_type(str(state.get("bc_info", "")))
@@ -245,18 +246,6 @@ def _clean_scalar(value: Any, *, default: str) -> str:
     return match.group(1) if match else text
 
 
-def _explicit_named_scalar(raw: str, names: tuple[str, ...]) -> str:
-    number = r"[-+]?(?:\d+\.\d+|\d+|\.\d+)(?:[eE][-+]?\d+)?"
-    matches: list[tuple[int, str]] = []
-    for name in names:
-        pattern = rf"(?<![\w]){re.escape(name)}\s*(?:=|is)\s*({number})"
-        matches.extend(
-            (match.start(), match.group(1))
-            for match in re.finditer(pattern, raw, re.IGNORECASE)
-        )
-    return max(matches, default=(-1, ""), key=lambda item: item[0])[1]
-
-
 def _normalize_math_expression(value: str) -> str:
     normalized = value.strip()
     normalized = normalized.replace("^", "**")
@@ -267,15 +256,5 @@ def _normalize_math_expression(value: str) -> str:
 
 
 def _explicit_initial_condition(raw: str) -> str:
-    number = r"[-+]?(?:\d+\.\d+|\d+|\.\d+)(?:[eE][-+]?\d+)?"
-    patterns = (
-        rf"\binitial\s+condition(?:\s+u)?\s*(?:=|is)\s*({number})",
-        r"\binitial\s+condition(?:\s+u)?\s*(?:=|is)\s*([^,.;\n]+)",
-        rf"\binitial\s+temperature(?:\s+u)?\s*(?:=|is)\s*({number})",
-        r"\binitial\s+temperature(?:\s+u)?\s*(?:=|is)\s*([^,.;\n]+)",
-    )
-    for pattern in patterns:
-        match = re.search(pattern, raw, re.IGNORECASE)
-        if match:
-            return _normalize_math_expression(match.group(1))
-    return ""
+    clauses = initial_condition_clauses(raw)
+    return _normalize_math_expression(clauses[-1].expression) if clauses else ""

@@ -392,6 +392,12 @@ PDE rules:
   and scheme. A documented default such as backward_euler belongs in
   pde_spec.assumptions and is not a blocking ambiguity.
 - Stationary diffusion has null initial_condition and null time.
+- An initial condition applies throughout the domain and may be independent of
+  z in 3D. A clause such as "initial condition ... on base_bottom" specifies
+  only a face: ask for the volume initial field and a separate boundary condition.
+  Do not turn that clause into Dirichlet data or put "on base_bottom" in the expression.
+- Preserve symbolic coefficients such as alpha=xy/10 as x*y/10; never replace
+  them with a constant to fit compiler capabilities.
 - Do not report missing geometry, geometry paths, dimensions, or region names as
   ambiguities: those facts are supplied by the authoritative GeometrySpec.
 - Put only unresolved physics that prevents a solve in ambiguities.

@@ -18,6 +18,7 @@ from aes_agent.specs.expressions import expression_from_text
 from aes_agent.specs.geometry import GeometrySpec, RegionSelector, RegionSpec
 from aes_agent.specs.legacy import build_legacy_specs
 from aes_agent.specs.pde import BoundaryConditionSpec, PDEProblemSpec
+from aes_agent.specs.request_evidence import initial_condition_clauses, without_initial_conditions
 from aes_agent.specs.validation import (
     cross_validate_pde_geometry,
     validate_geometry_spec,
@@ -96,6 +97,9 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
         requested_geometry or fallback_geometry,
         str(state.get("raw_user_input", "")),
     )
+    scope_ambiguities = _initial_condition_scope_ambiguities(
+        fallback_pde, requested_geometry or fallback_geometry, str(state.get("raw_user_input", "")),
+    )
     strategy = os.getenv("AES_TYPED_INTERPRETATION_MODE", "llm_first").strip().lower()
     if strategy == "deterministic_only":
         logger.info(
@@ -108,6 +112,7 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
             source="deterministic_configuration",
             geometry_source=("request_context" if requested_geometry else "deterministic_configuration"),
             warnings=[*requested_geometry_warnings, *fallback_boundary_warnings],
+            ambiguities=scope_ambiguities,
         )
 
     logger.info(
@@ -167,6 +172,11 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
         )
         default_warnings.extend(natural_boundary_warnings)
 
+    scope_ambiguities = _initial_condition_scope_ambiguities(
+        pde or fallback_pde, geometry, str(state.get("raw_user_input", "")),
+    )
+    ambiguities.extend(item for item in scope_ambiguities if item not in ambiguities)
+
     if pde is not None and geometry is not None:
         logger.info(
             "Typed problem interpretation completed: source=llm_structured_extraction "
@@ -201,6 +211,7 @@ def interpret_problem_specs(state: dict[str, Any]) -> dict[str, Any]:
             fallback_geometry_for_run,
             source="deterministic_fallback",
             geometry_source=("request_context" if requested_geometry else "deterministic_fallback"),
+            ambiguities=scope_ambiguities,
             warnings=[
                 "LLM structured interpretation was unusable; AES used the deterministic "
                 "compatibility extractor.",
@@ -366,7 +377,12 @@ def _partition_natural_boundary_ambiguities(
 ) -> tuple[list[str], list[str]]:
     """Treat omitted boundary portions as the FEM natural zero-flux condition."""
 
-    explicit, unresolved = _explicit_dirichlet_conditions(raw_user_input, geometry)
+    boundary_text = (
+        without_initial_conditions(raw_user_input)
+        if pde is not None and pde.equation.family == "transient_diffusion"
+        else raw_user_input
+    )
+    explicit, unresolved = _explicit_dirichlet_conditions(boundary_text, geometry)
     if pde is None or not explicit or unresolved:
         return items, []
     if any(condition.region == "boundary" for condition in explicit):
@@ -459,6 +475,7 @@ def _partition_explicit_value_ambiguities(
                 "initial condition z dependence",
                 "z dependence",
                 "z independence",
+                "dimension consistency check for initial condition",
             )
         )
         if explicit_initial is not None and (
@@ -542,7 +559,12 @@ def _reconcile_explicit_boundary_conditions(
 
     if pde is None or geometry is None:
         return pde, []
-    conditions, unresolved = _explicit_dirichlet_conditions(raw_user_input, geometry)
+    boundary_text = (
+        without_initial_conditions(raw_user_input)
+        if pde.equation.family == "transient_diffusion"
+        else raw_user_input
+    )
+    conditions, unresolved = _explicit_dirichlet_conditions(boundary_text, geometry)
     if not conditions or unresolved:
         return pde, []
     if any(condition.region == "boundary" for condition in conditions):
@@ -556,6 +578,40 @@ def _reconcile_explicit_boundary_conditions(
             "boundary regions instead of conflicting model boundary data."
         ],
     )
+
+
+def _initial_condition_scope_ambiguities(
+    pde: PDEProblemSpec | None,
+    geometry: GeometrySpec | None,
+    text: str,
+) -> list[str]:
+    if pde is None or pde.equation.family != "transient_diffusion":
+        return []
+    issues: list[str] = []
+    for clause in initial_condition_clauses(text):
+        scope = " ".join(clause.scope.lower().replace("_", " ").split())
+        if not scope or re.fullmatch(
+            r"(?:the )?(?:(?:whole|entire|attached|uploaded|selected) )?"
+            r"(?:domain|volume|geometry|workpiece)", scope,
+        ):
+            continue
+        issues.append(
+            f"The initial condition is restricted to '{clause.scope}'. Specify the "
+            "initial field throughout the domain (throughout the volume for 3D), "
+            "or confirm that this is a boundary value and also provide the volume initial field."
+        )
+    if issues and geometry is not None:
+        boundary_text = without_initial_conditions(text)
+        conditions, _ = _explicit_dirichlet_conditions(boundary_text, geometry)
+        if not conditions and not re.search(
+            r"\b(?:dirichlet|neumann|robin|flux|insulated|adiabatic)\b", boundary_text, re.I,
+        ):
+            issues.append(
+                "No boundary condition is specified separately from the initial condition. "
+                "Specify boundary temperatures or normal fluxes and their regions; "
+                "for an insulated workpiece, explicitly request zero flux on all boundaries."
+            )
+    return issues
 
 
 def _explicit_dirichlet_conditions(

@@ -429,6 +429,37 @@ claims about missing initial data or required coordinate dependence are also
 discarded when an explicit initial field was parsed. Unresolved physics and
 geometry inputs remain blocking ambiguities and route to clarification.
 
+Initial-field scope is independent of expression syntax. Shared request evidence
+(`specs/request_evidence.py`) separates expressions, spatial qualifiers, and source
+spans. For transient problems, initial assignments are excluded from the
+Dirichlet parser. Thus `initial condition u(x,y,0)=sin(pi*x)sin(pi*y) on
+base_bottom` contains a valid scalar expression, but specifies only one face:
+AES asks for the initial field throughout the volume and separate boundary data.
+It must not silently impose the expression as a boundary temperature or extend
+it to the volume. Decimal values, implicit products, and explicit symbolic
+coefficients are preserved even when a model summary conflicts with the request.
+
+The completeness gate consumes typed-validation errors directly, including when
+validation fails. It does not launch a second, geometry-blind legacy LLM check
+that can invent missing domains, time values, or coordinate dependence. Legacy
+completeness remains available for requests without a typed-validation result.
+
+```mermaid
+flowchart TD
+    requestEvidence["User text and attached GeometrySpec"] --> candidatePde["LLM typed PDE interpretation"]
+    requestEvidence --> explicitEvidence["Extract expressions, scope and assignment spans"]
+    candidatePde --> reconcilePde["Reconcile explicit physics and authoritative geometry"]
+    explicitEvidence --> reconcilePde
+    reconcilePde --> validatePde["Validate expression syntax, initial scope and PDE geometry compatibility"]
+    validatePde -->|incomplete or ambiguous| clarifyScope["Explain actual issues without a geometry-blind recheck"]
+    validatePde -->|valid| checkCapability["Versioned compiler capability check"]
+    checkCapability -->|unsupported symbolic coefficient| capabilityReport["Report limitation without changing the coefficient"]
+    checkCapability -->|supported| compileSolve["Mesh, compile and execute"]
+    clarifyScope --> storedOutcome["Store specifications and outcome"]
+    capabilityReport --> storedOutcome
+    compileSolve --> storedOutcome
+```
+
 The initial compiler release supports stationary and transient scalar
 diffusion with constant coefficients, constant sources, constant Dirichlet
 data, rectangle primitives, and validated external meshes. Unsupported
