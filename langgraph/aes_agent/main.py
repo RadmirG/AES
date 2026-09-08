@@ -28,6 +28,7 @@ from aes_agent.auth import (
     get_auth_service,
 )
 from aes_agent.graph import graph
+from aes_agent.db_pool import close_database_pools
 from aes_agent.logging_config import (
     configure_logging,
     log_content_preview,
@@ -61,6 +62,7 @@ async def lifespan(_app):
     finally:
         if worker:
             worker.stop()
+        close_database_pools()
 
 
 app = FastAPI(title="LangGraph Service", lifespan=lifespan)

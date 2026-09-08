@@ -8,6 +8,7 @@ import re
 import threading
 from collections import deque
 from datetime import datetime, timezone
+from itertools import islice
 from typing import Any, Mapping
 
 
@@ -55,10 +56,8 @@ class RecentLogHandler(logging.Handler):
                     f"{raw_message}\n"
                     f"{logging.Formatter().formatException(record.exc_info)}"
                 )
-            message = _truncate(
-                _sanitize_string(raw_message),
-                int(os.getenv("AES_RECENT_LOG_MAX_CHARS", "4000")),
-            )
+            limit = int(os.getenv("AES_RECENT_LOG_MAX_CHARS", "4000"))
+            message = _truncate(_sanitize_string(_truncate(raw_message, limit)), limit)
             entry = {
                 "sequence": 0,
                 "timestamp": datetime.fromtimestamp(
@@ -153,7 +152,7 @@ def content_logging_enabled() -> bool:
 
 def log_value(value: Any, *, max_chars: int | None = None) -> str:
     max_chars = max_chars or int(os.getenv("AES_LOG_MAX_CHARS", "1200"))
-    sanitized = _sanitize(value)
+    sanitized = _sanitize(value, max_chars=max_chars)
     try:
         text = json.dumps(sanitized, ensure_ascii=False, sort_keys=True, default=str)
     except TypeError:
@@ -169,28 +168,52 @@ def log_content_preview(
     level: int = logging.INFO,
     max_chars: int | None = None,
 ) -> None:
-    if not content_logging_enabled():
+    if not logger.isEnabledFor(level) or not content_logging_enabled():
         return
     logger.log(level, "%s content=%s", message, log_value(value, max_chars=max_chars))
 
 
-def _sanitize(value: Any) -> Any:
+def _sanitize(
+    value: Any, *, max_chars: int = 1200,
+    budget: list[int] | None = None, depth: int = 0,
+) -> Any:
+    # Bound work before serializing: result objects include full meshes and file bytes.
+    if budget is None:
+        budget = [200]
+    if budget[0] <= 0 or depth >= 8:
+        return "[omitted: preview limit]"
+    budget[0] -= 1
     if isinstance(value, Mapping):
         sanitized = {}
-        for key, item in value.items():
-            key_text = str(key)
+        for key, item in islice(value.items(), 20):
+            if budget[0] <= 0:
+                break
+            key_text = _truncate(str(key), max_chars)
             if _is_sensitive_key(key_text):
                 sanitized[key_text] = "***redacted***"
             else:
-                sanitized[key_text] = _sanitize(item)
+                sanitized[key_text] = _sanitize(
+                    item, max_chars=max_chars, budget=budget, depth=depth + 1,
+                )
+        if len(sanitized) < len(value):
+            sanitized["[omitted]"] = f"{len(value) - len(sanitized)} more entries"
         return sanitized
-    if isinstance(value, list):
-        return [_sanitize(item) for item in value]
-    if isinstance(value, tuple):
-        return [_sanitize(item) for item in value]
+    if isinstance(value, (list, tuple)):
+        sanitized = []
+        for item in islice(value, 20):
+            if budget[0] <= 0:
+                break
+            sanitized.append(_sanitize(
+                item, max_chars=max_chars, budget=budget, depth=depth + 1,
+            ))
+        if len(sanitized) < len(value):
+            sanitized.append(f"[omitted: {len(value) - len(sanitized)} more items]")
+        return sanitized
     if isinstance(value, str):
-        return _sanitize_string(value)
-    return value
+        return _sanitize_string(_truncate(value, max_chars))
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return f"[{type(value).__name__}]"
 
 
 def _is_sensitive_key(key: str) -> bool:

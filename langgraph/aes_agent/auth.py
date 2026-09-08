@@ -12,6 +12,8 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any, Callable, Dict, List, Protocol
 
+from aes_agent.db_pool import get_database_pool
+
 
 USERNAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{2,63}$")
 GENERIC_LOGIN_ERROR = "Invalid user name or password."
@@ -182,23 +184,7 @@ class PostgresAuthRepository:
 
     def _connect(self):
         try:
-            import psycopg
-            from psycopg.rows import dict_row
-        except ImportError as exc:
-            raise AuthenticationBackendError(
-                "psycopg is required for AES database access."
-            ) from exc
-
-        try:
-            return psycopg.connect(
-                host=self.settings.host,
-                port=self.settings.port,
-                dbname=self.settings.database,
-                user=self.settings.user,
-                password=self.settings.password,
-                connect_timeout=self.settings.connect_timeout_seconds,
-                row_factory=dict_row,
-            )
+            return get_database_pool(self.settings).connection()
         except Exception as exc:
             raise AuthenticationBackendError(
                 "Authentication database is unavailable."

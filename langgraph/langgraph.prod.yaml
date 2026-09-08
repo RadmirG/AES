@@ -69,6 +69,10 @@ services:
       - AES_DB_NAME=${AES_POSTGRES_DB:-aes}
       - AES_DB_USER=aes_app
       - AES_DB_PASSWORD=${AES_POSTGRES_APP_PASSWORD:?Set AES_POSTGRES_APP_PASSWORD in deploy/.env}
+      - AES_DB_CONNECT_TIMEOUT=${AES_DB_CONNECT_TIMEOUT:-5}
+      - AES_DB_POOL_MIN_SIZE=${AES_DB_POOL_MIN_SIZE:-2}
+      - AES_DB_POOL_MAX_SIZE=${AES_DB_POOL_MAX_SIZE:-8}
+      - AES_DB_POOL_TIMEOUT=${AES_DB_POOL_TIMEOUT:-10}
     volumes:
       - ../artifacts:/artifacts
       - ../mcp/providers/meshing/workspace:/mesh-inputs:ro

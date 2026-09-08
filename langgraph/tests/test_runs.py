@@ -48,6 +48,7 @@ class MemoryRunRepository:
         with self.lock:
             self.row.update(status=status, response=response, error=error)
         self.finished.set()
+        return True
 
 
 class RunRecoveryTests(unittest.TestCase):
@@ -117,7 +118,7 @@ class RunRecoveryTests(unittest.TestCase):
         def temporary_outage(*args):
             calls.append(args)
             if len(calls) == 1: raise RunStoreUnavailable("temporary outage")
-            finish(*args)
+            return finish(*args)
 
         repository.finish = temporary_outage
         execute = Mock(return_value={"aes_result": {"agent_status": "ok"}})
@@ -133,3 +134,64 @@ class RunRecoveryTests(unittest.TestCase):
         self.assertEqual(original, request_fingerprint(dict(reversed(list(request.items())))))
         for key, value in [("conversation_id", "chat-2"), ("backend_model", "gemma4:31b"), ("geometry_spec", {"dimension": 3})]:
             self.assertNotEqual(original, request_fingerprint({**request, key: value}))
+
+    def test_heartbeat_recovers_without_reexecuting_graph(self):
+        repository = MemoryRunRepository()
+        renewed = threading.Event()
+        attempts = []
+
+        def heartbeat(*args):
+            attempts.append(args)
+            if len(attempts) <= 2:
+                raise RunStoreUnavailable("temporary connection timeout")
+            renewed.set()
+            return True
+
+        def execute(row):
+            self.assertTrue(renewed.wait(2), "heartbeat did not recover")
+            return {"aes_result": {"agent_status": "ok"}}
+
+        repository.heartbeat = heartbeat
+        execute = Mock(side_effect=execute)
+        worker = RunWorker(repository, execute, heartbeat_seconds=0.01)
+        with self.assertLogs("aes_agent.runs", level="INFO") as logs:
+            worker.execute_claimed(repository.claim(worker.worker_id))
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(repository.row["status"], "completed")
+        self.assertTrue(any("heartbeat delayed" in entry for entry in logs.output))
+        self.assertTrue(any("heartbeat recovered" in entry for entry in logs.output))
+        self.assertFalse(any("ERROR" in entry for entry in logs.output))
+
+    def test_progress_failure_is_buffered_and_does_not_fail_execution(self):
+        repository = MemoryRunRepository()
+        persist_progress = repository.progress
+        attempts = []
+
+        def progress(*args):
+            attempts.append(args)
+            if len(attempts) == 1:
+                raise RunStoreUnavailable("temporary connection timeout")
+            persist_progress(*args)
+
+        def execute(row):
+            report_progress("execute_tools", "started")
+            report_progress("execute_tools", "finished")
+            return {"aes_result": {"agent_status": "ok"}}
+
+        repository.progress = progress
+        execute = Mock(side_effect=execute)
+        worker = RunWorker(repository, execute)
+        worker.execute_claimed(repository.claim(worker.worker_id))
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(repository.row["status"], "completed")
+        self.assertEqual(repository.row["progress"], [{"node": "execute_tools", "phase": "finished"}])
+
+    def test_worker_does_not_report_saved_result_after_lease_loss(self):
+        repository = MemoryRunRepository()
+        repository.finish = Mock(return_value=False)
+        worker = RunWorker(repository, lambda row: {"aes_result": {"agent_status": "ok"}})
+        with self.assertLogs("aes_agent.runs", level="INFO") as logs:
+            worker.execute_claimed(repository.claim(worker.worker_id))
+        repository.finish.assert_called_once()
+        self.assertTrue(any("Run result was not saved" in entry for entry in logs.output))
+        self.assertFalse(any("Durable run finished" in entry for entry in logs.output))

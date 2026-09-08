@@ -71,6 +71,24 @@ progress through a ContextVar. Heartbeats run every five seconds independently
 of slow LLM/tool calls. Completion persists the projected response and artifact
 links; transient result-write failures retry the write without invoking the graph again.
 
+Auth requests, queue polling, progress writes, and heartbeats borrow short-lived
+transactions from the shared process-local pool in `aes_agent/db_pool.py`.
+The default is two warm connections, at most eight connections, a ten-second
+checkout timeout, and a ten-second statement timeout. Connections are checked
+before checkout; broken connections are replaced by Psycopg's background pool
+workers. Pools close during FastAPI shutdown and CLI process exit. No database
+connection or transaction is held for the duration of an LLM or FEM calculation.
+
+Heartbeat outages use bounded retry delays and report the failure count, age of
+the last successful heartbeat, and recovery. A transient progress-write failure
+buffers the latest state per graph node in memory; subsequent node reports,
+heartbeats, or result persistence flush it with an idempotent node update.
+Progress writes also renew the lease. Final writes require database
+acknowledgement and may repeat the same terminal result for the same worker if
+a commit acknowledgement was lost. An interrupted run or a lost worker lease
+cannot be reported as successfully saved. The 120-second abandonment rule still
+applies during prolonged outages; no automatic solver replay is introduced.
+
 Lifecycle and queue primitives follow the official [FastAPI lifespan](https://fastapi.tiangolo.com/advanced/events/)
 and [PostgreSQL locking-clause](https://www.postgresql.org/docs/16/sql-select.html#SQL-FOR-UPDATE-SHARE)
 documentation.
@@ -102,10 +120,20 @@ classDiagram
     class GraphNodeWrapper {
         report_progress(node, phase)
     }
+    class ConnectionPool {
+        connection()
+        check_connection()
+        close()
+    }
+    class PostgresAuthRepository {
+        get_user_by_session_hash(token_hash)
+    }
     FastAPIAdapter --> PostgresRunRepository
     RunWorker --> PostgresRunRepository
     RunWorker --> GraphNodeWrapper : executes
-    GraphNodeWrapper --> PostgresRunRepository : scoped progress sink
+    GraphNodeWrapper --> RunWorker : scoped buffered progress sink
+    PostgresRunRepository --> ConnectionPool : borrows transaction
+    PostgresAuthRepository --> ConnectionPool : borrows transaction
 ```
 
 Queued jobs survive backend restarts. Running jobs with no heartbeat for 120
@@ -528,6 +556,12 @@ ring. Every stored message is bounded and sanitized for bearer tokens,
 passwords, API keys, and other recognized secrets. This endpoint covers AES
 orchestration records emitted in the LangGraph process; it does not grant access
 to the Docker daemon or collect unrelated host logs.
+
+Content previews bound strings, container items, nesting, and total visited
+values before redaction and JSON serialization. This prevents a short log
+message from traversing complete meshes and generated viewer files. Disabled
+log levels do not construct previews. Full numerical arrays and file contents
+remain in artifacts, independently of preview limits.
 
 ```mermaid
 flowchart LR

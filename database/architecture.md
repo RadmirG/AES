@@ -185,6 +185,38 @@ compact progress, and public response projection, without inline solution arrays
 The run record ID is distinct from the artifact manifest's run directory ID.
 The latter remains available through the saved response's artifact links.
 
+### Connection And Heartbeat Recovery
+
+The LangGraph process shares one bounded Psycopg connection pool between auth
+and workflow repositories. Defaults are two warm/eight maximum connections,
+ten seconds to acquire a connection, and ten seconds per SQL statement. Each
+API process has its own pool; these maxima must be counted together when scaling
+API replicas. Connections have `application_name=aes-langgraph` for inspection
+in `pg_stat_activity`. The pool checks connections before use and replaces broken
+connections in the background. It preserves transaction commit/rollback semantics
+without automatically replaying SQL statements whose commit outcome is unknown.
+See [Psycopg connection pools](https://www.psycopg.org/psycopg3/docs/advanced/pool.html).
+
+```mermaid
+flowchart TD
+    worker["Active run worker"] --> pool["Borrow checked PostgreSQL connection"]
+    pool --> write["Renew heartbeat"]
+    write -->|acknowledged| renewed["Lease renewed; flush buffered progress"]
+    pool -->|temporarily unavailable| retry["Log delay and retry heartbeat"]
+    write -->|connection fails| retry
+    retry --> pool
+    worker --> result["Keep completed response until persistence succeeds"]
+    result --> guarded["Write result for the same owning worker"]
+    guarded -->|acknowledged| saved["Report final response saved"]
+    guarded -->|lease lost or interrupted| lost["Report rejected persistence"]
+```
+
+Short heartbeat failures do not cancel a solve. Node progress is buffered in
+process memory during an outage and upserted by node ID on recovery. Successful
+progress writes also renew the heartbeat. A prolonged absence can still trigger
+the existing 120-second interruption rule. Buffers do not survive a worker crash;
+durable checkpoints and solver resume remain separate capabilities.
+
 ## AgentState Persistence Map
 
 `AgentState` remains the current-run contract. It should not grow into a user,
