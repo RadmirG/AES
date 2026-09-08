@@ -4,11 +4,20 @@ from unittest.mock import Mock, patch
 
 import psycopg
 import pytest
-from psycopg_pool import PoolTimeout
+from psycopg_pool import PoolClosed, PoolTimeout
 
 from aes_agent.auth import DatabaseSettings, PostgresAuthRepository
-from aes_agent.db_pool import close_database_pools, get_database_pool
+from aes_agent.db_pool import close_database_pools, get_database_pool, start_database_pools
 from aes_agent.runs import PostgresRunRepository, RunStoreUnavailable
+
+
+@pytest.fixture(autouse=True)
+def pool_lifecycle():
+    close_database_pools()
+    start_database_pools()
+    yield
+    close_database_pools()
+    start_database_pools()
 
 
 @pytest.fixture
@@ -102,3 +111,47 @@ def test_finish_requires_database_acknowledgement_and_allows_same_result_retry()
         assert parameters[-1] == "completed"
     with patch.object(repository, "_query", return_value=None):
         assert not repository.finish("run", "worker", "completed", {}, None)
+
+
+def test_closed_pool_is_replaced_only_while_application_is_running(settings):
+    with patch("psycopg_pool.ConnectionPool") as factory:
+        first, second = Mock(closed=False), Mock(closed=False)
+        factory.side_effect = [first, second]
+        assert get_database_pool(settings) is first
+        first.closed = True
+        assert get_database_pool(settings) is second
+        close_database_pools(shutdown=True)
+        with pytest.raises(PoolClosed, match="shutting down"):
+            get_database_pool(settings)
+        assert factory.call_count == 2
+
+
+def test_shutdown_wakes_real_pool_waiter_without_claiming_work_or_logging_queue_error(settings, caplog):
+    import time
+    from aes_agent.runs import RunWorker
+
+    repository = PostgresRunRepository()
+    worker = RunWorker(repository, Mock())
+    with patch("psycopg.Connection.connect", side_effect=psycopg.OperationalError("temporary DNS failure")), patch(
+        "aes_agent.runs.database_settings", return_value=settings,
+    ), patch.object(repository, "claim") as claim:
+        pool = get_database_pool(settings)
+        worker.start()
+        try:
+            deadline = time.monotonic() + 3
+            while pool.get_stats().get("requests_waiting", 0) < 1 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert pool.get_stats()["requests_waiting"] == 1
+            worker.request_stop()
+            close_database_pools(shutdown=True)
+            worker.stop()
+            assert not worker.thread.is_alive()
+            claim.assert_not_called()
+            worker.execute.assert_not_called()
+            with pytest.raises(PoolClosed):
+                get_database_pool(settings)
+            assert not any(record.levelname == "ERROR" and record.name == "aes_agent.runs" for record in caplog.records)
+        finally:
+            worker.request_stop()
+            close_database_pools(shutdown=True)
+            worker.stop()

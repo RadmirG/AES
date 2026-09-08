@@ -79,6 +79,29 @@ before checkout; broken connections are replaced by Psycopg's background pool
 workers. Pools close during FastAPI shutdown and CLI process exit. No database
 connection or transaction is held for the duration of an LLM or FEM calculation.
 
+Queue polling backs off from one second up to ten seconds during database
+outages, emits bounded warning summaries, and logs the first successful poll
+after recovery. The pool continues reconnecting through temporary DNS failures.
+An unexpectedly closed cached pool is replaced on demand only while the API is
+running; explicit shutdown prohibits lazy pool creation.
+
+```mermaid
+flowchart TD
+    serving["Serving requests and polling run queue"] --> stop["FastAPI shutdown"]
+    stop --> signal["Signal worker and heartbeat to stop"]
+    signal --> close["Prohibit new pools and close existing pools"]
+    close --> wake["Wake blocked connection checkouts"]
+    wake --> join["Join worker with bounded wait"]
+    join -->|worker stopped| complete["Shutdown complete"]
+    join -->|long computation still active| lease["Leave unfinished run subject to lease expiry"]
+```
+
+Expected `PoolClosed` errors during shutdown are not reported as queue-worker
+crashes. Late progress and result callbacks do not reopen the database pool.
+This ordering fixes the race between a two-second worker join and a ten-second
+pool checkout. It does not forcibly cancel an in-flight model/tool call or make
+solver execution resumable across process termination.
+
 Heartbeat outages use bounded retry delays and report the failure count, age of
 the last successful heartbeat, and recovery. A transient progress-write failure
 buffers the latest state per graph node in memory; subsequent node reports,
@@ -243,6 +266,83 @@ Important state groups:
 
 Long-term memory, chat history, retrieval indexes, and project knowledge should
 live outside `AgentState` and be injected through explicit nodes/tools.
+
+```mermaid
+flowchart TD
+
+    U["User / Goal"] --> CM["Context Manager<br/>Context Engineering"]
+    CM -->|"Select relevant context only"| O["Agent Runtime / Orchestrator"]
+
+    ST[("Persistent Session / State")] --> CM
+    ST --> O
+
+    O --> P["Planner"]
+
+    P --> R["Agentic Retrieval"]
+    R --> KB[("Memory / Docs / DB / Logs / Prior Runs / Web")]
+    KB --> R
+    R --> P
+
+    P --> H["Hierarchical Multi-Agent Delegation"]
+
+    subgraph MAS["Specialized Agents"]
+        direction TB
+        A1["Problem Agent<br/>Task Understanding"]
+        A2["Simulation / Coding Agent<br/>Execution Logic"]
+        A3["Analysis Agent<br/>Interpretation"]
+        A4["Verifier Agent<br/>Checks + Critique"]
+    end
+
+    H --> A1
+    H --> A2
+    H --> A3
+    H --> A4
+
+    subgraph ENV["Environment-Native Execution"]
+        direction TB
+        EX["Sandbox / Execution Harness"]
+        T1["Shell / Python / Filesystem / Git"]
+        T2["Solvers / Compilers / Simulation Tools"]
+        T3["Visualization / Postprocessing"]
+        T4["MCP / APIs / External Services"]
+
+        EX --> T1
+        EX --> T2
+        EX --> T3
+        EX --> T4
+    end
+
+    A1 --> EX
+    A2 --> EX
+    A3 --> EX
+
+    T4 --> INT["Interoperability Layer<br/>MCP / A2A"]
+    INT --> EX
+
+    EX --> RES["Execution Results"]
+
+    RES --> V["Planner-Executor-Verifier Loop"]
+    A4 --> V
+
+    V -->|"Pass"| RS[("Result Store / Artifacts / Provenance")]
+    V -->|"Revise plan"| P
+
+    RS --> M[("Long-Term Memory")]
+    M --> CM
+
+    RS --> OUT["Answer / Report / Code / Figures / Actions"]
+    OUT --> U
+
+    N1["Key idea:<br/>LLM context ≠ full session state"]
+    N2["Key idea:<br/>Retrieval is an action,<br/>not just static RAG"]
+    N3["Key idea:<br/>Verification should be<br/>external and objective"]
+    N4["Key idea:<br/>Agents act through environments,<br/>not only tool calls"]
+
+    ST -.-> N1
+    R -.-> N2
+    V -.-> N3
+    EX -.-> N4
+```
 
 ```mermaid
 classDiagram

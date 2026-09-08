@@ -1,5 +1,6 @@
 import katex from "katex";
 import type { AesResult, ExpressionSpec, PDEProblemSpec } from "../types";
+import { isPdeSpec } from "../viewContracts";
 
 type Props = {
   aesResult?: AesResult;
@@ -7,19 +8,22 @@ type Props = {
 };
 
 export function EquationSummary({ aesResult, status }: Props) {
-  const spec = aesResult?.pde_spec;
-  const formulas = spec ? typedFormulas(spec, aesResult) : fallbackFormulas(aesResult);
+  const candidate = aesResult?.pde_spec;
+  const spec = isPdeSpec(candidate) ? candidate : null;
+  const formulas = spec ? typedFormulas(spec, aesResult)
+    : candidate != null ? [] : fallbackFormulas(aesResult);
 
   return (
     <header className="equationSummary">
       <div className="equationHeading">
         <div>
-          <span className="equationEyebrow">Solved formulation</span>
+          <span className="equationEyebrow">{aesResult?.agent_status === "ok" ? "Solved formulation" : "Problem interpretation"}</span>
           <h2>{titleFor(aesResult?.pde_info)}</h2>
         </div>
         <div className="statusBadge">{status}</div>
       </div>
       <div className="equationContent">
+        {!formulas.length ? <p>No usable formulation is available. See the clarification or error in the chat.</p> : null}
         {formulas.map((formula) => (
           <MathLine source={formula} key={formula} />
         ))}

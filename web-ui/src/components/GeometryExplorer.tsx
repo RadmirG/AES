@@ -7,6 +7,7 @@ import type {
 } from "../types";
 import { GeometryVtkViewer } from "./GeometryVtkViewer";
 import { VtkResultViewer } from "./VtkResultViewer";
+import { isGeometrySpec } from "../viewContracts";
 
 type Props = {
   geometryContext?: GeometryContext;
@@ -59,8 +60,9 @@ export function GeometryExplorer({
     () => examples.find((example) => example.id === geometryContext?.id) || null,
     [examples, geometryContext?.id],
   );
-  const activeGeometry =
-    geometryContext?.spec || resultGeometry || selectedExample?.spec || null;
+  const candidates = [geometryContext?.spec, resultGeometry, selectedExample?.spec];
+  const activeGeometry = candidates.find(isGeometrySpec) || null;
+  const invalidGeometry = candidates.some((value) => value != null && !isGeometrySpec(value));
   const showSolution = Boolean(
     solutionManifest &&
       !uploadedVtp &&
@@ -205,6 +207,10 @@ export function GeometryExplorer({
         </div>
       )}
 
+      {invalidGeometry ? <div className="viewerError" role="status">
+        No usable geometry was returned for this view. The request may require clarification.
+        Your chat and result artifacts are still available.
+      </div> : null}
       {error ? <div className="viewerError">{error}</div> : null}
     </section>
   );
@@ -230,11 +236,8 @@ async function loadExamples() {
 }
 
 function assertGeometrySpec(value: GeometrySpec) {
-  if (!value || value.schema_version !== "1.0") {
-    throw new Error("Expected an AES GeometrySpec with schema_version 1.0.");
-  }
-  if (![1, 2, 3].includes(value.dimension) || !value.source || !Array.isArray(value.regions)) {
-    throw new Error("GeometrySpec is missing dimension, source, or regions.");
+  if (!isGeometrySpec(value)) {
+    throw new Error("Expected a complete GeometrySpec with dimension, source, mesh and semantic regions.");
   }
 }
 

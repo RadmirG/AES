@@ -7,6 +7,7 @@ import { ChatPanel } from "./components/ChatPanel";
 import { ConversationSidebar } from "./components/ConversationSidebar";
 import { LoginScreen } from "./components/LoginScreen";
 import { ResultWorkspace } from "./components/ResultWorkspace";
+import { PanelErrorBoundary } from "./components/PanelErrorBoundary";
 import {
   loadStoredActiveConversationId,
   loadStoredConversations,
@@ -260,35 +261,39 @@ export function App() {
           </div>
         </header>
 
-        {leftMode === "chat" ? (
-          <div className="chatShell">
-            <ConversationSidebar
-              conversations={conversations}
-              activeConversationId={activeConversation.id}
-              onSelect={setActiveConversationId}
-              onNew={handleNewConversation}
-              onDelete={handleDeleteConversation}
-            />
-            <ChatPanel
-              conversation={activeConversation}
-              isRunning={isSolveRunning}
-              selectedModel={selectedModel || modelCatalog?.default_model || ""}
-              onConversationChange={handleConversationChange}
-              onGeometryContextChange={handleGeometryContextChange}
-            />
-          </div>
-        ) : (
-          <BackendLogPanel active={leftMode === "logs"} />
-        )}
+        <PanelErrorBoundary name="Chat and logs" resetKeys={[activeConversation.id, leftMode]}>
+          {leftMode === "chat" ? (
+            <div className="chatShell">
+              <ConversationSidebar
+                conversations={conversations}
+                activeConversationId={activeConversation.id}
+                onSelect={setActiveConversationId}
+                onNew={handleNewConversation}
+                onDelete={handleDeleteConversation}
+              />
+              <ChatPanel
+                conversation={activeConversation}
+                isRunning={isSolveRunning}
+                selectedModel={selectedModel || modelCatalog?.default_model || ""}
+                onConversationChange={handleConversationChange}
+                onGeometryContextChange={handleGeometryContextChange}
+              />
+            </div>
+          ) : (
+            <BackendLogPanel active={leftMode === "logs"} />
+          )}
+        </PanelErrorBoundary>
       </section>
 
       <section className="resultPane">
-        <ResultWorkspace
-          geometryContext={activeConversation.geometryContext}
-          isRunning={isSolveRunning}
-          onGeometryContextChange={handleGeometryContextChange}
-          result={activeConversation.result || null}
-        />
+        <PanelErrorBoundary name="Results" resetKeys={[activeConversation.id, activeConversation.result]}>
+          <ResultWorkspace
+            geometryContext={activeConversation.geometryContext}
+            isRunning={isSolveRunning}
+            onGeometryContextChange={handleGeometryContextChange}
+            result={activeConversation.result || null}
+          />
+        </PanelErrorBoundary>
       </section>
     </main>
   );

@@ -195,3 +195,51 @@ class RunRecoveryTests(unittest.TestCase):
         repository.finish.assert_called_once()
         self.assertTrue(any("Run result was not saved" in entry for entry in logs.output))
         self.assertFalse(any("Durable run finished" in entry for entry in logs.output))
+
+    def test_queue_recovers_after_temporary_dns_failure_without_duplicate_execution(self):
+        repository = MemoryRunRepository()
+        attempts = []
+
+        def expire():
+            attempts.append(True)
+            if len(attempts) <= 3:
+                raise RunStoreUnavailable("temporary DNS failure")
+
+        repository.expire_abandoned = expire
+        execute = Mock(return_value={"aes_result": {"agent_status": "ok"}})
+        worker = RunWorker(repository, execute, poll_seconds=0.01, poll_retry_max_seconds=0.04)
+        with self.assertLogs("aes_agent.runs", level="INFO") as logs:
+            worker.start()
+            try:
+                self.assertTrue(repository.finished.wait(2))
+            finally:
+                worker.stop()
+        self.assertEqual(execute.call_count, 1)
+        self.assertTrue(any("queue recovered" in entry for entry in logs.output))
+        self.assertFalse(any("ERROR" in entry for entry in logs.output))
+
+    def test_shutdown_during_queue_poll_does_not_claim_the_next_job(self):
+        repository = MemoryRunRepository()
+        worker = RunWorker(repository, Mock())
+        repository.expire_abandoned = worker.request_stop
+        repository.claim = Mock()
+        worker.start()
+        worker.thread.join(timeout=2)
+        self.assertFalse(worker.thread.is_alive())
+        repository.claim.assert_not_called()
+        worker.execute.assert_not_called()
+
+    def test_late_progress_during_shutdown_does_not_touch_database(self):
+        repository = MemoryRunRepository()
+
+        def execute(row):
+            worker.request_stop()
+            report_progress("execute_tools", "finished")
+            return {"aes_result": {"agent_status": "ok"}}
+
+        worker = RunWorker(repository, execute)
+        repository.progress = Mock()
+        repository.finish = Mock()
+        worker.execute_claimed(repository.claim(worker.worker_id))
+        repository.progress.assert_not_called()
+        repository.finish.assert_not_called()

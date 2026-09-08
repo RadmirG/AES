@@ -1,3 +1,4 @@
+import asyncio
 import json
 import sys
 import types
@@ -121,6 +122,32 @@ class _FakeAuthService:
 
     def logout(self, token):
         self.logged_out_token = token
+
+
+class ApplicationLifecycleTests(unittest.TestCase):
+    def test_shutdown_stops_claims_then_wakes_pool_waiters_before_joining_worker(self):
+        calls = []
+        worker = Mock()
+        worker.start.side_effect = lambda: calls.append("worker-start")
+        worker.request_stop.side_effect = lambda: calls.append("worker-stop-request")
+        worker.stop.side_effect = lambda: calls.append("worker-join")
+
+        async def exercise():
+            async with main.lifespan(None):
+                calls.append("serving")
+
+        with patch.object(main, "auth_enabled", return_value=True), patch.object(
+            main, "get_run_repository", return_value=Mock(),
+        ), patch.object(main, "RunWorker", return_value=worker), patch.object(
+            main, "start_database_pools", side_effect=lambda: calls.append("pool-start"),
+        ), patch.object(
+            main, "close_database_pools", side_effect=lambda **_: calls.append("pool-close"),
+        ) as close:
+            asyncio.run(exercise())
+        self.assertEqual(calls, [
+            "pool-start", "worker-start", "serving", "worker-stop-request", "pool-close", "worker-join",
+        ])
+        close.assert_called_once_with(shutdown=True)
 
 
 class ChatHistoryInputTests(unittest.TestCase):

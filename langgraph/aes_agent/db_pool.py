@@ -14,14 +14,31 @@ if TYPE_CHECKING:
 logger = logging.getLogger("aes_agent.db_pool")
 _lock = threading.Lock()
 _pools: dict[DatabaseSettings, ConnectionPool] = {}
+_stopping = False
+
+
+def start_database_pools() -> None:
+    global _stopping
+    with _lock:
+        _stopping = False
+
+
+def database_pools_stopping() -> bool:
+    with _lock:
+        return _stopping
 
 
 def get_database_pool(settings: DatabaseSettings) -> ConnectionPool:
     from psycopg.rows import dict_row
-    from psycopg_pool import ConnectionPool
+    from psycopg_pool import ConnectionPool, PoolClosed
 
     with _lock:
+        if _stopping:
+            raise PoolClosed("AES database pools are shutting down.")
         pool = _pools.get(settings)
+        if pool is not None and pool.closed is True:
+            logger.warning("Replacing unexpectedly closed PostgreSQL pool.")
+            pool = None
         if pool is None:
             minimum = max(1, int(os.getenv("AES_DB_POOL_MIN_SIZE", "2")))
             maximum = max(minimum, int(os.getenv("AES_DB_POOL_MAX_SIZE", "8")))
@@ -50,12 +67,15 @@ def get_database_pool(settings: DatabaseSettings) -> ConnectionPool:
         return pool
 
 
-def close_database_pools() -> None:
+def close_database_pools(*, shutdown: bool = False) -> None:
+    global _stopping
     with _lock:
+        if shutdown:
+            _stopping = True
         pools = list(_pools.values())
         _pools.clear()
     for pool in pools:
         pool.close(timeout=2)
 
 
-atexit.register(close_database_pools)
+atexit.register(close_database_pools, shutdown=True)

@@ -11,7 +11,7 @@ from functools import lru_cache
 from typing import Callable
 
 from aes_agent.auth import database_settings
-from aes_agent.db_pool import get_database_pool
+from aes_agent.db_pool import database_pools_stopping, get_database_pool
 from aes_agent.run_progress import use_run_progress
 
 logger = logging.getLogger("aes_agent.runs")
@@ -62,7 +62,8 @@ class PostgresRunRepository:
         except RunStoreUnavailable:
             raise
         except Exception as exc:
-            logger.warning("Run database operation failed: cause=%s", _failure_kind(exc))
+            if not database_pools_stopping():
+                logger.warning("Run database operation failed: cause=%s", _failure_kind(exc))
             raise RunStoreUnavailable(
                 "AES run storage is unavailable. Check database migrations and connectivity."
             ) from exc
@@ -158,51 +159,89 @@ class RunWorker:
     """One graph job at a time per API process, backed by a PostgreSQL queue."""
     def __init__(self, repository: PostgresRunRepository,
                  execute: Callable[[dict], dict], *, poll_seconds: float = 1,
-                 heartbeat_seconds: float = 5):
+                 heartbeat_seconds: float = 5, poll_retry_max_seconds: float = 10):
         self.repository = repository
         self.execute = execute
         self.poll_seconds = poll_seconds
         self.heartbeat_seconds = heartbeat_seconds
+        self.poll_retry_max_seconds = max(poll_seconds, poll_retry_max_seconds)
         self.worker_id = str(uuid.uuid4())
         self.stop_event = threading.Event()
         self.thread: threading.Thread | None = None
+        self._heartbeat_stop: threading.Event | None = None
 
     def start(self) -> None:
         self.thread = threading.Thread(target=self._loop, daemon=True, name="aes-run-worker")
         self.thread.start()
 
-    def stop(self) -> None:
+    def request_stop(self) -> None:
         self.stop_event.set()
+        if self._heartbeat_stop is not None:
+            self._heartbeat_stop.set()
+
+    def stop(self) -> None:
+        self.request_stop()
         if self.thread:
             self.thread.join(timeout=2)
+            if self.thread.is_alive():
+                logger.warning(
+                    "Run worker shutdown deadline reached; unfinished runs remain subject to "
+                    "the lease timeout and will not be automatically replayed."
+                )
 
     def _loop(self) -> None:
+        failures = 0
         while not self.stop_event.is_set():
+            delay = self.poll_seconds
             try:
                 self.repository.expire_abandoned()
+                if self.stop_event.is_set():
+                    break
                 row = self.repository.claim(self.worker_id)
+                if self.stop_event.is_set():
+                    break
+                if failures:
+                    logger.info("Run database queue recovered: failures=%s", failures)
+                failures = 0
                 if row:
                     self.execute_claimed(row)
                     continue
+            except RunStoreUnavailable as exc:
+                if self.stop_event.is_set():
+                    break
+                failures += 1
+                delay = min(self.poll_retry_max_seconds, self.poll_seconds * 2 ** min(failures - 1, 8))
+                if failures == 1 or failures & (failures - 1) == 0:
+                    logger.warning(
+                        "Run database queue unavailable: cause=%s failures=%s retry_seconds=%s",
+                        _failure_kind(exc), failures, delay,
+                    )
             except Exception:
+                if self.stop_event.is_set():
+                    break
                 logger.exception("Run worker could not poll its durable queue.")
-            self.stop_event.wait(self.poll_seconds)
+            self.stop_event.wait(delay)
 
     def execute_claimed(self, row: dict) -> None:
         run_id = str(row["id"])
         finished = threading.Event()
+        self._heartbeat_stop = finished
         pending_progress: dict[str, str] = {}
         progress_lock = threading.Lock()
         progress_deferred = False
 
         def flush_progress() -> bool:
             nonlocal progress_deferred
+            if self.stop_event.is_set():
+                return False
             with progress_lock:
                 try:
                     for node, phase in list(pending_progress.items()):
                         self.repository.progress(run_id, self.worker_id, node, phase)
                         del pending_progress[node]
                 except RunStoreUnavailable as exc:
+                    if self.stop_event.is_set():
+                        return False
                     if not progress_deferred:
                         logger.warning(
                             "Run progress buffered until database recovers: run_id=%s cause=%s",
@@ -216,6 +255,8 @@ class RunWorker:
                 return True
 
         def progress(node: str, phase: str) -> None:
+            if self.stop_event.is_set():
+                return
             with progress_lock:
                 pending_progress[node] = phase
             flush_progress()
@@ -231,6 +272,8 @@ class RunWorker:
                             logger.warning("Run heartbeat stopped: run_id=%s lease_no_longer_active=true", run_id)
                         return
                 except RunStoreUnavailable as exc:
+                    if self.stop_event.is_set() or finished.is_set():
+                        return
                     failures += 1
                     delay = min(self.heartbeat_seconds, 2 ** min(failures - 1, 3))
                     age = time.monotonic() - last_success
@@ -242,6 +285,8 @@ class RunWorker:
                     )
                     continue
                 except Exception:
+                    if self.stop_event.is_set() or finished.is_set():
+                        return
                     logger.exception("Unexpected run heartbeat error: run_id=%s", run_id)
                     continue
                 if failures:
@@ -281,11 +326,14 @@ class RunWorker:
                     logger.info("Durable run finished: run_id=%s status=%s", run_id, status)
                     break
                 except RunStoreUnavailable:
+                    if self.stop_event.is_set():
+                        break
                     logger.exception("Retrying result persistence: run_id=%s", run_id)
                     self.stop_event.wait(2)
         finally:
             finished.set()
             keeper.join(timeout=1)
+            self._heartbeat_stop = None
 
 
 @lru_cache(maxsize=1)

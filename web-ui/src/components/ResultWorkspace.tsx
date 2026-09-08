@@ -15,6 +15,7 @@ import { ArtifactPanel } from "./ArtifactPanel";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { EquationSummary } from "./EquationSummary";
 import { GeometryExplorer } from "./GeometryExplorer";
+import { PanelErrorBoundary } from "./PanelErrorBoundary";
 
 type Props = {
   geometryContext?: GeometryContext;
@@ -64,7 +65,9 @@ export function ResultWorkspace({
   return (
     <div className="resultWorkspace">
       {result ? (
-        <EquationSummary aesResult={aesResult} status={artifactStatus} />
+        <PanelErrorBoundary name="Formulation" resetKeys={[aesResult]}>
+          <EquationSummary aesResult={aesResult} status={artifactStatus} />
+        </PanelErrorBoundary>
       ) : (
         <header className="geometryIntro">
           <span className="equationEyebrow">Geometry workspace</span>
@@ -76,14 +79,16 @@ export function ResultWorkspace({
         </header>
       )}
 
-      <GeometryExplorer
-        geometryContext={geometryContext}
-        isRunning={isRunning}
-        onGeometryContextChange={onGeometryContextChange}
-        resultGeometry={aesResult?.geometry_spec || null}
-        resultGeometryContext={result?.geometryContext}
-        solutionManifest={viewerManifest}
-      />
+      <PanelErrorBoundary name="Scientific viewer" resetKeys={[geometryContext, result]}>
+        <GeometryExplorer
+          geometryContext={geometryContext}
+          isRunning={isRunning}
+          onGeometryContextChange={onGeometryContextChange}
+          resultGeometry={aesResult?.geometry_spec || null}
+          resultGeometryContext={result?.geometryContext}
+          solutionManifest={viewerManifest}
+        />
+      </PanelErrorBoundary>
 
       {viewerError ? <div className="viewerError">{viewerError}</div> : null}
 

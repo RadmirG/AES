@@ -217,6 +217,36 @@ progress writes also renew the heartbeat. A prolonged absence can still trigger
 the existing 120-second interruption rule. Buffers do not survive a worker crash;
 durable checkpoints and solver resume remain separate capabilities.
 
+### Outages And Shutdown
+
+Temporary Docker DNS failures are connection failures, not evidence that the
+database contents are corrupt. The pool retries establishing connections, and
+the queue worker backs off between failed polls (one to ten seconds) and records
+recovery. An unexpectedly closed pool can be replaced while the API is running.
+This does not mask persistent DNS, network, credential, or database failures;
+operators must still investigate those causes.
+
+During intentional FastAPI shutdown, AES first signals the worker and heartbeat
+to stop. It then marks pool creation as prohibited and closes existing pools to
+wake pending connection checkouts, before joining the worker. Shutdown-induced
+`PoolClosed` failures are not logged as unexpected queue errors. No automatic SQL
+replay or database migration is introduced by this lifecycle handling.
+
+```mermaid
+flowchart LR
+    outage["Temporary DB or Docker DNS outage"] --> reconnect["Pool reconnect attempts"]
+    outage --> polling["Queue polling with bounded backoff"]
+    reconnect --> restored["Checked connection available"]
+    polling --> restored
+    restored --> resume["Resume queue and persistence operations"]
+    stop["Intentional shutdown"] --> noClaims["Stop worker and heartbeat"]
+    noClaims --> noPools["Close pools and prevent reopening"]
+    noPools --> exitWorker["Wake waiters and join worker"]
+```
+
+The queue resumes database operations, not interrupted numerical computations.
+The existing 120-second worker lease and explicit-retry policy remain unchanged.
+
 ## AgentState Persistence Map
 
 `AgentState` remains the current-run contract. It should not grow into a user,

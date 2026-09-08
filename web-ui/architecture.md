@@ -187,6 +187,52 @@ simulation has been removed. This is whole-run recovery, not a LangGraph
 checkpoint/resume implementation. A worker that loses its heartbeat for two
 minutes is marked interrupted and requires an explicit new request.
 
+## Render Failure Isolation
+
+API responses and restored browser JSON are checked at runtime before accessing
+GeometrySpec regions or PDE equation fields. An empty object is not a geometry.
+`viewContracts.ts` validates the shapes consumed by the views, not mathematical
+correctness or compiler support. Incomplete clarification results show a message
+instead of crashing React. Existing saved chats and server run responses are not
+deleted or rewritten to hide malformed results.
+
+```mermaid
+flowchart TD
+    incoming["API result or restored conversation"] --> guards["Runtime view-shape checks"]
+    guards -->|usable| views["Formulation and scientific viewer"]
+    guards -->|missing or malformed| message["Show clarification or unavailable-view message"]
+    views -->|rendering exception| boundary["PanelErrorBoundary"]
+    boundary --> recovery["Retry view or change conversation"]
+    recovery --> guards
+    boundary --> preserved["Keep sibling pane, header, and stored conversations"]
+```
+
+The App isolates left-pane and right-pane rendering. The result workspace also
+isolates formulation and geometry rendering so an individual viewer failure does
+not remove diagnostics and artifact links. Boundaries reset on a relevant result,
+conversation, or pane-mode change and offer an explicit retry button. Network and
+asynchronous loading errors still use their existing local error handlers and
+durable-run polling; React error boundaries are not network retry mechanisms.
+
+```mermaid
+classDiagram
+    class PanelErrorBoundary {
+        +string name
+        +unknown[] resetKeys
+        +boolean failed
+        +getDerivedStateFromError()
+        +componentDidCatch(error, info)
+        +componentDidUpdate(previous)
+        +render()
+    }
+    class ResultWorkspace
+    class EquationSummary
+    class GeometryExplorer
+    ResultWorkspace --> PanelErrorBoundary : isolates child views
+    PanelErrorBoundary --> EquationSummary : guards rendering
+    PanelErrorBoundary --> GeometryExplorer : guards rendering
+```
+
 ## Result Workspace
 
 The right pane reads the bounded `aes_result` from the OpenAI-compatible
@@ -382,3 +428,11 @@ Container deployment uses same-origin proxying:
 The `/v1/` proxy has long timeouts because first model loads and FEniCS runs can
 take several minutes. Browser requests include credentials so the same-origin
 session cookie protects chat and artifact access.
+
+Nginx resolves the `langgraph` service through Docker's embedded DNS resolver
+(`127.0.0.11`, five-second validity) at request time using a variable upstream.
+The complete request URI, including its query string, is preserved for all three
+proxy routes. Recreating the backend therefore does not leave Nginx pinned to an
+obsolete container IP, and Nginx can start while the backend name is temporarily
+unavailable. Requests during an outage can still return a gateway error; pending
+run IDs remain saved for polling after the backend becomes reachable again.

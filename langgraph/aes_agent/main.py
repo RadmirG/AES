@@ -28,7 +28,7 @@ from aes_agent.auth import (
     get_auth_service,
 )
 from aes_agent.graph import graph
-from aes_agent.db_pool import close_database_pools
+from aes_agent.db_pool import close_database_pools, start_database_pools
 from aes_agent.logging_config import (
     configure_logging,
     log_content_preview,
@@ -53,6 +53,7 @@ configure_logging("langgraph")
 
 @asynccontextmanager
 async def lifespan(_app):
+    start_database_pools()
     worker = None
     if auth_enabled():
         worker = RunWorker(get_run_repository(), _execute_stored_run)
@@ -61,8 +62,12 @@ async def lifespan(_app):
         yield
     finally:
         if worker:
+            worker.request_stop()
+        # Wake blocked checkouts before joining the worker, and prohibit late
+        # progress/heartbeat callbacks from lazily opening a replacement pool.
+        close_database_pools(shutdown=True)
+        if worker:
             worker.stop()
-        close_database_pools()
 
 
 app = FastAPI(title="LangGraph Service", lifespan=lifespan)
